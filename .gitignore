@@ -1,0 +1,8 @@
+node_modules
+dist
+public/hw
+*.local
+.DS_Store
+# never commit personal data
+*.xlsx
+test-data
