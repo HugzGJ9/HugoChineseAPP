@@ -85,3 +85,27 @@ export async function deviceId(): Promise<string> {
   }
   return id;
 }
+
+/** Month of a timestamp, for log files (YYYY-MM, local time). */
+export function monthKey(t: number): string {
+  const d = new Date(t);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/** Per-device preferences that are not synced (kept in localStorage). */
+export function pref<T>(key: string, fallback: T): T {
+  try {
+    const v = localStorage.getItem('hz.' + key);
+    return v == null ? fallback : (JSON.parse(v) as T);
+  } catch {
+    return fallback;
+  }
+}
+
+export function setPref(key: string, v: unknown): void {
+  try {
+    localStorage.setItem('hz.' + key, JSON.stringify(v));
+  } catch {
+    // storage unavailable (private mode): the preference lasts for this session only
+  }
+}
