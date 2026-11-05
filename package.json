@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "node scripts/copy-hw.mjs && vite",
-    "build": "node scripts/copy-hw.mjs && tsc --noEmit -p . && vite build",
+    "dev": "node scripts/copy-hw.mjs && node scripts/build-cfdict.mjs && vite",
+    "build": "node scripts/copy-hw.mjs && node scripts/build-cfdict.mjs && tsc --noEmit -p . && vite build",
     "preview": "vite preview",
     "test": "vitest run"
   },
@@ -29,5 +29,8 @@
     "vite": "^8.3.5",
     "vite-plugin-pwa": "^2.0.0",
     "vitest": "^5.1.0"
+  },
+  "engines": {
+    "node": ">=24"
   }
 }

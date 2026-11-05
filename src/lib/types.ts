@@ -6,23 +6,37 @@ export interface Example {
   en?: string;
 }
 
+export interface SourceRef {
+  sheet: string;
+  row: number;
+  /** ID cell as written (233, 233bis…). */
+  id?: string;
+}
+
 /** One thing to learn, built from one or more Excel rows. */
 export interface Note {
+  /** kind + hanzi + toneless pinyin, e.g. v:学习|xuexi */
   id: string;
   kind: NoteKind;
   /** Word, grammar pattern or classifier. */
   hanzi: string;
-  /** Other forms written in the same cell (捡 捡起 → 捡起). Accepted as answers. */
+  /** Other forms written in the same cell (捡 捡起, 使劲/使劲儿). Accepted as answers. */
   alts: string[];
   /** Display pinyin with tone marks. */
   pinyin: string;
+  /** Numbered syllables, space separated (xue2 xi2). Neutral tone = 5. */
+  pinyinNum: string;
+  /** Numbered pinyin of the alternative forms, when the cell gives it. */
+  altPinyin?: string[];
+  /** Meaning as written in Excel (English for vocab; French for measure words). */
   en: string;
   /** French from Excel (a French column, or a French-language sheet). */
   fr?: string;
+  /** French from CFDICT, used when Excel has none. */
+  frAuto?: string;
   notes: string[];
   tags: string[];
-  sheet: string;
-  rows: number[];
+  refs: SourceRef[];
   order: number;
   /** Row coloured green in Excel = already studied. */
   studied: boolean;
@@ -31,6 +45,8 @@ export interface Note {
   examples: Example[];
   /** Related-words group (233, 233bis, 233ter… on the same sheet). */
   group?: string;
+  /** Near-synonym set (Suddently sheet). */
+  set?: string;
   extra?: Record<string, string>;
 }
 
@@ -46,7 +62,7 @@ export interface ReviewEvent {
   t: number;
   /** Time spent, ms. */
   d: number;
-  /** Answer mode: reveal, type-pinyin, type-hanzi, type-meaning, write-guided, write-free, choice, build. */
+  /** Answer mode: reveal, type-pinyin, type-hanzi, type-meaning, write-guided, write-free, choice, build, quick. */
   m: string;
   dev: string;
 }
@@ -77,6 +93,8 @@ export interface ImportIssue {
   level: 'fix' | 'info';
   sheet: string;
   row: number;
+  /** Column letter of the cell concerned. */
+  col?: string;
   hanzi?: string;
   problem: string;
   suggestion?: string;
@@ -94,7 +112,11 @@ export interface SheetReport {
 export interface VocabFile {
   version: 1;
   importedAt: number;
+  /** Device that imported the file. */
+  device?: string;
   source: { name: string; modified: number; size: number };
+  /** Hash of the notes, to tell whether anything changed. */
+  hash: string;
   notes: Note[];
   issues: ImportIssue[];
   /** noteId → time the word was first imported as green. Keeps seeding identical on every device. */

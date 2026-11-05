@@ -29,9 +29,9 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,png,svg,json,webmanifest}'],
-        globIgnores: ['hw/**'],
+        globIgnores: ['hw/**', 'dict/**'],
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
-        navigateFallbackDenylist: [/\/hw\//],
+        navigateFallbackDenylist: [/\/hw\//, /\/dict\//],
         clientsClaim: true,
         skipWaiting: true,
         runtimeCaching: [
@@ -39,6 +39,11 @@ export default defineConfig({
             urlPattern: ({ url }) => url.pathname.includes('/hw/'),
             handler: 'CacheFirst',
             options: { cacheName: 'strokes', expiration: { maxEntries: 12000 } },
+          },
+          {
+            urlPattern: ({ url }) => url.pathname.includes('/dict/'),
+            handler: 'StaleWhileRevalidate',
+            options: { cacheName: 'dictionary' },
           },
         ],
       },
