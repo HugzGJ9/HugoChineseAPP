@@ -7,3 +7,5 @@ public/dict
 # never commit personal data
 *.xlsx
 test-data
+e2e-out
+__pycache__

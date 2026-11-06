@@ -5,6 +5,8 @@ name: Deploy to GitHub Pages
 on:
   push:
     branches: [main]
+    # Docs, agent files and browser scripts don't change the app.
+    paths-ignore: ['**.md', '.claude/**', 'e2e/**']
   workflow_dispatch:
 
 permissions:
