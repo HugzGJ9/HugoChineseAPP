@@ -12,6 +12,20 @@ export interface SyncInfo {
   state: 'off' | 'idle' | 'running' | 'error';
   message?: string;
   last?: number;
+  /** owner/name of the linked repository. */
+  repo?: string;
+}
+
+/** The OneDrive folder linked on a computer (File System Access). */
+export interface FolderInfo {
+  state: 'off' | 'ok' | 'permission' | 'missing' | 'error';
+  name?: string;
+  message?: string;
+  /** Last time the Excel file was checked. */
+  checked?: number;
+  /** Last time the progress workbook was written. */
+  written?: number;
+  writeError?: string;
 }
 
 export interface AppState {
@@ -25,6 +39,7 @@ export interface AppState {
   meta: VocabMeta | null;
   lang: Lang;
   sync: SyncInfo;
+  folder: FolderInfo;
   /** Bumped on every change, for memoised selectors. */
   rev: number;
 }
@@ -40,6 +55,7 @@ let state: AppState = {
   meta: null,
   lang: pref<Lang>('lang', 'en'),
   sync: { state: 'off' },
+  folder: { state: 'off' },
   rev: 0,
 };
 
@@ -54,6 +70,15 @@ function set(patch: Partial<AppState>) {
 export function subscribe(l: () => void): () => void {
   listeners.add(l);
   return () => listeners.delete(l);
+}
+// Changes made on this device (reviews, undo, settings, a new import), for sync and the progress workbook.
+const localListeners = new Set<() => void>();
+export function onLocalChange(l: () => void): () => void {
+  localListeners.add(l);
+  return () => localListeners.delete(l);
+}
+export function notifyLocalChange() {
+  for (const l of localListeners) l();
 }
 export function useApp<T>(sel: (s: AppState) => T): T {
   return useSyncExternalStore(subscribe, () => sel(state));
@@ -81,11 +106,11 @@ export async function init(): Promise<void> {
   if (navigator.storage?.persist) navigator.storage.persist().catch(() => undefined);
 }
 
-/** Replace the word list with a fresh import (from Excel or from sync). */
-export async function setVocab(vf: VocabFile): Promise<void> {
+/** Replace the word list with a fresh import (from Excel), or with the shared list from sync (`exactSeeds`). */
+export async function setVocab(vf: VocabFile, exactSeeds = false): Promise<void> {
   const { notes, ...meta } = vf;
-  // Keep the seed times already known on this device.
-  meta.seeds = { ...vf.seeds, ...pickOlder(state.meta?.seeds ?? {}, vf.seeds) };
+  // Keep the seed times already known on this device; the shared list from sync is taken as is, so every device agrees.
+  meta.seeds = exactSeeds ? { ...vf.seeds } : { ...vf.seeds, ...pickOlder(state.meta?.seeds ?? {}, vf.seeds) };
   await db.transaction('rw', db.notes, db.kv, async () => {
     await db.notes.clear();
     await db.notes.bulkPut(notes);
@@ -105,6 +130,7 @@ export async function updateSettings(patch: Partial<Settings>, fromSync = false)
   const settings = await saveSettings(patch, fromSync);
   const engineChanged = ['retention', 'spreadDays', 'recall', 'listen'].some((k) => k in patch);
   set({ settings, ...(engineChanged ? { cards: rebuild(state.notes, state.events, state.meta?.seeds ?? {}, settings) } : {}) });
+  if (!fromSync) notifyLocalChange();
 }
 
 export function setLang(lang: Lang) {
@@ -116,10 +142,30 @@ export function setSync(sync: Partial<SyncInfo>) {
   set({ sync: { ...state.sync, ...sync } });
 }
 
+export function setFolder(folder: Partial<FolderInfo>, replace = false) {
+  set({ folder: replace ? ({ state: 'off', ...folder } as FolderInfo) : { ...state.folder, ...folder } });
+}
+
+// Months of this device's review log changed since the last upload: month → time of the last change.
 async function markDirty(t: number) {
-  const months = await kvGet<string[]>('dirtyMonths', []);
-  const m = monthKey(t);
-  if (!months.includes(m)) await kvSet('dirtyMonths', [...months, m]);
+  await db.transaction('rw', db.kv, async () => {
+    const dirty = await kvGet<Record<string, number>>('dirty', {});
+    dirty[monthKey(t)] = Date.now();
+    await kvSet('dirty', dirty);
+  });
+}
+
+export async function dirtyMonths(): Promise<Record<string, number>> {
+  return { ...(await kvGet<Record<string, number>>('dirty', {})) };
+}
+
+/** Forget a month once uploaded, unless it changed again after `stamp`. */
+export async function clearDirty(month: string, stamp: number): Promise<void> {
+  await db.transaction('rw', db.kv, async () => {
+    const dirty = await kvGet<Record<string, number>>('dirty', {});
+    if ((dirty[month] ?? 0) <= stamp) delete dirty[month];
+    await kvSet('dirty', dirty);
+  });
 }
 
 /** Record one review on this device and update the card at once. */
@@ -142,6 +188,7 @@ export async function recordReview(cardId: string, r: Grade, mode: string, durat
     }
   }
   set({ events, cards });
+  notifyLocalChange();
   return ev;
 }
 
@@ -153,6 +200,7 @@ export async function undoReview(eventId: string): Promise<void> {
   await markDirty(ev.t);
   const events = state.events.filter((e) => e.id !== eventId);
   set({ events, cards: rebuild(state.notes, events, state.meta?.seeds ?? {}, state.settings) });
+  notifyLocalChange();
 }
 
 /** Merge events from other devices (sync). Each device's own log is authoritative for its events. */

@@ -88,6 +88,13 @@ describe('deriveCards', () => {
     const a = note('v:学习|xuexi');
     expect(noteStatus(deriveCards([a], [], {}, S), T0)).toBe('new');
   });
+
+  it('a word stops being new once one of its cards is studied', () => {
+    const a = note('v:学习|xuexi');
+    const cards = deriveCards([a], [ev(cardId(a.id, 'recog'), 3, T0)], {}, S);
+    expect(cards.find((c) => c.type === 'recall')?.state).toBe(0);
+    expect(noteStatus(cards, T0 + 60000)).toBe('learning');
+  });
 });
 
 describe('buildQueue', () => {

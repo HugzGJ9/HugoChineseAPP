@@ -346,3 +346,11 @@ table.plain th { font-weight: 600; color: var(--ink-2); }
 .shell.focus .toast { bottom: auto; top: calc(12px + env(safe-area-inset-top)); }
 .shell.focus { grid-template-columns: 1fr; }
 .tiles.target { border-bottom: 2px dashed var(--line); padding-bottom: 8px; width: 100%; max-width: 560px; }
+
+/* Setup and sync */
+.steps { margin: 0; padding-left: 1.3em; display: flex; flex-direction: column; gap: 6px; max-width: 60ch; }
+.qr { width: 176px; height: 176px; flex: none; border-radius: var(--radius-m); border: 1px solid var(--line); }
+.share-key { border-top: 1px solid var(--line); padding-top: 16px; }
+details > summary { cursor: pointer; font-weight: 600; min-height: 44px; display: flex; align-items: center; }
+code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.9em; background: var(--sheet-2); padding: 1px 5px; border-radius: 5px; }
+@media (pointer: coarse) { textarea, input[type='text'], input[type='password'] { font-size: 16px; } }

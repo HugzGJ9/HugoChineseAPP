@@ -5,13 +5,23 @@ import { streak } from '../lib/stats';
 import { importFile, summary } from '../lib/sources';
 import { formatAgo, Icon, LangSwitch, toast, TopBar, useNow } from './common';
 import { SetupSources } from './Setup';
+import { allowFolder } from '../lib/folder';
 
 export function Today() {
   const now = useNow();
-  const { notes, cards, noteMap, events, settings, meta, sync } = useApp((s) => s);
+  const { notes, cards, noteMap, events, settings, meta, sync, folder } = useApp((s) => s);
   const q = useMemo(() => buildQueue([...cards.values()], noteMap, events, settings, now), [cards, noteMap, events, settings, now]);
   const fixes = meta?.issues.filter((i) => i.level === 'fix').length ?? 0;
   const days = useMemo(() => streak(events, now), [events, now]);
+
+  if (!notes.length && sync.state === 'running') {
+    return (
+      <div className="main">
+        <TopBar title="Hugo 中文" />
+        <p className="notice">Getting your words from sync…</p>
+      </div>
+    );
+  }
 
   if (!notes.length) {
     return (
@@ -21,7 +31,8 @@ export function Today() {
           <p className="muted" style={{ maxWidth: '52ch' }}>
             Your words come from Hugo_chinese_vocab.xlsx. Choose how this device gets them; you only do this once.
           </p>
-          <SetupSources />
+          {sync.state !== 'off' && <p className="notice">Sync is on, but no device has sent words yet. Link the OneDrive folder on your computer, or import the Excel file.</p>}
+          <SetupSources linked={sync.state !== 'off'} />
         </div>
       </div>
     );
@@ -75,7 +86,24 @@ export function Today() {
             {fixes} cell{fixes > 1 ? 's' : ''} in your Excel file need a fix. See the import report.
           </a>
         )}
-        {sync.state === 'error' && sync.message && <div className="notice bad">Sync: {sync.message}</div>}
+        {sync.state === 'error' && sync.message && (
+          <a className="notice bad" href="#/settings" style={{ textDecoration: 'none', display: 'block' }}>
+            Sync: {sync.message}
+          </a>
+        )}
+        {folder.state === 'permission' && (
+          <div className="notice row wrap">
+            <span className="grow">Allow access to “{folder.name}” so the app can read new words and update your progress file.</span>
+            <button type="button" className="btn small" onClick={() => allowFolder()}>
+              Allow
+            </button>
+          </div>
+        )}
+        {(folder.state === 'missing' || folder.state === 'error') && folder.message && (
+          <a className="notice bad" href="#/settings" style={{ textDecoration: 'none', display: 'block' }}>
+            {folder.message}
+          </a>
+        )}
         <section className="row wrap">
           <a className="btn" href="#/quick">
             <Icon name="quick" /> Quick memory

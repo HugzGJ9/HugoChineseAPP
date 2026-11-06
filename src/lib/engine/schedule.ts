@@ -194,13 +194,13 @@ export function cardStatus(c: CardState, now: number): Status {
 
 const RANK: Record<Status, number> = { new: 0, learning: 1, review: 2, mastered: 3, leech: -1 };
 
-/** Status of a note = its weakest card (leech wins). */
+/** Status of a note = its weakest card that has been studied (leech wins); new until any card is studied. */
 export function noteStatus(cards: CardState[], now: number): Status {
-  if (!cards.length) return 'new';
   const st = cards.filter((c) => !c.locked).map((c) => cardStatus(c, now));
   if (st.includes('leech')) return 'leech';
-  if (!st.length) return 'new';
-  return st.reduce((a, b) => (RANK[a] <= RANK[b] ? a : b));
+  const started = st.filter((s) => s !== 'new');
+  if (!started.length) return 'new';
+  return started.reduce((a, b) => (RANK[a] <= RANK[b] ? a : b));
 }
 
 export function gradeName(r: Grade): string {

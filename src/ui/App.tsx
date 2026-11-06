@@ -7,6 +7,7 @@ import { Quick } from './Quick';
 import { Grammar, Words } from './Words';
 import { Report, Stats } from './Stats';
 import { Settings } from './Settings';
+import { LinkPage } from './Setup';
 
 function useRoute(): string[] {
   const read = () => (location.hash.replace(/^#\/?/, '').split('?')[0] || 'today').split('/').map(decodeURIComponent);
@@ -36,7 +37,7 @@ export function App() {
   const [page, ...rest] = useRoute();
   const inReview = page === 'review';
   useEffect(() => {
-    document.title = page === 'today' ? 'Hugo 中文' : `${TABS.find((t) => t.id === page)?.label ?? 'Review'} · Hugo 中文`;
+    document.title = page === 'today' ? 'Hugo 中文' : `${TABS.find((t) => t.id === page)?.label ?? (page === 'link' ? 'Link' : 'Review')} · Hugo 中文`;
   }, [page]);
   if (!ready) return null;
   let view: React.ReactNode;
@@ -61,6 +62,9 @@ export function App() {
       break;
     case 'report':
       view = <Report />;
+      break;
+    case 'link':
+      view = <LinkPage keyText={rest.join('/')} />;
       break;
     default:
       view = <Today />;
