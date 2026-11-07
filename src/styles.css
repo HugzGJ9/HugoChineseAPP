@@ -95,8 +95,8 @@ p { margin: 0; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
 
 /* ---- shell ---- */
-.shell { display: grid; grid-template-columns: 1fr; min-height: 100vh; min-height: 100dvh; }
-.main { padding: 16px 16px calc(var(--nav-h) + 24px + env(safe-area-inset-bottom)); padding-top: calc(12px + env(safe-area-inset-top)); max-width: 760px; width: 100%; margin: 0 auto; }
+.shell { display: grid; grid-template-columns: minmax(0, 1fr); min-height: 100vh; min-height: 100dvh; }
+.main { padding: 16px 16px calc(var(--nav-h) + 24px + env(safe-area-inset-bottom)); padding-top: calc(12px + env(safe-area-inset-top)); padding-left: calc(16px + env(safe-area-inset-left)); padding-right: calc(16px + env(safe-area-inset-right)); max-width: 760px; width: 100%; margin: 0 auto; overflow-wrap: anywhere; }
 .main.wide { max-width: 1100px; }
 .topbar { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; min-height: 44px; }
 .topbar h1 { flex: 1; }
@@ -104,7 +104,7 @@ p { margin: 0; }
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 20;
   display: flex; justify-content: space-around;
   background: var(--sheet); border-top: 1px solid var(--line);
-  padding-bottom: env(safe-area-inset-bottom);
+  padding: 0 env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
 }
 .nav a {
   flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
@@ -115,7 +115,7 @@ p { margin: 0; }
 .nav a[aria-current='page'] svg { color: var(--seal); }
 .brand { display: none; }
 @media (min-width: 900px) {
-  .shell { grid-template-columns: 220px 1fr; }
+  .shell { grid-template-columns: 220px minmax(0, 1fr); }
   .nav {
     position: sticky; top: 0; height: 100vh; flex-direction: column; justify-content: flex-start; gap: 2px;
     border-top: 0; border-right: 1px solid var(--line); padding: 20px 12px;
@@ -223,7 +223,7 @@ label.check input { width: 20px; height: 20px; accent-color: var(--ink); }
 .back .notes { text-align: left; width: 100%; font-size: 0.92rem; color: var(--ink-2); }
 .dock {
   position: sticky; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom)); z-index: 10;
-  background: linear-gradient(to top, var(--paper) 75%, transparent); padding: 16px 0 calc(12px + env(safe-area-inset-bottom));
+  background: linear-gradient(to top, var(--paper) 75%, transparent); padding: 16px 0 12px;
 }
 @media (min-width: 900px) { .dock { bottom: 0; } }
 .grades { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
@@ -334,6 +334,7 @@ label.check input { width: 20px; height: 20px; accent-color: var(--ink); }
 .chart line { stroke: var(--line); }
 table.plain { border-collapse: collapse; width: 100%; font-size: 0.92rem; }
 table.plain td, table.plain th { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
+table.plain { display: block; overflow-x: auto; overflow-wrap: normal; }
 table.plain th { font-weight: 600; color: var(--ink-2); }
 
 .toast {
@@ -349,7 +350,7 @@ table.plain th { font-weight: 600; color: var(--ink-2); }
 .split > * { min-width: 0; }
 .list-item .grow { min-width: 0; }
 .shell.focus .toast { top: calc(56px + env(safe-area-inset-top)); bottom: auto; }
-.shell.focus { grid-template-columns: 1fr; }
+.shell.focus { grid-template-columns: minmax(0, 1fr); }
 .tiles.target { border-bottom: 2px dashed var(--line); padding-bottom: 8px; width: 100%; max-width: 560px; }
 
 /* Setup and sync */
@@ -358,7 +359,7 @@ table.plain th { font-weight: 600; color: var(--ink-2); }
 .share-key { border-top: 1px solid var(--line); padding-top: 16px; }
 details > summary { cursor: pointer; font-weight: 600; min-height: 44px; display: flex; align-items: center; }
 code { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 0.9em; background: var(--sheet-2); padding: 1px 5px; border-radius: 5px; }
-@media (pointer: coarse) { textarea, input[type='text'], input[type='password'] { font-size: 16px; } }
+@media (pointer: coarse) { textarea, select, input[type='text'], input[type='search'], input[type='password'], input[type='number'] { font-size: 16px; } }
 
 .chart-read { min-height: 1.5em; color: var(--ink-2); }
 .chart text { font-size: 12px; }
