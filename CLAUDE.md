@@ -28,7 +28,8 @@ Not known, Mastered), seeded from his Excel colours (HSK四级 all Mastered; HSK
 Not studied, other colours Studying); the newer of his change and the Excel colour wins. He manages his own review rhythm:
 FSRS review is an optional tool and never sets a status. On the PC the app writes `Hugo_chinese_vocab (app).xlsx` next to
 the original (same bytes, only status fills changed); the original is never written. Nav: Sheets · Quick · Settings
-(Today, Stats, Words under Settings › More). Plans: `.claude/plans/` (latest: 2026-11-07-sheets.md).
+(Today, Stats, Words under Settings › More). Tapping a word opens a panel: Explain (dictionary, sentences, "Explain
+ more" via Claude in the EN/FR switch's language) and Practise. Plans: `.claude/plans/` (latest: 2026-11-07-sheets.md).
 
 ## Map
 - `src/main.tsx` boot: `store.init` → folder → sync → PWA update flow (`src/lib/pwa.ts`) → offline warm-up (strokes.ts)
@@ -46,6 +47,9 @@ the original (same bytes, only status fills changed); the original is never writ
 - `src/lib/sources.ts` importBytes / accept / reject pending import · `src/lib/folder.ts` OneDrive folder, re-import on change,
   `writeCopy()`
 - `src/lib/github.ts` REST client (2 min timeout) · `src/lib/sync.ts` Web-Lock sync, per-file error isolation, marks, prefs
+- `src/lib/lexicon.ts` offline dictionary + example sentences (shards in public/dict/w, built by scripts/build-lexicon.mjs
+  from CC-CEDICT + Tatoeba in CI; `LEXICON_SAMPLE=1` for local builds) · `src/lib/explain/` Claude client (key per device in
+  kv `claudeKey`, never synced/backed up), cache, prompt
 - `src/lib/backup.ts` backup file / restore · stats.ts, progress.ts (legacy workbook, no longer written), pinyin.ts, speech.ts
 - `src/ui/` App.tsx (routes; default `sheets`), Sheets.tsx (+ sheets/Practice.tsx, ScratchPad.tsx), qm.tsx (shared hide/show
   list), StatusPicker.tsx, Quick.tsx, review/* (Session, CardView, GradeBar, VocabBack, OtherCard; Review.tsx re-exports),
@@ -55,13 +59,15 @@ the original (same bytes, only status fills changed); the original is never writ
 
 ## Sync repo (private, Hugo's own: HugoChineseData)
 `vocab.json.gz` · `settings.json` (latest `updatedAt` wins; `prefs` field) · `events/<device>/<YYYY-MM>.json` and
-`marks/<device>/<YYYY-MM>.json` (each device writes only its own; month frozen in `mo`) · `devices/<device>.json`.
+`marks/<device>/<YYYY-MM>.json`, `explain/<device>/<YYYY-MM>.json.gz` (each device writes only its own; month frozen in `mo`) · `devices/<device>.json`.
 Write conflicts (409/422) retry once. Tests: Node 24 has global `navigator.locks` — never run one device's sync inside another's.
 
 ## Cloud session limits
 - The shell's network is allowlisted: github.io and most docs sites are unreachable. Check deploys with `gh run …` and
   `gh api repos/HugzGJ9/HugoChineseAPP/deployments?environment=github-pages`. The Pages settings API is blocked: Hugo
   changes repository settings himself, from exact click-steps.
+- mdbg.net, tatoeba.org and Actions artifact downloads are blocked here: test real lexicon data with the `data.yml`
+  workflow on a branch and read sizes from its log.
 - Headless Chromium crashes when reading a FileSystemDirectoryHandle back from IndexedDB; `e2e/sync.py` works around it.
   Real Edge is fine.
 
