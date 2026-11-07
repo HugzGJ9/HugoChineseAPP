@@ -47,7 +47,7 @@ export interface FolderInfo {
   message?: string;
   /** Last time the Excel file was checked. */
   checked?: number;
-  /** Last time the progress workbook was written. */
+  /** Last time the workbook copy was written. */
   written?: number;
   writeError?: string;
 }
@@ -102,7 +102,7 @@ export function subscribe(l: () => void): () => void {
   listeners.add(l);
   return () => listeners.delete(l);
 }
-// Changes made on this device (reviews, undo, settings, a new import), for sync and the progress workbook.
+// Changes made on this device (reviews, undo, settings, a new import), for sync and the workbook copy.
 const localListeners = new Set<() => void>();
 export function onLocalChange(l: () => void): () => void {
   localListeners.add(l);
@@ -356,6 +356,10 @@ export async function setVocab(vf: VocabFile, exactSeeds = false): Promise<void>
   const aliases = { ...(state.meta?.aliases ?? {}), ...(vf.aliases ?? {}) };
   if (Object.keys(aliases).length) meta.aliases = aliases;
   else delete meta.aliases;
+  // Row colour times: a list written by an older app version has none, keep the ones known here.
+  const colourSince = vf.colourSince ?? state.meta?.colourSince;
+  if (colourSince) meta.colourSince = colourSince;
+  else delete meta.colourSince;
   await db.transaction('rw', db.notes, db.kv, async () => {
     await db.notes.clear();
     await db.notes.bulkPut(notes);

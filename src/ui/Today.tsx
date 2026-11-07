@@ -10,9 +10,8 @@ import { lastBackup, saveBackupFile } from '../lib/backup';
 
 export function Today() {
   const now = useNow();
-  const { notes, cards, noteMap, events, settings, meta, sync, folder } = useApp((s) => s);
+  const { notes, cards, noteMap, events, settings, sync } = useApp((s) => s);
   const q = useMemo(() => buildQueue([...cards.values()], noteMap, events, settings, now), [cards, noteMap, events, settings, now]);
-  const fixes = meta?.issues.filter((i) => i.level === 'fix').length ?? 0;
   const days = useMemo(() => streak(events, now), [events, now]);
 
   // Only needed once today's queue is empty.
@@ -23,27 +22,11 @@ export function Today() {
   );
   const ahead = useMemo(() => (caughtUp ? reviewAhead([...cards.values()], noteMap, now, 20) : []), [caughtUp, cards, noteMap, now]);
 
-  if (!notes.length && sync.state === 'running') {
-    return (
-      <div className="main">
-        <TopBar title="Hugo 中文" />
-        <p className="notice">Getting your words from sync…</p>
-      </div>
-    );
-  }
-
   if (!notes.length) {
     return (
       <div className="main">
         <TopBar title="Hugo 中文" />
-        <div className="stack-l">
-          <AppNotices />
-          <p className="muted" style={{ maxWidth: '52ch' }}>
-            Your words come from Hugo_chinese_vocab.xlsx. Choose how this device gets them; you only do this once.
-          </p>
-          {sync.state !== 'off' && <p className="notice">Sync is on, but no device has sent words yet. Link the OneDrive folder on your computer, or import the Excel file.</p>}
-          <SetupSources linked={sync.state !== 'off'} />
-        </div>
+        <NoWords />
       </div>
     );
   }
@@ -52,15 +35,11 @@ export function Today() {
   const total = q.cards.length;
   return (
     <div className="main">
-      <TopBar title="Today">
+      <TopBar title="Today" back="#/settings">
         <LangSwitch />
-        <a className="icon-btn" href="#/settings" aria-label="Settings">
-          <Icon name="settings" />
-        </a>
       </TopBar>
       <div className="stack-l">
-        <AppNotices />
-        <BackupNudge />
+        <HomeNotices />
         <section className="stack">
           <div className="today-figure">
             <span className="n">{total}</span>
@@ -109,35 +88,12 @@ export function Today() {
             {sync.state !== 'off' ? `Synced ${formatAgo(sync.last, now)}.` : ''}
           </p>
         </section>
-        {fixes > 0 && (
-          <a className="notice" href="#/report" style={{ textDecoration: 'none', display: 'block' }}>
-            {fixes} cell{fixes > 1 ? 's' : ''} in your Excel file need a fix. See the import report.
-          </a>
-        )}
-        {sync.state === 'error' && sync.message && (
-          <a className="notice bad" href="#/settings" style={{ textDecoration: 'none', display: 'block' }}>
-            Sync: {sync.message}
-          </a>
-        )}
-        {folder.state === 'permission' && (
-          <div className="notice row wrap">
-            <span className="grow">Allow access to “{folder.name}” so the app can read new words and update your progress file.</span>
-            <button type="button" className="btn small" onClick={() => allowFolder()}>
-              Allow
-            </button>
-          </div>
-        )}
-        {(folder.state === 'missing' || folder.state === 'error') && folder.message && (
-          <a className="notice bad" href="#/settings" style={{ textDecoration: 'none', display: 'block' }}>
-            {folder.message}
-          </a>
-        )}
         <section className="row wrap">
           <a className="btn" href="#/quick">
             <Icon name="quick" /> Quick memory
           </a>
-          <a className="btn" href="#/grammar">
-            <Icon name="grammar" /> Grammar
+          <a className="btn" href="#/sheets">
+            <Icon name="sheets" /> Sheets
           </a>
           <a className="btn" href="#/stats">
             <Icon name="stats" /> Stats
@@ -145,6 +101,60 @@ export function Today() {
         </section>
       </div>
     </div>
+  );
+}
+
+/** The two "no words yet" screens: waiting for sync, or choosing how to get the words. */
+export function NoWords() {
+  const notes = useApp((s) => s.notes);
+  const sync = useApp((s) => s.sync);
+  if (notes.length) return null;
+  if (sync.state === 'running') return <p className="notice">Getting your words from sync…</p>;
+  return (
+    <div className="stack-l">
+      <AppNotices />
+      <p className="muted" style={{ maxWidth: '52ch' }}>
+        Your words come from Hugo_chinese_vocab.xlsx. Choose how this device gets them; you only do this once.
+      </p>
+      {sync.state !== 'off' && <p className="notice">Sync is on, but no device has sent words yet. Link the OneDrive folder on your computer, or import the Excel file.</p>}
+      <SetupSources linked={sync.state !== 'off'} />
+    </div>
+  );
+}
+
+/** Notices for the home screens: reload, held import, import fixes, sync error, folder access, backup. */
+export function HomeNotices() {
+  const fixes = useApp((s) => s.meta?.issues.filter((i) => i.level === 'fix').length ?? 0);
+  const sync = useApp((s) => s.sync);
+  const folder = useApp((s) => s.folder);
+  return (
+    <>
+      <AppNotices />
+      <BackupNudge />
+      {fixes > 0 && (
+        <a className="notice" href="#/report" style={{ textDecoration: 'none', display: 'block' }}>
+          {fixes} cell{fixes > 1 ? 's' : ''} in your Excel file need a fix. See the import report.
+        </a>
+      )}
+      {sync.state === 'error' && sync.message && (
+        <a className="notice bad" href="#/settings" style={{ textDecoration: 'none', display: 'block' }}>
+          Sync: {sync.message}
+        </a>
+      )}
+      {folder.state === 'permission' && (
+        <div className="notice row wrap">
+          <span className="grow">Allow access to “{folder.name}” so the app can read new words and write the copy of your workbook.</span>
+          <button type="button" className="btn small" onClick={() => allowFolder()}>
+            Allow
+          </button>
+        </div>
+      )}
+      {(folder.state === 'missing' || folder.state === 'error') && folder.message && (
+        <a className="notice bad" href="#/settings" style={{ textDecoration: 'none', display: 'block' }}>
+          {folder.message}
+        </a>
+      )}
+    </>
   );
 }
 

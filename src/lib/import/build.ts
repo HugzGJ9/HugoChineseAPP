@@ -1,8 +1,8 @@
 // Turns the sheets of Hugo_chinese_vocab.xlsx into notes, with an import report.
 // Pure: the pinyin dictionary and French lookup are passed in, so this runs in a worker or in tests.
 import type { XRow, XSheet } from '../xlsx/read';
-import { rgbToHsl } from '../xlsx/read';
-import type { Example, ImportIssue, Note, NoteKind, SheetReport, VocabFile } from '../types';
+import { indexToCol, rgbToHsl } from '../xlsx/read';
+import type { Example, ImportIssue, Note, NoteKind, SheetCols, SheetReport, SourceRef, VocabFile } from '../types';
 import { HAN, hanCount, numberedToMarked, parsePinyin, syllablesFromNumbered, toMarked, toNumbered, toToneless, type Syl } from '../pinyin';
 
 export interface BuildOptions {
@@ -270,6 +270,8 @@ export function buildVocab(sheets: XSheet[], opts: BuildOptions): VocabFile {
     const rows = sheet.rows.filter((r) => r.r > layout.header);
     rep.rows = rows.length;
     const created = new Set<string>();
+    // Coloured rows, for the columns that carry the status colour (SheetReport.cols).
+    const coloured: { row: XRow; colour: string }[] = [];
 
     // Related-word groups: 233 + 233bis + 233ter on the same sheet.
     const idNum = (id: string) => /^\s*(\d+)\s*([a-z]*)\s*$/i.exec(id);
@@ -285,11 +287,14 @@ export function buildVocab(sheets: XSheet[], opts: BuildOptions): VocabFile {
       const hanziRaw = cellText(row, cols.hanzi);
       if (!hanziRaw.trim() && !cellText(row, cols.en).trim()) continue;
       const colour = rowColour(row, [cols.hanzi!, cols.id!].filter(Boolean));
-      if (colour) rep.colours[colour] = (rep.colours[colour] || 0) + 1;
+      if (colour) {
+        rep.colours[colour] = (rep.colours[colour] || 0) + 1;
+        coloured.push({ row, colour });
+      }
       const studied = rowStudied(row, cols.hanzi);
       const order = sheetIndex * 100000 + row.r;
       const idRaw = cellText(row, cols.id).trim();
-      const ref = { sheet: sheet.name, row: row.r, ...(idRaw ? { id: idRaw } : {}) };
+      const ref: SourceRef = { sheet: sheet.name, row: row.r, ...(idRaw ? { id: idRaw } : {}), ...(colour ? { colour } : {}) };
 
       let note: Note | null = null;
 
@@ -424,6 +429,8 @@ export function buildVocab(sheets: XSheet[], opts: BuildOptions): VocabFile {
       created.add(note.id);
     }
     rep.studied = [...notes.values()].filter((n) => n.studied && n.refs.some((r) => r.sheet === sheet.name)).length;
+    const sc = sheetCols(sheet, layout, coloured);
+    if (sc) rep.cols = sc;
   });
 
   const list = [...notes.values()].sort((a, b) => a.order - b.order);
@@ -448,6 +455,38 @@ export function buildVocab(sheets: XSheet[], opts: BuildOptions): VocabFile {
     seeds,
     report,
   };
+}
+
+function colToIndex(col: string): number {
+  let n = 0;
+  for (const ch of col) n = n * 26 + (ch.charCodeAt(0) - 64);
+  return n;
+}
+
+/**
+ * Columns of a sheet for the workbook copy: the header row's text columns, and the columns whose fill equals the row
+ * colour in at least half of the coloured rows (fallback: ID and hanzi).
+ */
+function sheetCols(sheet: XSheet, layout: Layout, coloured: { row: XRow; colour: string }[]): SheetCols | undefined {
+  const header = sheet.rows.find((r) => r.r === layout.header);
+  const idx = Object.entries(header?.cells ?? {})
+    .filter(([, c]) => c.v.trim())
+    .map(([col]) => colToIndex(col))
+    .sort((a, b) => a - b);
+  if (!idx.length) return undefined;
+  const lo = idx[0];
+  const hi = idx[idx.length - 1];
+  const { id, hanzi } = layout.cols;
+  let status: string[] = [];
+  if (coloured.length) {
+    for (let i = lo; i <= hi; i++) {
+      const col = indexToCol(i);
+      const same = coloured.filter(({ row, colour }) => row.cells[col]?.fill === colour).length;
+      if (same * 2 >= coloured.length) status.push(col);
+    }
+  }
+  if (!status.length) status = [id, hanzi].filter((c): c is string => !!c).sort((a, b) => colToIndex(a) - colToIndex(b));
+  return { ...(id ? { id } : {}), ...(hanzi ? { hanzi } : {}), first: indexToCol(lo), last: indexToCol(hi), status };
 }
 
 function noteCells(row: XRow, layout: Layout): string[] {

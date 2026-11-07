@@ -11,6 +11,8 @@ export interface SourceRef {
   row: number;
   /** ID cell as written (233, 233bis…). */
   id?: string;
+  /** RRGGBB fill of this row's hanzi/ID cell. */
+  colour?: string;
 }
 
 /** One thing to learn, built from one or more Excel rows. */
@@ -98,7 +100,26 @@ export interface CardState {
 }
 
 /** A status change Hugo made himself. Synced in marks/<device>/<YYYY-MM>.json, never in review event files. */
-export type MarkKind = 'known' | 'relearn' | 'suspend' | 'unsuspend';
+export type MarkKind = 'known' | 'relearn' | 'suspend' | 'unsuspend' | 'st:new' | 'st:studying' | 'st:notknown' | 'st:mastered';
+/** Status Hugo sets himself, shown in Sheets and written into the workbook copy as a fill colour. */
+export type WordStatus = 'new' | 'studying' | 'notknown' | 'mastered';
+/** Columns of a sheet as found at import (letters). */
+export interface SheetCols {
+  id?: string;
+  hanzi?: string;
+  first: string;
+  last: string;
+  /** Columns that carry the row's status colour. */
+  status: string[];
+}
+/** One fill change for the workbook copy. */
+export interface RowFill {
+  sheet: string;
+  row: number;
+  hanzi: string;
+  from: string | null;
+  fill: string | null;
+}
 export interface StatusMark {
   id: string;
   note: string;
@@ -122,6 +143,7 @@ export interface ImportIssue {
 
 export interface SheetReport {
   name: string;
+  cols?: SheetCols;
   kind: NoteKind | 'skipped';
   rows: number;
   notes: number;
@@ -133,6 +155,8 @@ export interface VocabFile {
   version: 1;
   /** Old note id → new note id, for words renamed in Excel (history follows the word). */
   aliases?: Record<string, string>;
+  /** Per row key: the status the Excel colour gave and since when (so a newer colour beats an older mark). */
+  colourSince?: Record<string, [WordStatus, number]>;
   importedAt: number;
   /** Device that imported the file. */
   device?: string;

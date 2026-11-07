@@ -131,6 +131,43 @@ describe('buildVocab', () => {
     expect(s.extra?.tip).toBe('Fast change');
     expect(s.examples[0].en).toBe('He suddenly laughed.');
   });
+  it('keeps the colour of every row on its ref, also when a word is merged across sheets', () => {
+    const n = byId('v:学习|xuexi');
+    expect(n.refs.map((r) => [r.sheet, r.row, r.colour])).toEqual([
+      ['HSK四级', 3, G1],
+      ['HSK四级', 6, undefined],
+      ['HSK五级', 4, undefined],
+    ]);
+    expect(n.colour).toBe(G1);
+    expect(byId('v:称赞|chengzan').refs[0].colour).toBe(G2);
+    expect(byId('v:朋友|pengyou').refs[0]).not.toHaveProperty('colour');
+    const merged = buildVocab(
+      [
+        { name: 'HSK四级', rows: [row(1, { A: 'ID', B: 'HANZI', C: 'PINYIN', D: 'ENGLISH' }), row(2, { A: ['1', 'EEA6A6'], B: ['学习', 'EEA6A6'], C: 'xuéxí', D: 'study' })] },
+        { name: 'HSK五级', rows: [row(1, { A: 'ID', B: 'HANZI', C: 'PINYIN', D: 'ENGLISH' }), row(5, { A: ['9', 'FFFF00'], B: ['学习', 'FFFF00'], C: 'xuéxí', D: 'study' })] },
+      ],
+      { source: { name: 't.xlsx', modified: 1, size: 1 }, now: 1, pinyinOf },
+    ).notes[0];
+    expect(merged.refs.map((r) => r.colour)).toEqual(['EEA6A6', 'FFFF00']);
+    expect(merged.colour).toBe('EEA6A6');
+  });
+  it('finds the columns that carry the status colour', () => {
+    const cols = (name: string) => vf.report.find((r) => r.name === name)!.cols;
+    // ID and hanzi coloured, the rest white.
+    expect(cols('HSK四级')).toEqual({ id: 'A', hanzi: 'B', first: 'A', last: 'E', status: ['A', 'B'] });
+    // Whole row coloured.
+    expect(cols('HSK五级')).toEqual({ id: 'A', hanzi: 'B', first: 'A', last: 'D', status: ['A', 'B', 'C', 'D'] });
+    // Nothing coloured: ID and hanzi, or hanzi alone.
+    expect(cols('Measure words')).toEqual({ hanzi: 'B', first: 'B', last: 'E', status: ['B'] });
+    expect(cols('语法')).toEqual({ hanzi: 'A', first: 'A', last: 'C', status: ['A'] });
+    expect(cols('EXAM')).toBeUndefined();
+    const plain = buildVocab([{ name: 'HSK五级', rows: [row(1, { A: 'ID', B: 'HANZI', C: 'PINYIN', D: 'ENGLISH' }), row(2, { A: '1', B: '学习', C: 'xuéxí', D: 'study' })] }], {
+      source: { name: 't.xlsx', modified: 1, size: 1 },
+      now: 1,
+      pinyinOf,
+    });
+    expect(plain.report[0].cols).toEqual({ id: 'A', hanzi: 'B', first: 'A', last: 'D', status: ['A', 'B'] });
+  });
   it('seeds green words once and keeps earlier seed times', () => {
     expect(vf.seeds['v:学习|xuexi']).toBe(1000);
     const again = build({ 'v:学习|xuexi': 5 });

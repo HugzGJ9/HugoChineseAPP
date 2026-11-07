@@ -135,14 +135,17 @@ export function monthOf(e: ReviewEvent): string {
 
 /** Preferences that follow Hugo to every device, through `Settings.prefs` in settings.json. */
 export const SHARED_PREFS: readonly string[] = ['lang', 'acceptBoth', 'qm.shown', 'qm.preset', 'qm.tag', 'qm.filter'];
-/** Preferences that stay on one device (voices differ; the iPhone writes, the PC types). Plus every `mode.<cardType>`. */
+/** Preferences that stay on one device (voices differ; the iPhone writes, the PC types). Plus every `mode.<cardType>` and `sh.*`. */
 export const DEVICE_PREFS: readonly string[] = ['voice', 'rate', 'qm.mode'];
 export const DEVICE_PREF_PREFIX = 'mode.';
+/** Sheets screen preferences (tab, filter, shown layers, paint): per device, backed up, never synced. */
+export const SHEETS_PREF_PREFIX = 'sh.';
 /** When a shared preference last changed on this device (local only, not a preference itself). */
 const PREFS_AT = 'prefsAt';
 
 const isShared = (k: string) => SHARED_PREFS.includes(k);
-const isBackedUp = (k: string) => isShared(k) || DEVICE_PREFS.includes(k) || k.startsWith(DEVICE_PREF_PREFIX);
+const isBackedUp = (k: string) =>
+  isShared(k) || DEVICE_PREFS.includes(k) || k.startsWith(DEVICE_PREF_PREFIX) || k.startsWith(SHEETS_PREF_PREFIX);
 
 function storage(): Storage | null {
   try {

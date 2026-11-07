@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import type { Note, NoteKind, SheetReport, VocabFile } from '../types';
+import type { Note, NoteKind, SheetReport, VocabFile, WordStatus } from '../types';
 import { checkImport, prepareImport } from './guard';
+import { rowKey } from '../status';
 import { detectRenames, mergeAliases } from './renames';
 import { cardId, deriveCards, resolveEventCards, resolveNoteId } from '../engine/schedule';
 
@@ -177,6 +178,38 @@ describe('aliases', () => {
     expect(v3.seeds[c]).toBe(T0);
     expect(resolveNoteId(a, v3.aliases!, new Set([c]))).toBe(c);
     expect(mergeAliases(v3.aliases, { x: 'x' })).toEqual(v3.aliases);
+  });
+
+  it('sets the row colour times: 0 on the first import, then the file time for changed rows', () => {
+    const k = (id: string) => rowKey(id, 'HSK四级', 0);
+    const [w1, w2] = ['v:学习|xuexi', 'v:朋友|pengyou'];
+    const first = prepareImport(null, vocab([note(w1, 2), note(w2, 3)], { importedAt: 5000, source: { name: 'x.xlsx', modified: 4000, size: 1 } }));
+    expect(first.vocab.colourSince).toEqual({ [k(w1)]: ['mastered', 0], [k(w2)]: ['mastered', 0] });
+    // A colour the incoming list carries is never trusted: it is computed here.
+    const stale = vocab([note(w1, 2, { refs: [{ sheet: 'Measure words', row: 2, colour: 'FFFF00' }] })], {
+      importedAt: 9000,
+      source: { name: 'x.xlsx', modified: 0, size: 1 },
+      colourSince: { bogus: ['new', 1] },
+    });
+    const second = prepareImport(first.vocab, stale);
+    expect(second.vocab.colourSince).toEqual({ [rowKey(w1, 'Measure words', 0)]: ['notknown', 9000] });
+    // Saved after the import time (clock skew): the import time.
+    const third = prepareImport(second.vocab, { ...stale, importedAt: 9500, source: { name: 'x.xlsx', modified: 99999, size: 1 }, notes: [note(w2, 3, { refs: [{ sheet: 'Measure words', row: 3 }] })] });
+    expect(third.vocab.colourSince).toEqual({ [rowKey(w2, 'Measure words', 0)]: ['new', 9500] });
+  });
+
+  it('a held import, once accepted, gets its colour times against the list as it is then', () => {
+    const t = (n: number) => ({ importedAt: n, source: { name: 'x.xlsx', modified: n, size: 1 } });
+    const k = (id: string) => rowKey(id, 'Measure words', 0);
+    const m = (id: string, row: number, colour?: string) => note(id, row, { refs: [{ sheet: 'Measure words', row, ...(colour ? { colour } : {}) }] });
+    const prev = prepareImport(null, vocab([m('v:学习|xuexu', 2, 'FFFF00'), ...words(99, 'HSK四级', 10)], t(100))).vocab;
+    const held = prepareImport(prev, vocab([m('v:学习|xuexi', 2, 'FFFF00'), ...words(10, 'HSK四级', 10)], t(200)));
+    expect(held.check.ok).toBe(false);
+    // Meanwhile the list changed (sync): the row's colour time is newer there.
+    const now = { ...prev, colourSince: { ...prev.colourSince, [k('v:学习|xuexu')]: ['notknown', 150] as [WordStatus, number] } };
+    const accepted = prepareImport(now, held.vocab).vocab;
+    expect(accepted.colourSince![k('v:学习|xuexi')]).toEqual(['notknown', 150]);
+    expect(Object.keys(accepted.colourSince!)).toHaveLength(11);
   });
 
   it('holds a broken import but still reports its renames', () => {

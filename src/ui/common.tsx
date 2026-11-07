@@ -5,6 +5,7 @@ import { meaning, setLang, useApp, type Lang } from '../lib/store';
 import { speak } from '../lib/speech';
 
 const paths: Record<string, ReactNode> = {
+  sheets: <><path d="M4 5h16v14H4z" /><path d="M4 10h16M4 15h16M10 5v14" /></>,
   today: <path d="M4 5h16v15H4zM4 9h16M9 3v4M15 3v4" />,
   quick: <><path d="M3 12s3.5-6 9-6 9 6 9 6-3.5 6-9 6-9-6-9-6z" /><circle cx="12" cy="12" r="2.5" /></>,
   words: <><path d="M5 4h11l3 3v13H5z" /><path d="M9 10h6M9 14h6" /></>,

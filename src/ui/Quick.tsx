@@ -1,48 +1,34 @@
 // Quick memory: hide or show hanzi, pinyin or meaning for every word, in list or card mode.
 // Free practice: it never changes review schedules unless you send missed words back.
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { Note } from '../lib/types';
+import type { Note, WordStatus } from '../lib/types';
 import { meaning, recordReview, setLang, useApp } from '../lib/store';
 import { pref, setPref } from '../lib/db';
 import { speak } from '../lib/speech';
-import { cardId, DAY, noteStatus } from '../lib/engine/schedule';
-import { groupCards } from '../lib/stats';
+import { cardId, DAY } from '../lib/engine/schedule';
+import { noteStatuses, sheetRows, STATUS_LABEL, WORD_STATUSES } from '../lib/status';
 import { fnv1a } from '../lib/import/build';
-import { LangSwitch, Meaning, Pinyin, toast, TopBar } from './common';
+import { LangSwitch, Pinyin, toast, TopBar } from './common';
+import { LayerBar, QmList, useQmShown, useShift, type Layer, type Shown } from './qm';
 
-type Layer = 'hz' | 'py' | 'mn';
-type Shown = Record<Layer, boolean>;
-const PRESETS: { name: string; shown: Shown; listen?: boolean }[] = [
-  { name: 'Read', shown: { hz: true, py: false, mn: false } },
-  { name: 'Recall', shown: { hz: false, py: false, mn: true } },
-  { name: 'Tones', shown: { hz: true, py: false, mn: true } },
-  { name: 'Listen', shown: { hz: false, py: false, mn: false }, listen: true },
-];
-type Filter = 'all' | 'studied' | 'new' | 'week' | 'missed';
+type Filter = 'all' | `st:${WordStatus}` | 'week' | 'missed';
+const FILTERS: Filter[] = ['all', ...WORD_STATUSES.map((s) => `st:${s}` as const), 'week', 'missed'];
+// Older versions stored 'studied' and 'new': they read as "any".
+const readFilter = (v: string): Filter => (FILTERS.includes(v as Filter) ? (v as Filter) : 'all');
 
 export function Quick() {
-  const { notes, cards, events, lang } = useApp((s) => s);
-  const [shown, setShownState] = useState<Shown>(() => pref<Shown>('qm.shown', { hz: true, py: true, mn: false }));
-  const [preset, setPreset] = useState<string>(() => pref('qm.preset', ''));
+  const { notes, events, lang, marks, meta } = useApp((s) => s);
+  const { shown, preset, listen, setShown, toggle } = useQmShown('qm');
   const [mode, setMode] = useState<'list' | 'card'>(() => pref('qm.mode', 'list'));
   const [tag, setTag] = useState<string>(() => pref('qm.tag', 'all'));
-  const [filter, setFilter] = useState<Filter>(() => pref('qm.filter', 'all'));
+  const [filter, setFilter] = useState<Filter>(() => readFilter(pref('qm.filter', 'all')));
   const [seed, setSeed] = useState<string>('');
   const [limit, setLimit] = useState(100);
-  const listen = PRESETS.find((p) => p.name === preset)?.listen ?? false;
-
-  const setShown = (s: Shown, p = '') => {
-    setShownState(s);
-    setPreset(p);
-    setPref('qm.shown', s);
-    setPref('qm.preset', p);
-  };
-  const toggle = (l: Layer) => setShown({ ...shown, [l]: !shown[l] });
 
   const tags = useMemo(() => [...new Set(notes.filter((n) => n.kind === 'vocab').flatMap((n) => n.tags))], [notes]);
   const list = useMemo(() => {
     const now = Date.now();
-    const byNote = groupCards(cards.values());
+    const statuses = noteStatuses(sheetRows(notes, marks, meta?.colourSince));
     const recent = new Map<string, { last: number; missed: boolean }>();
     for (const e of events) {
       const n = e.card.slice(0, e.card.lastIndexOf('#'));
@@ -53,13 +39,12 @@ export function Quick() {
     }
     let out = notes.filter((n) => n.kind === 'vocab' || n.kind === 'synonym' || n.kind === 'measure');
     if (tag !== 'all') out = out.filter((n) => n.tags.includes(tag));
-    if (filter === 'studied') out = out.filter((n) => n.studied || noteStatus(byNote.get(n.id) ?? [], now) !== 'new');
-    if (filter === 'new') out = out.filter((n) => !n.studied && noteStatus(byNote.get(n.id) ?? [], now) === 'new');
+    if (filter.startsWith('st:')) out = out.filter((n) => (statuses.get(n.id) ?? 'new') === filter.slice(3));
     if (filter === 'week') out = out.filter((n) => (recent.get(n.id)?.last ?? 0) > 0);
     if (filter === 'missed') out = out.filter((n) => recent.get(n.id)?.missed);
     if (seed) out = [...out].sort((a, b) => (fnv1a(seed + a.id) < fnv1a(seed + b.id) ? -1 : 1));
     return out;
-  }, [notes, cards, events, tag, filter, seed]);
+  }, [notes, marks, meta, events, tag, filter, seed]);
 
   // Keys: 1 2 3 layers, L language, Tab list/card.
   useEffect(() => {
@@ -89,25 +74,7 @@ export function Quick() {
         <LangSwitch />
       </TopBar>
       <div className="stack">
-        <div className="qm-bar" role="group" aria-label="Show or hide">
-          <button type="button" className={`chip ${shown.hz ? '' : 'off'}`} aria-pressed={shown.hz} onClick={() => toggle('hz')} title="Key 1">
-            汉字
-          </button>
-          <button type="button" className={`chip ${shown.py ? '' : 'off'}`} aria-pressed={shown.py} onClick={() => toggle('py')} title="Key 2">
-            Pinyin
-          </button>
-          <button type="button" className={`chip ${shown.mn ? '' : 'off'}`} aria-pressed={shown.mn} onClick={() => toggle('mn')} title="Key 3">
-            {lang.toUpperCase()}
-          </button>
-          <span className="grow" />
-          <div className="seg" role="group" aria-label="Presets">
-            {PRESETS.map((p) => (
-              <button key={p.name} type="button" aria-pressed={preset === p.name} onClick={() => setShown(p.shown, p.name)}>
-                {p.name}
-              </button>
-            ))}
-          </div>
-        </div>
+        <LayerBar shown={shown} preset={preset} lang={lang} onToggle={toggle} onPreset={setShown} />
         <div className="row wrap">
           <select value={tag} onChange={(e) => (setTag(e.target.value), setPref('qm.tag', e.target.value))} aria-label="Sheet" style={{ width: 'auto' }}>
             <option value="all">All words</option>
@@ -117,10 +84,13 @@ export function Quick() {
               </option>
             ))}
           </select>
-          <select value={filter} onChange={(e) => (setFilter(e.target.value as Filter), setPref('qm.filter', e.target.value))} aria-label="Filter" style={{ width: 'auto' }}>
+          <select value={filter} onChange={(e) => (setFilter(readFilter(e.target.value)), setPref('qm.filter', e.target.value))} aria-label="Filter" style={{ width: 'auto' }}>
             <option value="all">Any status</option>
-            <option value="studied">Studied</option>
-            <option value="new">New</option>
+            {WORD_STATUSES.map((st) => (
+              <option key={st} value={`st:${st}`}>
+                {STATUS_LABEL[st]}
+              </option>
+            ))}
             <option value="week">Seen this week</option>
             <option value="missed">Missed recently</option>
           </select>
@@ -138,7 +108,7 @@ export function Quick() {
           </div>
         </div>
         {mode === 'list' ? (
-          <QmList notes={list.slice(0, limit)} shown={shown} listen={listen} />
+          <QmList items={list.slice(0, limit).map((n) => ({ key: n.id, note: n }))} shown={shown} listen={listen} />
         ) : (
           <QmCards key={seed + tag + filter} notes={list} shown={shown} listen={listen} />
         )}
@@ -148,123 +118,6 @@ export function Quick() {
           </button>
         )}
       </div>
-    </div>
-  );
-}
-
-function useHold(onHold: (on: boolean) => void) {
-  const timer = useRef<number | null>(null);
-  const held = useRef(false);
-  return {
-    held,
-    props: {
-      onPointerDown: () => {
-        held.current = false;
-        timer.current = window.setTimeout(() => {
-          held.current = true;
-          onHold(true);
-        }, 380);
-      },
-      onPointerUp: () => {
-        if (timer.current) clearTimeout(timer.current);
-        if (held.current) onHold(false);
-      },
-      onPointerLeave: () => {
-        if (timer.current) clearTimeout(timer.current);
-        if (held.current) onHold(false);
-      },
-      onContextMenu: (e: React.MouseEvent) => e.preventDefault(),
-    },
-  };
-}
-
-function useShift(): boolean {
-  const [shift, setShift] = useState(false);
-  useEffect(() => {
-    const d = (e: KeyboardEvent) => e.key === 'Shift' && setShift(true);
-    const u = (e: KeyboardEvent) => e.key === 'Shift' && setShift(false);
-    window.addEventListener('keydown', d);
-    window.addEventListener('keyup', u);
-    return () => {
-      window.removeEventListener('keydown', d);
-      window.removeEventListener('keyup', u);
-    };
-  }, []);
-  return shift;
-}
-
-function QmList({ notes, shown, listen }: { notes: Note[]; shown: Shown; listen: boolean }) {
-  const [peek, setPeek] = useState<Record<string, boolean>>({});
-  const [focus, setFocus] = useState(0);
-  const shift = useShift();
-  useEffect(() => setPeek({}), [shown]);
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'SELECT') return;
-      if (e.key === 'ArrowDown') {
-        e.preventDefault();
-        setFocus((f) => Math.min(notes.length - 1, f + 1));
-      } else if (e.key === 'ArrowUp') {
-        e.preventDefault();
-        setFocus((f) => Math.max(0, f - 1));
-      } else if (e.key === ' ' && notes[focus]) {
-        e.preventDefault();
-        const id = notes[focus].id;
-        setPeek((p) => ({ ...p, [id + ':all']: !p[id + ':all'] }));
-      } else if ((e.key === 'a' || e.key === 'A') && notes[focus]) speak(notes[focus].hanzi);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [notes, focus]);
-  useEffect(() => {
-    document.getElementById(`qm-${focus}`)?.scrollIntoView({ block: 'nearest' });
-  }, [focus]);
-  return (
-    <div className="qm-list" role="list">
-      {notes.map((n, i) => (
-        <QmRow
-          key={n.id}
-          id={`qm-${i}`}
-          note={n}
-          shown={shown}
-          listen={listen}
-          all={shift || !!peek[n.id + ':all']}
-          peek={peek}
-          focused={i === focus}
-          onPeek={(k) => setPeek((p) => ({ ...p, [n.id + ':' + k]: !p[n.id + ':' + k] }))}
-          onAll={(on) => setPeek((p) => ({ ...p, [n.id + ':all']: on }))}
-          onFocus={() => setFocus(i)}
-        />
-      ))}
-    </div>
-  );
-}
-
-function QmRow({
-  id, note, shown, listen, all, peek, focused, onPeek, onAll, onFocus,
-}: {
-  id: string; note: Note; shown: Shown; listen: boolean; all: boolean; peek: Record<string, boolean>; focused: boolean;
-  onPeek: (k: Layer) => void; onAll: (on: boolean) => void; onFocus: () => void;
-}) {
-  const hold = useHold(onAll);
-  const vis = (k: Layer) => all || shown[k] !== !!peek[note.id + ':' + k];
-  const tap = (k: Layer) => () => {
-    if (hold.held.current) return;
-    onFocus();
-    if (k === 'hz' && vis('hz')) speak(note.hanzi);
-    else onPeek(k);
-  };
-  return (
-    <div id={id} role="listitem" className={`qm-row ${focused ? 'focus' : ''}`} {...hold.props} onClick={() => listen && speak(note.hanzi)}>
-      <button type="button" className="qm-cell hz" onClick={tap('hz')} aria-label={vis('hz') ? note.hanzi : 'Hidden hanzi, tap to show'}>
-        {vis('hz') ? <span className="peek">{note.hanzi}</span> : <span className="bar w-hz" />}
-      </button>
-      <button type="button" className="qm-cell" onClick={tap('py')} aria-label={vis('py') ? note.pinyin : 'Hidden pinyin, tap to show'}>
-        {vis('py') ? <Pinyin text={note.pinyin} className="peek" /> : <span className="bar w-py" />}
-      </button>
-      <button type="button" className="qm-cell mn" onClick={tap('mn')} aria-label={vis('mn') ? 'Meaning' : 'Hidden meaning, tap to show'}>
-        {vis('mn') ? <Meaning note={note} className="peek" /> : <span className="bar w-mn" />}
-      </button>
     </div>
   );
 }

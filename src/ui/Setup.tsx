@@ -1,14 +1,15 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import qrcode from 'qrcode-generator';
 import { useApp } from '../lib/store';
-import { allowFolder, checkFolder, folderSupported, linkFolder, unlinkFolder, writeProgress } from '../lib/folder';
-import { PROGRESS_FILE } from '../lib/progress';
+import { allowFolder, checkFolder, folderSupported, linkFolder, unlinkFolder, writeCopy } from '../lib/folder';
 import { decodeKey, encodeKey, getLink, linkRepo, syncNow, unlinkRepo } from '../lib/sync';
 import { parseRepo } from '../lib/github';
 import { formatAgo, toast, TopBar, useNow } from './common';
 import { FileImportButton, PendingImportNotice } from './Today';
 
 const DATA_REPO = 'HugoChineseData';
+/** 'X.xlsx' → 'X (app).xlsx': the copy that carries Hugo's statuses as colours. */
+const copyName = (f: string) => f.replace(/\.xlsx$/i, '') + ' (app).xlsx';
 
 function isStandalone(): boolean {
   return matchMedia('(display-mode: standalone)').matches || (navigator as Navigator & { standalone?: boolean }).standalone === true;
@@ -22,7 +23,7 @@ export function SetupSources({ linked = false }: { linked?: boolean }) {
     <div className="panel stack">
       <h2>Link your OneDrive folder</h2>
       <p className="muted small">
-        Pick the folder that holds Hugo_chinese_vocab.xlsx. The app reads the file each time it changes and writes {PROGRESS_FILE} next to it. You can allow
+        Pick the folder that holds Hugo_chinese_vocab.xlsx. The app reads the file each time it changes and writes Hugo_chinese_vocab (app).xlsx next to it, a copy with your statuses as colours. The original is never changed. You can allow
         access on every visit when the browser asks.
       </p>
       <LinkFolderButton label="Choose the OneDrive folder" primary />
@@ -123,7 +124,7 @@ function SourceBody() {
     return (
       <div className="stack">
         <p className="small muted">
-          Link the OneDrive folder that holds {fileName}: the app then reads it whenever it changes and writes {PROGRESS_FILE} next to it.
+          Link the OneDrive folder that holds {fileName}: the app then reads it whenever it changes and writes {copyName(fileName)} next to it, a copy with your statuses as colours. The original is never changed.
         </p>
         <LinkFolderButton label="Link your OneDrive folder" />
       </div>
@@ -145,7 +146,7 @@ function SourceBody() {
     <div className="stack">
       <p className="small">
         Folder “{folder.name}” linked. {fileName} checked {formatAgo(folder.checked, now)}.{' '}
-        {folder.written ? `${PROGRESS_FILE} written ${formatAgo(folder.written, now)}.` : ''}
+        {folder.written ? `${copyName(fileName)} written ${formatAgo(folder.written, now)}.` : ''}
       </p>
       {folder.message && <p className="notice bad">{folder.message}</p>}
       {folder.writeError && <p className="notice">{folder.writeError}</p>}
@@ -153,8 +154,8 @@ function SourceBody() {
         <button type="button" className="btn small" onClick={() => checkFolder(true)}>
           Read Excel now
         </button>
-        <button type="button" className="btn small" onClick={() => writeProgress(true)}>
-          Write progress now
+        <button type="button" className="btn small" onClick={() => writeCopy(true)}>
+          Write the copy now
         </button>
         <LinkFolderButton label="Change folder" small />
         <button type="button" className="btn small ghost" onClick={() => unlinkFolder()}>
@@ -320,7 +321,7 @@ function KeyForm({ initial = '' }: { initial?: string }) {
         try {
           await linkRepo(link);
           toast('Linked. Your words and reviews are on their way.');
-          location.hash = '#/today';
+          location.hash = '#/sheets';
         } catch (err) {
           setError((err as Error).message);
         } finally {

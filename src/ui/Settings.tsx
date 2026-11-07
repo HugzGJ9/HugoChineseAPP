@@ -17,6 +17,16 @@ export function Settings() {
       <TopBar title="Settings" />
       <div className="stack-l">
         <section className="panel stack">
+          <h2>More</h2>
+          <nav className="more-links" aria-label="More screens">
+            <a href="#/today">Today's reviews</a>
+            <a href="#/stats">Stats</a>
+            <a href="#/words">Words</a>
+            <a href="#/report">Import report</a>
+          </nav>
+        </section>
+
+        <section className="panel stack">
           <h2>Your words</h2>
           {meta ? (
             <p className="small muted">

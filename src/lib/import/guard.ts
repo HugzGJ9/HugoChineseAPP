@@ -2,6 +2,7 @@
 // A suspicious import is held until Hugo picks the old or the new list (sources.ts). Pure, so it is easy to test.
 import type { VocabFile } from '../types';
 import { detectRenames, mergeAliases, migrateSeeds } from './renames';
+import { colourSinceFor } from '../status';
 
 /** Whole list: held when it shrinks below this share of the previous size… */
 const KEEP_SHARE = 0.8;
@@ -41,19 +42,25 @@ export function checkImport(prev: VocabFile | null, next: VocabFile): ImportChec
 }
 
 export interface PreparedImport {
-  /** The new list with the accumulated aliases and the seeds of renamed words moved over. */
+  /** The new list with the accumulated aliases, the seeds of renamed words moved over and the row colour times. */
   vocab: VocabFile;
   /** Renames found in this import only (old id → new id). */
   renames: Record<string, string>;
   check: ImportCheck;
 }
 
-/** Compare a fresh local import with the current list: renames, aliases, seeds, and whether to hold it. */
+/**
+ * Compare a fresh local import with the current list: renames, aliases, seeds, row colour times, and whether to hold it.
+ * Run again on a held import once accepted, so everything is computed against the list as it is then.
+ */
 export function prepareImport(prev: VocabFile | null, next: VocabFile): PreparedImport {
   const renames = prev ? detectRenames(prev.notes, next.notes) : {};
   const aliases = mergeAliases(prev?.aliases, next.aliases, renames);
   const seeds = migrateSeeds(next.seeds, prev?.seeds ?? {}, renames);
-  const { aliases: _old, ...rest } = next;
-  const vocab: VocabFile = { ...rest, seeds, ...(Object.keys(aliases).length ? { aliases } : {}) };
+  // A colour seen for the first time holds from when the file was saved (never later than the import).
+  const t = Math.min(next.source.modified || next.importedAt, next.importedAt);
+  const colourSince = colourSinceFor(next.notes, prev?.colourSince, renames, t);
+  const { aliases: _old, colourSince: _since, ...rest } = next;
+  const vocab: VocabFile = { ...rest, seeds, colourSince, ...(Object.keys(aliases).length ? { aliases } : {}) };
   return { vocab, renames, check: checkImport(prev, vocab) };
 }

@@ -1,12 +1,14 @@
 import { useMemo, useState } from 'react';
 import type { MarkKind, Note, StatusMark } from '../lib/types';
 import { meaning, setNoteStatus, undoMark, useApp } from '../lib/store';
+import { markStatus, noteStatuses, sheetRows, STATUS_LABEL, STATUS_MARK } from '../lib/status';
 import { cardStatus, formatInterval, noteStatus, type Status } from '../lib/engine/schedule';
 import { groupCards } from '../lib/stats';
 import { speak } from '../lib/speech';
 import { AudioButton, formatDate, GridWord, LangSwitch, Meaning, Pinyin, StatusPill, TopBar } from './common';
 import { StrokeAnimation } from './WritePad';
 import { normMeaning } from '../lib/engine/grade';
+import { StatusPicker } from './StatusPicker';
 
 const CARD_LABEL: Record<string, string> = { recog: 'Recognition', recall: 'Recall', listen: 'Listening', grammar: 'Grammar', measure: 'Measure word', synonym: 'Which word fits' };
 const MODE_LABEL: Record<string, string> = {
@@ -16,6 +18,8 @@ const MODE_LABEL: Record<string, string> = {
 
 const MARK_LABEL: Record<string, string> = { known: 'Known', relearn: 'Relearn', suspend: 'Suspended', unsuspend: 'Unsuspended' };
 const MARK_HISTORY: Record<string, string> = { known: 'Set as known', relearn: 'Set to relearn', suspend: 'Suspended', unsuspend: 'Unsuspended' };
+const markLabel = (a: string) => { const s = markStatus(a); return s && a.startsWith('st:') ? STATUS_LABEL[s] : MARK_LABEL[a] ?? a; };
+const markHistory = (a: string) => { const s = markStatus(a); return s && a.startsWith('st:') ? `Status set to ${STATUS_LABEL[s]}` : MARK_HISTORY[a] ?? a; };
 const fmt = (t: number) => new Date(t).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
 export function Words({ id, kinds = ['vocab', 'measure', 'synonym'], title = 'Words', base = '#/words' }: { id?: string; kinds?: Note['kind'][]; title?: string; base?: string }) {
@@ -50,7 +54,7 @@ export function Words({ id, kinds = ['vocab', 'measure', 'synonym'], title = 'Wo
 
   return (
     <div className="main wide">
-      <TopBar title={title}>
+      <TopBar title={title} back="#/settings">
         <LangSwitch />
       </TopBar>
       <div className="split">
@@ -111,7 +115,8 @@ export function Words({ id, kinds = ['vocab', 'measure', 'synonym'], title = 'Wo
 }
 
 export function NoteDetail({ note }: { note: Note }) {
-  const { cards, events, device, marks } = useApp((s) => s);
+  const { notes, cards, events, device, marks, meta } = useApp((s) => s);
+  const wordStatus = useMemo(() => noteStatuses(sheetRows(notes, marks, meta?.colourSince)).get(note.id) ?? 'new', [notes, marks, meta, note.id]);
   const ownMarks = useMemo(() => marks.filter((m) => m.note === note.id).sort((a, b) => b.t - a.t || (a.id < b.id ? 1 : -1)), [marks, note.id]);
   const [undoable, setUndoable] = useState<{ id: string; text: string } | null>(null);
   const [pending, setPending] = useState(false);
@@ -134,7 +139,7 @@ export function NoteDetail({ note }: { note: Note }) {
       setPending(false);
     }
   };
-  const lastSet = ownMarks.find((m) => m.a === 'known' || m.a === 'relearn' || m.a === 'suspend' || m.a === 'unsuspend');
+  const lastSet = ownMarks[0];
   return (
     <div className="panel stack">
       {note.kind === 'grammar' ? (
@@ -170,15 +175,8 @@ export function NoteDetail({ note }: { note: Note }) {
         (strokes ? <StrokeAnimation word={note.hanzi} size={110} /> : <button type="button" className="btn small" onClick={() => setStrokes(true)}>Stroke order</button>)}
       <div className="divider" />
       <h3>Your status</h3>
+      <StatusPicker value={wordStatus} onChange={(st) => setStatus(STATUS_MARK[st], `Set to ${STATUS_LABEL[st]}`)} />
       <div className="row wrap">
-        <button type="button" className="btn small" disabled={pending} onClick={() => setStatus('known', 'Marked as known')}>
-          I know this
-        </button>
-        {status !== 'new' && (
-          <button type="button" className="btn small" disabled={pending} onClick={() => setStatus('relearn', 'Set to relearn')}>
-            Relearn
-          </button>
-        )}
         {status === 'suspended' ? (
           <button type="button" className="btn small" disabled={pending} onClick={() => setStatus('unsuspend', 'Unsuspended')}>
             Unsuspend
@@ -206,7 +204,7 @@ export function NoteDetail({ note }: { note: Note }) {
       )}
       {lastSet && (
         <p className="small muted">
-          Set by you: {MARK_LABEL[lastSet.a] ?? lastSet.a} on {formatDate(lastSet.t)}
+          Set by you: {markLabel(lastSet.a)} on {formatDate(lastSet.t)}
           {lastSet.dev !== device ? ` (${lastSet.dev})` : ''}
         </p>
       )}
@@ -239,7 +237,7 @@ export function NoteDetail({ note }: { note: Note }) {
                 r.mark ? (
                   <tr key={r.mark.id}>
                     <td>{fmt(r.t)}</td>
-                    <td colSpan={2}>{MARK_HISTORY[r.mark.a] ?? r.mark.a}</td>
+                    <td colSpan={2}>{markHistory(r.mark.a)}</td>
                     <td className="muted">Set by you{r.mark.dev !== device ? ` · ${r.mark.dev}` : ''}</td>
                   </tr>
                 ) : (

@@ -342,6 +342,26 @@ describe('status marks', () => {
     expect(latestMarks([mark(a.id, 'pin', T0)]).size).toBe(0);
   });
 
+  it('status marks (st:*) never change a card, with or without reviews, seeds and other marks', () => {
+    const a = note('v:学习|xuexi', { studied: true });
+    const b = note('v:朋友|pengyou', { order: 2 });
+    const ca = cardId(a.id, 'recog');
+    const cb = cardId(b.id, 'recog');
+    const evs = [ev(ca, 3, T0 + DAY), ev(ca, 1, T0 + 9 * DAY), ev(cb, 3, T0), ev(cb, 3, T0 + 600000)];
+    const seeds = { [a.id]: T0 };
+    const base = [mark(b.id, 'known', T0 + 2 * DAY, 'y1'), mark(a.id, 'suspend', T0 + 3 * DAY, 'y2')];
+    const st = (['st:new', 'st:studying', 'st:notknown', 'st:mastered'] as MarkKind[]).flatMap((kind, i) => [
+      mark(a.id, kind, T0 + i * DAY, `s${i}a`),
+      mark(b.id, kind, T0 + 600000 + i, `s${i}b`),
+    ]);
+    for (const marks of [[], base]) {
+      expect(deriveCards([a, b], evs, seeds, S, [...marks, ...st])).toEqual(deriveCards([a, b], evs, seeds, S, marks));
+    }
+    expect(deriveCards([a, b], [], {}, S, st)).toEqual(deriveCards([a, b], [], {}, S));
+    expect(latestMarks(st).size).toBe(0);
+    expect(latestMarks([...base, ...st]).get(b.id)?.status?.id).toBe('y1');
+  });
+
   it('resolves marks on an old note id to the renamed note, without changing the stored marks', () => {
     const renamed = note('v:学习|xuexi2');
     const raw = [mark('v:学习|xuexi', 'known', T0, 'old1'), mark('v:不在|buzai', 'known', T0, 'gone')];
@@ -437,6 +457,12 @@ describe('golden replay (ts-fsrs 6.0.0)', () => {
     ];
     const events: ReviewEvent[] = grades.map(([card, r, dt], i) => ({ id: `g${i}`, card, r, t: t0 + dt, d: 3000, m: 'reveal', dev: 'pc' }));
     const cards = deriveCards(words, events, seeds, { retention: 0.9, spreadDays: 60, recall: true, listen: true });
+    // Statuses set in Sheets are no-ops for the scheduler.
+    const st: StatusMark[] = words.flatMap((w, i) => [
+      { id: `st${i}a`, note: w.id, a: 'st:mastered', t: t0 + i * DAY, dev: 'pc' },
+      { id: `st${i}b`, note: w.id, a: 'st:notknown', t: t0 + 20 * DAY, dev: 'phone' },
+    ]);
+    expect(deriveCards(words, events, seeds, { retention: 0.9, spreadDays: 60, recall: true, listen: true }, st)).toEqual(cards);
     const out = cards.map((c) => ({
       id: c.id,
       due: new Date(c.due).toISOString(),

@@ -1,11 +1,14 @@
 // The OneDrive folder on a computer, through the File System Access API (Edge and Chrome).
-// The app reads Hugo_chinese_vocab.xlsx whenever it changes and writes Hugo_chinese_progress.xlsx next to it.
+// The app reads Hugo_chinese_vocab.xlsx whenever it changes, and writes "Hugo_chinese_vocab (app).xlsx" next to it: a
+// copy of his workbook with his statuses as cell fills. The original is only ever read.
 // OneDrive's own client does the uploading, so no Microsoft sign-in is needed.
-import { dayKey } from './engine/schedule';
 import { kvGet, kvSet } from './db';
-import { PROGRESS_FILE, progressWorkbook } from './progress';
+import { fnv1a } from './import/build';
 import { importBytes, summary, wasRejected } from './sources';
-import { getState, onLocalChange, setFolder, subscribe } from './store';
+import { copyFills, sheetRows } from './status';
+import { getState, setFolder, subscribe } from './store';
+import type { RowFill, SheetCols } from './types';
+import { copyFileName, WorkbookChangedError, type PatchRequest, type PatchResponse, type PatchResult } from './xlsx/patch';
 
 type Mode = { mode: 'read' | 'readwrite' };
 interface DirHandle extends FileSystemDirectoryHandle {
@@ -47,7 +50,7 @@ export async function linkFolder(): Promise<boolean> {
     throw new Error(`${fileName} is not in “${dir.name}”. Pick the folder that contains it.`);
   }
   await kvSet('folderHandle', dir);
-  await kvSet('progressSig', '');
+  await kvSet(COPY_SIG, '');
   setFolder({ state: 'ok', name: dir.name, message: undefined, writeError: undefined }, true);
   await checkFolder(true);
   return true;
@@ -99,10 +102,12 @@ export async function checkFolder(force = false): Promise<void> {
     const changed = !src || src.name !== file.name || src.modified !== file.lastModified || src.size !== file.size;
     // A held file is not read again until it changes (or Hugo links the folder again).
     if (force || (changed && sig !== heldSig)) {
+      const prevHash = getState().meta?.hash;
       const o = await importBytes(await file.arrayBuffer(), { name: file.name, modified: file.lastModified, size: file.size });
       if (o.applied) {
         heldSig = '';
-        if (src) notify(`Words updated from Excel: ${summary(o)}`);
+        // A forced re-read of the same file (columns for the copy, a failed copy check) stays quiet.
+        if (src && (changed || o.vocab.hash !== prevHash)) notify(`Words updated from Excel: ${summary(o)}`);
         scheduleWrite(1000);
       } else {
         heldSig = sig;
@@ -117,55 +122,154 @@ export async function checkFolder(force = false): Promise<void> {
   }
 }
 
-function signature(): string {
-  const { events, marks, meta } = getState();
-  const last = events.reduce((m, e) => Math.max(m, e.t), 0);
-  // Marks count too: setting a word's status (or undoing it) rewrites the workbook.
-  const lastMark = marks.reduce((m, x) => Math.max(m, x.t), 0);
-  return `${meta?.hash}|${events.length}|${last}|${marks.length}|${lastMark}|${dayKey(Date.now())}`;
+const COPY_SIG = 'copySig';
+
+/** Columns per sheet, found at import (none for a list imported by an older app version). */
+function sheetCols(): Record<string, SheetCols> {
+  const out: Record<string, SheetCols> = {};
+  for (const r of getState().meta?.report ?? []) if (r.cols) out[r.name] = r.cols;
+  return out;
+}
+
+function colsMissing(): boolean {
+  return (getState().meta?.report ?? []).some((r) => r.kind !== 'skipped' && r.notes > 0 && !r.cols);
+}
+
+/** Patch the workbook in a Web Worker; the bytes are moved there and back. */
+function patchInWorker(req: PatchRequest): Promise<PatchResult> {
+  return new Promise((resolve, reject) => {
+    const worker = new Worker(new URL('./xlsx/patch.worker.ts', import.meta.url), { type: 'module' });
+    worker.onmessage = (e: MessageEvent<PatchResponse>) => {
+      worker.terminate();
+      const d = e.data;
+      if (d.ok) resolve(d.result);
+      else reject(d.changed ? new WorkbookChangedError(d.changed.sheet, d.changed.row) : new Error(d.error));
+    };
+    worker.onerror = (e) => {
+      worker.terminate();
+      reject(new Error(e.message || 'The copy could not be built'));
+    };
+    worker.postMessage(req, [req.bytes.buffer]);
+  });
+}
+
+async function exists(dir: DirHandle, name: string): Promise<boolean> {
+  try {
+    await dir.getFileHandle(name);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 let writing = false;
+let again = false;
+/** The last write failed (file open in Excel…): retried when the window gets the focus. */
+let failed = false;
+/** Forced re-reads already asked for (file sig + list hash), so a list that stays odd is not re-read in a loop. */
+let colsReread = '';
+let checkReread = '';
 
-/** Write Hugo_chinese_progress.xlsx next to the Excel file, unless nothing changed. */
-export async function writeProgress(force = false): Promise<void> {
+/**
+ * Write "<file> (app).xlsx" next to the Excel file: the original's bytes with the rows whose status Hugo changed
+ * filled in his colours. Rebuilt from the original every time; skipped when neither the file nor the fills changed.
+ */
+export async function writeCopy(force = false): Promise<void> {
+  if (writing) {
+    again = true;
+    return;
+  }
   const s = getState();
-  if (writing || !s.notes.length) return;
+  if (!s.notes.length || !s.meta) return;
   const dir = await handle();
   if (!dir || (await dir.queryPermission(RW)) !== 'granted') return;
-  const sig = signature();
-  if (!force && sig === (await kvGet<string>('progressSig', ''))) return;
+  const fileName = s.settings.fileName;
+  const copyName = copyFileName(fileName);
   writing = true;
+  let fileSig = '';
   try {
-    const bytes = progressWorkbook({ notes: s.notes, cards: s.cards.values(), events: s.events, marks: s.marks, device: s.device, now: Date.now() });
-    const fh = await dir.getFileHandle(PROGRESS_FILE, { create: true });
+    let file: File;
+    try {
+      file = await (await dir.getFileHandle(fileName)).getFile();
+    } catch {
+      return; // checkFolder reports the missing file
+    }
+    fileSig = `${file.name}|${file.lastModified}|${file.size}`;
+    const src = s.meta.source;
+    if (src.name !== file.name || src.modified !== file.lastModified || src.size !== file.size) {
+      // The rows must match this exact file: read it first, the import schedules the copy again.
+      void checkFolder();
+      return;
+    }
+    const reread = `${fileSig}|${s.meta.hash}`;
+    if (colsMissing() && colsReread !== reread) {
+      // Imported by an older app version: read the file again to find the columns to colour.
+      colsReread = reread;
+      void checkFolder(true);
+      return;
+    }
+    const fills: RowFill[] = copyFills(sheetRows(s.notes, s.marks, s.meta.colourSince));
+    const sig = `${fileSig}|${fnv1a(JSON.stringify(fills))}`;
+    if (!force && sig === (await kvGet<string>(COPY_SIG, '')) && (await exists(dir, copyName))) return;
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const out = fills.length ? (await patchInWorker({ bytes, rows: fills, cols: sheetCols() })).bytes : bytes;
+    const fh = await dir.getFileHandle(copyName, { create: true });
     const w = await fh.createWritable();
     try {
-      await w.write(bytes as Uint8Array<ArrayBuffer>);
+      await w.write(out as Uint8Array<ArrayBuffer>);
       await w.close();
     } catch (e) {
       await w.abort().catch(() => undefined);
       throw e;
     }
-    await kvSet('progressSig', sig);
+    await kvSet(COPY_SIG, sig);
+    failed = false;
     setFolder({ written: Date.now(), writeError: undefined });
   } catch (e) {
+    if (e instanceof WorkbookChangedError) {
+      // The words no longer sit where the import saw them: never write a copy that colours the wrong rows.
+      failed = false;
+      const key = `${fileSig}|${s.meta.hash}`;
+      if (checkReread !== key) {
+        checkReread = key;
+        void checkFolder(true);
+      } else {
+        setFolder({ writeError: `${copyName} was not written: row ${e.row} of ${e.sheet} does not hold the word the app expects. Save ${fileName} again in Excel.` });
+      }
+      return;
+    }
+    failed = true;
     const name = (e as DOMException).name;
     setFolder({
       writeError:
         name === 'NoModificationAllowedError' || name === 'InvalidStateError'
-          ? `${PROGRESS_FILE} is open in Excel. Close it and the app updates it on the next change.`
-          : `Could not write ${PROGRESS_FILE}: ${(e as Error).message}`,
+          ? `${copyName} is open in Excel. Close it and the app updates it on the next change.`
+          : `Could not write ${copyName}: ${(e as Error).message}`,
     });
   } finally {
     writing = false;
+    if (again) {
+      again = false;
+      scheduleWrite(500);
+    }
   }
 }
 
 let timer: ReturnType<typeof setTimeout> | undefined;
 function scheduleWrite(ms: number) {
   clearTimeout(timer);
-  timer = setTimeout(() => void writeProgress(), ms);
+  timer = setTimeout(() => {
+    timer = undefined;
+    void writeCopy();
+  }, ms);
+}
+
+/** Write now what is waiting (the tab is being hidden). */
+function flushWrite() {
+  if (timer === undefined && !failed) return;
+  clearTimeout(timer);
+  timer = undefined;
+  void writeCopy();
 }
 
 let started = false;
@@ -177,21 +281,25 @@ export async function startFolder(): Promise<void> {
   const dir = await handle();
   if (dir) setFolder({ state: 'ok', name: dir.name });
   await checkFolder();
-  void writeProgress();
-  // New reviews or status marks, here or from the other devices: refresh the workbook after a pause.
-  let { events, marks } = getState();
+  // Also re-reads the file once when the list has no columns yet (imported by an older version).
+  void writeCopy();
+  // Status marks here or from the other devices, or a new word list from sync: refresh the copy after a pause.
+  // (A list imported from the folder schedules its own, shorter, write in checkFolder.)
+  let { marks, meta } = getState();
   subscribe(() => {
     const now = getState();
-    if (now.events !== events || now.marks !== marks) {
-      ({ events, marks } = now);
-      scheduleWrite(30000);
+    if (now.marks !== marks || now.meta !== meta) {
+      ({ marks, meta } = now);
+      scheduleWrite(4000);
     }
   });
-  onLocalChange(() => scheduleWrite(30000));
-  window.addEventListener('focus', () => void checkFolder());
+  window.addEventListener('focus', () => {
+    void checkFolder();
+    if (failed) void writeCopy();
+  });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') void checkFolder();
-    else void writeProgress();
+    else flushWrite();
   });
   setInterval(() => {
     if (document.visibilityState === 'visible') void checkFolder();

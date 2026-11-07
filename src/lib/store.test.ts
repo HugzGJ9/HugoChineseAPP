@@ -175,6 +175,26 @@ describe('renamed words', () => {
   });
 });
 
+describe('row colour times', () => {
+  it('a list without colourSince (older app version) keeps the local one; a list with one replaces it', async () => {
+    const a = await device();
+    const since = { 'v:词1|ci1@HSK四级#0': ['mastered', 5] as ['mastered', number] };
+    await a.store.setVocab(vocab([note(1)], { colourSince: since }));
+    expect(a.store.getState().meta?.colourSince).toEqual(since);
+    await a.store.setVocab(vocab([note(1)], { hash: 'old' }), true);
+    expect(a.store.getState().meta?.colourSince).toEqual(since);
+    const again = await device(a.idb);
+    expect(again.store.getState().meta?.colourSince).toEqual(since);
+    const next = { 'v:词1|ci1@HSK四级#0': ['mastered', 9] as ['mastered', number] };
+    await again.store.setVocab(vocab([note(1)], { hash: 'new', colourSince: next }), true);
+    expect(again.store.getState().meta?.colourSince).toEqual(next);
+    // None anywhere: no key at all.
+    const b = await device();
+    await b.store.setVocab(vocab([note(1)]));
+    expect(b.store.getState().meta).not.toHaveProperty('colourSince');
+  });
+});
+
 describe('held import', () => {
   it('is kept across restarts until dropped', async () => {
     const first = await device();
@@ -338,6 +358,21 @@ describe('status marks', () => {
     expect(await store.dirtyMarkMonths()).toEqual({});
   });
 
+  it('a status mark survives a restart and leaves the cards as they were', async () => {
+    const a = await device();
+    await a.store.setVocab(vocab([note(1), note(2)]));
+    const before = a.store.getState().cards.get(`${W}#recog`);
+    const m = await a.store.setNoteStatus(W, 'st:mastered', T0);
+    expect(a.store.getState().cards.get(`${W}#recog`)).toEqual(before);
+    expect(Object.keys(await a.store.dirtyMarkMonths())).toEqual(['2026-11']);
+    const again = await device(a.idb);
+    expect(again.store.getState().marks).toEqual([m]);
+    expect(again.store.getState().marks[0].a).toBe('st:mastered');
+    expect(again.store.getState().cards.get(`${W}#recog`)).toEqual(before);
+    await again.store.undoMark(m.id);
+    expect((await device(a.idb)).store.getState().marks).toEqual([]);
+  });
+
   it('another tab sees a mark after a reload', async () => {
     const a = await device();
     await a.store.setVocab(vocab([note(1)]));
@@ -392,6 +427,21 @@ describe('shared preferences', () => {
     expect(c.store.getState().lang).toBe('en');
     // Nothing was pushed at start-up.
     expect(await c.db.kvGet('settingsDirty', false)).toBe(false);
+  });
+});
+
+describe('device preferences', () => {
+  it('Sheets preferences (sh.*) are backed up and restored, never shared', async () => {
+    const { db } = await device();
+    db.setPref('sh.tab', 'HSK五级');
+    db.setPref('sh.filter', 'notknown');
+    db.setPref('lang', 'fr');
+    expect(db.collectPrefs('backup')).toMatchObject({ 'sh.tab': 'HSK五级', 'sh.filter': 'notknown', lang: 'fr' });
+    expect(db.collectPrefs('shared')).toEqual({ lang: 'fr' });
+    expect(db.SHARED_PREFS.some((k) => k.startsWith('sh.'))).toBe(false);
+    localStorage.clear();
+    expect(db.writePrefsSilently({ 'sh.paint': 'mastered', 'xx.other': 1 })).toBe(1);
+    expect(db.pref('sh.paint', '')).toBe('mastered');
   });
 });
 

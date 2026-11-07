@@ -28,13 +28,13 @@ export function decodeXml(s: string): string {
   });
 }
 
-function attr(tag: string, name: string): string | null {
+export function attr(tag: string, name: string): string | null {
   const m = new RegExp(`\\b${name}="([^"]*)"`).exec(tag);
   return m ? m[1] : null;
 }
 
 /** Text of an <si> or <is> element, skipping phonetic runs (<rPh>). */
-function richText(xml: string): string {
+export function richText(xml: string): string {
   const noPh = xml.replace(/<rPh\b[\s\S]*?<\/rPh>/g, '');
   let out = '';
   const re = /<t\b[^>]*>([\s\S]*?)<\/t>|<t\b[^>]*\/>/g;
@@ -94,7 +94,7 @@ const INDEXED = [
   '3366FF','33CCCC','99CC00','FFCC00','FF9900','FF6600','666699','969696','003366','339966','003300','333300','993300','993366','333399','333333',
 ];
 
-function parseTheme(xml: string | null): string[] {
+export function parseTheme(xml: string | null): string[] {
   // Theme colour index order used by cell styles: lt1, dk1, lt2, dk2, accent1..6, hlink, folHlink
   const fallback = ['FFFFFF', '000000', 'E7E6E6', '44546A', '4472C4', 'ED7D31', 'A5A5A5', 'FFC000', '5B9BD5', '70AD47', '0563C1', '954F72'];
   if (!xml) return fallback;
@@ -127,8 +127,8 @@ function resolveColor(colorTag: string, theme: string[]): string | null {
   return null;
 }
 
-/** For every cellXfs entry, the resolved solid fill colour (or null). */
-function parseStyles(xml: string | null, theme: string[]): (string | null)[] {
+/** For every <fill> of styles.xml, the resolved solid fill colour (or null when it is not a solid fill). */
+export function parseFills(xml: string | null, theme: string[]): (string | null)[] {
   if (!xml) return [];
   const fillsXml = /<fills\b[^>]*>([\s\S]*?)<\/fills>/.exec(xml)?.[1] ?? '';
   const fills: (string | null)[] = [];
@@ -145,6 +145,14 @@ function parseStyles(xml: string | null, theme: string[]): (string | null)[] {
     const fg = /<fgColor\b[^>]*\/?>/.exec(inner);
     fills.push(fg ? resolveColor(fg[0], theme) : null);
   }
+  return fills;
+}
+
+/** For every cellXfs entry, the resolved solid fill colour (or null). */
+export function parseStyles(xml: string | null, theme: string[]): (string | null)[] {
+  if (!xml) return [];
+  const fills = parseFills(xml, theme);
+  let m: RegExpExecArray | null;
   const xfsXml = /<cellXfs\b[^>]*>([\s\S]*?)<\/cellXfs>/.exec(xml)?.[1] ?? '';
   const out: (string | null)[] = [];
   const xre = /<xf\b([^>]*?)(\/>|>)/g;
@@ -155,7 +163,7 @@ function parseStyles(xml: string | null, theme: string[]): (string | null)[] {
   return out;
 }
 
-function colToIndex(col: string): number {
+export function colToIndex(col: string): number {
   let n = 0;
   for (const ch of col) n = n * 26 + (ch.charCodeAt(0) - 64);
   return n;
@@ -188,25 +196,31 @@ export function readWorkbook(data: ArrayBuffer | Uint8Array): XSheet[] {
     while ((m = re.exec(ssXml))) shared.push(m[1] ? richText(m[1]) : '');
   }
 
+  const sheets: XSheet[] = [];
+  for (const { name, path } of sheetPaths(text('xl/workbook.xml') || '', text('xl/_rels/workbook.xml.rels') || '')) {
+    const xml = text(path);
+    if (!xml) continue;
+    sheets.push({ name, rows: parseSheet(xml, shared, styleFill) });
+  }
+  return sheets;
+}
+
+/** Sheets in workbook order with the zip path of their XML (xl/worksheets/sheet1.xml). */
+export function sheetPaths(wbXml: string, relXml: string): { name: string; path: string }[] {
   const rels: Record<string, string> = {};
-  const relXml = text('xl/_rels/workbook.xml.rels') || '';
   for (const m of relXml.matchAll(/<Relationship\b([^>]*)\/?>/g)) {
     const id = attr(m[1], 'Id');
     const target = attr(m[1], 'Target');
     if (id && target) rels[id] = target.replace(/^\/?xl\//, '').replace(/^\//, '');
   }
-
-  const sheets: XSheet[] = [];
-  const wbXml = text('xl/workbook.xml') || '';
+  const out: { name: string; path: string }[] = [];
   for (const m of wbXml.matchAll(/<sheet\b([^>]*)\/?>/g)) {
     const name = decodeXml(attr(m[1], 'name') || '');
     const rid = attr(m[1], 'r:id');
     if (!rid || !rels[rid]) continue;
-    const xml = text('xl/' + rels[rid]);
-    if (!xml) continue;
-    sheets.push({ name, rows: parseSheet(xml, shared, styleFill) });
+    out.push({ name, path: 'xl/' + rels[rid] });
   }
-  return sheets;
+  return out;
 }
 
 function parseSheet(xml: string, shared: string[], styleFill: (string | null)[]): XRow[] {

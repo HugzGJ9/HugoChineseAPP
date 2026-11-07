@@ -5,6 +5,8 @@ import Dexie from 'dexie';
 import { gzipSync } from 'fflate';
 import type { Note, ReviewEvent, StatusMark, VocabFile } from './types';
 import { fromBase64, toBase64 } from './github';
+import { latestMarks } from './engine/schedule';
+import { sheetRows } from './status';
 
 class FakeGitHub {
   files = new Map<string, { sha: string; bytes: Uint8Array }>();
@@ -669,6 +671,49 @@ describe('status marks', () => {
     await pc.sync.syncNow();
     await phone.sync.syncNow();
     expect(gh.commits).toBe(commits);
+  });
+
+  it('status marks (st:*) round-trip, reach the other device and change no card', async () => {
+    const { sync } = await device();
+    const st = [mark('s1', 1, 'st:mastered'), mark('s2', 2, 'st:notknown'), mark('s3', 3, 'st:studying'), mark('s4', 4, 'st:new')];
+    expect(sync.decodeMarks(sync.encodeMarks('tablet-1', '2026-11', st), 'tablet-1')).toEqual(st);
+    expect(latestMarks(st).size).toBe(0);
+
+    const pc = await device();
+    await pc.store.setVocab(vocab(4, T0));
+    await pc.sync.linkRepo(LINK);
+    const phone = await device();
+    await phone.sync.linkRepo(LINK);
+    const before = snapshot(phone.store.getState().cards);
+    const m = await phone.store.setNoteStatus(W, 'st:mastered', T0 + 1000);
+    await phone.sync.syncNow();
+    expect(JSON.parse(gh.text(`marks/${phone.id}/2026-11.json`)).marks).toEqual([[m.id, W, 'st:mastered', T0 + 1000]]);
+    await pc.sync.syncNow();
+    const s = pc.store.getState();
+    expect(s.marks.map((x) => [x.id, x.a])).toEqual([[m.id, 'st:mastered']]);
+    expect(snapshot(s.cards)).toEqual(before);
+    const status = (st: typeof s) => sheetRows(st.notes, st.marks, st.meta?.colourSince).get('HSK四级')!.find((r) => r.note.id === W)!;
+    expect(status(s)).toMatchObject({ status: 'mastered', mark: { id: m.id } });
+  });
+
+  it('row colour times travel with the word list, and a list from an older app version keeps them', async () => {
+    const since = { 'v:词1|ci1@HSK四级#0': ['mastered', T0] as ['mastered', number] };
+    const pc = await device();
+    await pc.store.setVocab({ ...vocab(3, T0), colourSince: since });
+    await pc.db.kvSet('vocabDirty', true);
+    await pc.sync.linkRepo(LINK);
+    const phone = await device();
+    await phone.sync.linkRepo(LINK);
+    expect(phone.store.getState().meta?.colourSince).toEqual(since);
+    // An older app version imports and uploads a list without the field.
+    const old = vocab(4, T0 + 5000, 'old');
+    const bytes = gzipSync(new TextEncoder().encode(JSON.stringify(old)));
+    const sha = 'xold0001';
+    gh.files.set('vocab.json.gz', { sha, bytes });
+    gh.blobs.set(sha, bytes);
+    await phone.sync.syncNow();
+    expect(phone.store.getState().notes).toHaveLength(4);
+    expect(phone.store.getState().meta?.colourSince).toEqual(since);
   });
 
   it('a mark set and undone before an upload sends nothing', async () => {
