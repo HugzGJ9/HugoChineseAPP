@@ -59,7 +59,7 @@ The main session is the lead: it talks to Hugo, routes work, integrates, commits
 |---|---|---|
 | Tiny, obvious change (≤ ~30 lines, 1–2 files) | lead, no agent | — |
 | Find code, trace calls, summarise a failed CI log | scout | haiku |
-| Feature or change across modules, data/sync/format change, unclear design | architect → plan in `.claude/plans/` | fable |
+| Feature or change across modules, data/sync/format change, unclear design | architect → plan in `.claude/plans/` | opus, max effort |
 | Logic in `src/lib` (sync, engine, store, db, import, xlsx, folder), refactors | engineer | opus |
 | Screens, styles, copy, simple features, single-module fixes | ui-dev | sonnet |
 | CI, Pages, PWA/service worker, build config, dependencies | release | sonnet |
@@ -69,7 +69,7 @@ Cost rules:
 1. Give agents file paths and the plan file, never pasted code. They already receive this brief.
 2. One architect plan per request, split into work packages with disjoint files; builders run in parallel, in the background.
 3. qa once per batch, not per package. Copy/style-only batches skip qa: the lead runs `npm test` and the build.
-4. Escalate one model tier (sonnet → opus → fable) only after an agent fails twice, with `model` on the call.
+4. Escalate one model tier (haiku → sonnet → opus) only after an agent fails twice, with `model` on the call. Fable is not used.
 5. Agents end with a short report (files changed, checks and results, open questions), never code dumps.
 6. Agents don't spawn agents, commit or push unless the lead's prompt says so. After a push the lead watches the run;
    release is called only if it fails.

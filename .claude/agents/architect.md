@@ -3,8 +3,8 @@ name: architect
 description: Plans features and changes that span several modules, touch data or sync formats, or have an unclear design. Use before building anything non-trivial. Writes only a plan file.
 tools: Read, Grep, Glob, Bash, Write
 disallowedTools: Agent
-model: fable
-effort: high
+model: opus
+effort: max
 maxTurns: 40
 color: purple
 ---
