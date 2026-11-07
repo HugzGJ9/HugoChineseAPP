@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { updateSettings, useApp, wipeAll } from '../lib/store';
 import { pref, setPref } from '../lib/db';
 import { chineseVoices, setVoice, speak, speechAvailable } from '../lib/speech';
-import { countCached, prefetchStrokes, uniqueChars } from '../lib/strokes';
+import { countCached, getWarmStatus, onWarmStatus, prefetchStrokes, uniqueChars } from '../lib/strokes';
 import { CFDICT_CREDIT } from '../lib/french';
 import { dictUrl } from '../lib/import';
 import { formatAgo, LangSwitch, toast, TopBar } from './common';
@@ -193,11 +193,12 @@ function OfflineSettings() {
   const [progress, setProgress] = useState<string | null>(null);
   const [dict, setDict] = useState<boolean | null>(null);
   const [persisted, setPersisted] = useState<boolean | null>(null);
+  const warm = useSyncExternalStore(onWarmStatus, getWarmStatus);
   useEffect(() => {
     countCached(chars).then(setCached);
     if ('caches' in window) caches.match(dictUrl()).then((r) => setDict(!!r));
     navigator.storage?.persisted?.().then(setPersisted).catch(() => setPersisted(null));
-  }, [chars]);
+  }, [chars, warm.phase, warm.done]);
   const ready = cached != null && cached >= chars.length;
   return (
     <section className="panel stack">
@@ -205,6 +206,12 @@ function OfflineSettings() {
       <div className={`notice ${ready ? 'ok' : ''}`}>
         {ready ? 'Ready for offline: stroke data for all your characters is on this device.' : `Stroke data: ${cached ?? '…'} of ${chars.length} characters on this device.`}
       </div>
+      {warm.phase === 'dict' && <p className="small muted">Saving the French dictionary for offline use…</p>}
+      {warm.phase === 'strokes' && (
+        <p className="small muted">
+          Saving stroke data in the background: {warm.done} of {warm.total} new characters. You can keep using the app.
+        </p>
+      )}
       {!ready && (
         <div>
           <button

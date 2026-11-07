@@ -4,13 +4,20 @@ import { VitePWA } from 'vite-plugin-pwa';
 
 const BASE = '/HugoChineseAPP/';
 
+// Identifies this build, so offline warm-up runs once per app version.
+const APP_VERSION = process.env.GITHUB_SHA?.slice(0, 8) ?? String(Date.now());
+
 export default defineConfig({
   base: BASE,
+  define: { __APP_VERSION__: JSON.stringify(APP_VERSION) },
   plugins: [
     react(),
     VitePWA({
+      // The app registers the worker itself (src/lib/pwa.ts) to show "New version" and reload when idle.
+      // skipWaiting + clientsClaim stay on: a prompt-style waiting worker would never activate for copies
+      // that still run the old code, which cannot send SKIP_WAITING.
       registerType: 'autoUpdate',
-      injectRegister: 'auto',
+      injectRegister: false,
       manifest: {
         name: 'Hugo 中文',
         short_name: 'Hugo 中文',

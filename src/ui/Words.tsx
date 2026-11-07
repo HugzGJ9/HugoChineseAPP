@@ -68,7 +68,9 @@ export function Words({ id, kinds = ['vocab', 'measure', 'synonym'], title = 'Wo
               <option value="mastered">Mastered</option>
               <option value="leech">Leech</option>
             </select>
-            <span className="small muted">{list.length}</span>
+            <span className="small muted" aria-live="polite">
+              {list.length === pool.length ? `${pool.length} ${pool.length === 1 ? 'entry' : 'entries'}` : `${list.length} of ${pool.length}`}
+            </span>
           </div>
           <div className="list">
             {list.slice(0, limit).map((n) => (
@@ -77,7 +79,10 @@ export function Words({ id, kinds = ['vocab', 'measure', 'synonym'], title = 'Wo
                 <span className="hz">{n.hanzi}</span>
                 <span className="grow">
                   <Pinyin text={n.pinyin} className="small" />
-                  <span className="mn" style={{ display: 'block' }}>
+                  <span
+                    className="mn"
+                    style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', whiteSpace: 'normal', overflow: 'hidden', overflowWrap: 'break-word' }}
+                  >
                     {meaning(n, lang).text}
                   </span>
                 </span>

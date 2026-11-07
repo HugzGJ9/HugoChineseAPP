@@ -61,6 +61,39 @@ export const cardId = (noteId: string, type: CardType) => `${noteId}#${type}`;
 export const noteOfCard = (id: string) => id.slice(0, id.lastIndexOf('#'));
 export const typeOfCard = (id: string) => id.slice(id.lastIndexOf('#') + 1) as CardType;
 
+/** Longest alias chain followed (a→b→c…); also stops cycles left by renames that were reverted. */
+const MAX_ALIAS_DEPTH = 10;
+
+/**
+ * Current note id for an id that may have been renamed in Excel (VocabFile.aliases).
+ * A current note id is never redirected (the rename was reverted); an id that leads to no current note stays as is.
+ */
+export function resolveNoteId(id: string, aliases: Record<string, string>, noteIds: Set<string>): string {
+  let cur = id;
+  for (let i = 0; i < MAX_ALIAS_DEPTH; i++) {
+    if (noteIds.has(cur)) return cur;
+    const next = aliases[cur];
+    if (next == null) return id;
+    cur = next;
+  }
+  return noteIds.has(cur) ? cur : id;
+}
+
+/**
+ * Events with their `card` pointed at the renamed note. A view for deriving cards and stats only: changed events are
+ * copies, the stored and uploaded events keep their original card ids.
+ */
+export function resolveEventCards(events: ReviewEvent[], aliases: Record<string, string>, noteIds: Set<string>): ReviewEvent[] {
+  if (!aliases || !Object.keys(aliases).length) return events;
+  const memo = new Map<string, string>();
+  return events.map((e) => {
+    const note = noteOfCard(e.card);
+    let to = memo.get(note);
+    if (to == null) memo.set(note, (to = resolveNoteId(note, aliases, noteIds)));
+    return to === note ? e : { ...e, card: `${to}#${typeOfCard(e.card)}` };
+  });
+}
+
 /** Stability given to words already studied in Excel ("known for about three weeks"). */
 export const SEED_STABILITY = 20;
 const SIBLING_SHIFT: Partial<Record<CardType, number>> = { recall: 0.5, listen: 0.25 };

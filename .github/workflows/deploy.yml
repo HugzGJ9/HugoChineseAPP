@@ -1,12 +1,12 @@
-# Builds the app and publishes it to GitHub Pages on every push to main.
+# Builds the app, checks it in a browser, and publishes it to GitHub Pages on every push to main.
 # One-time setup: Settings › Pages › Build and deployment › Source: GitHub Actions.
 name: Deploy to GitHub Pages
 
 on:
   push:
     branches: [main]
-    # Docs, agent files and browser scripts don't change the app.
-    paths-ignore: ['**.md', '.claude/**', 'e2e/**']
+    # Docs and agent files don't change the app.
+    paths-ignore: ['**.md', '.claude/**']
   workflow_dispatch:
 
 permissions:
@@ -21,6 +21,7 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -29,16 +30,70 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
-      # Downloads CFDICT (French meanings) and copies the stroke data, then builds into dist/.
+      # The French dictionary is cached per month. If the download fails and there is no cache, the build fails
+      # (CI is set) and the live site stays as it is.
+      - id: month
+        run: echo "ym=$(date +%Y-%m)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@v4
+        with:
+          path: public/dict
+          key: cfdict-${{ hashFiles('scripts/build-cfdict.mjs') }}-${{ steps.month.outputs.ym }}
+          restore-keys: cfdict-${{ hashFiles('scripts/build-cfdict.mjs') }}-
+      # Copies the stroke data, builds the dictionary, type-checks and builds into dist/.
       - run: npm run build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist
+          retention-days: 1
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v4
         with:
           path: dist
 
-  deploy:
+  # Browser checks on the built site, with a synthetic workbook (e2e/make_sample.py): no personal data in CI.
+  e2e:
     needs: build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: npm ci
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - run: pip install playwright openpyxl
+      - run: python -m playwright install --with-deps chromium
+      - name: Serve the build
+        run: |
+          npx vite preview --port 4175 &
+          for i in $(seq 1 30); do curl -sf http://localhost:4175/HugoChineseAPP/ >/dev/null && exit 0; sleep 1; done
+          echo "preview did not start"; exit 1
+      - name: Offline check
+        run: python e2e/offline.py
+        env:
+          HUGO_URL: http://localhost:4175/HugoChineseAPP/
+      - name: Sync check
+        run: |
+          python e2e/make_sample.py "$RUNNER_TEMP/sample.xlsx"
+          python e2e/sync.py
+        env:
+          HUGO_URL: http://localhost:4175/HugoChineseAPP/
+          HUGO_XLSX: ${{ runner.temp }}/sample.xlsx
+          E2E_OUT: ${{ runner.temp }}/e2e-out
+
+  deploy:
+    needs: [build, e2e]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}

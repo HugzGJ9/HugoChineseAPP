@@ -1,36 +1,55 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../lib/store';
 import { daily, forecast, groupCards, retention30, statusCounts, streak } from '../lib/stats';
 import { StatusPill, TopBar } from './common';
 
 function Bars({ values, labels, cls, title, extra }: { values: number[]; labels: string[]; cls: string; title: string; extra?: number[] }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [w, setW] = useState(600);
+  const [sel, setSel] = useState<number | null>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => setW(Math.max(240, Math.round(el.clientWidth)));
+    measure();
+    if (typeof ResizeObserver === 'undefined') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   const max = Math.max(1, ...values.map((v, i) => v + (extra?.[i] ?? 0)));
-  const w = 600;
-  const h = 160;
-  const pad = 24;
+  const h = 150;
+  const pad = 28;
   const bw = (w - pad) / values.length;
+  const step = Math.max(1, Math.ceil(52 / bw));
+  const text = (i: number) => `${labels[i]}: ${values[i] + (extra?.[i] ?? 0)}${extra ? ` (${extra[i]} new)` : ''}`;
   return (
-    <svg className="chart" viewBox={`0 0 ${w} ${h + 18}`} role="img" aria-label={title}>
-      <line x1={pad} x2={w} y1={h} y2={h} />
-      <text x={0} y={12}>{max}</text>
-      <text x={0} y={h}>0</text>
-      {values.map((v, i) => {
-        const bh = (v / max) * (h - 8);
-        const eh = ((extra?.[i] ?? 0) / max) * (h - 8);
-        return (
-          <g key={i}>
-            <title>{`${labels[i]}: ${v}${extra ? ` + ${extra[i]} new` : ''}`}</title>
-            <rect className={cls} x={pad + i * bw + 1} y={h - bh} width={Math.max(1, bw - 2)} height={bh} rx={2} />
-            {extra && eh > 0 && <rect className="bar-n" x={pad + i * bw + 1} y={h - bh - eh} width={Math.max(1, bw - 2)} height={eh} rx={2} />}
-            {(i === 0 || i === values.length - 1 || i % 7 === 0) && (
-              <text x={pad + i * bw + bw / 2} y={h + 14} textAnchor="middle">
-                {labels[i]}
-              </text>
-            )}
-          </g>
-        );
-      })}
-    </svg>
+    <div ref={ref}>
+      <p className="small chart-read" aria-live="polite">{sel == null ? 'Tap a bar to see its value.' : text(sel)}</p>
+      <svg className="chart" width={w} height={h + 22} viewBox={`0 0 ${w} ${h + 22}`} role="img" aria-label={title}>
+        <line x1={pad} x2={w} y1={h} y2={h} />
+        <text x={0} y={12}>{max}</text>
+        <text x={0} y={h}>0</text>
+        {values.map((v, i) => {
+          const bh = (v / max) * (h - 8);
+          const eh = ((extra?.[i] ?? 0) / max) * (h - 8);
+          const x = pad + i * bw;
+          return (
+            <g key={i} onClick={() => setSel(i)}>
+              <title>{text(i)}</title>
+              <rect x={x} y={0} width={bw} height={h} fill="transparent" />
+              <rect className={cls} x={x + 1} y={h - bh} width={Math.max(1, bw - 2)} height={bh} rx={2} opacity={sel == null || sel === i ? 1 : 0.45} />
+              {extra && eh > 0 && <rect className="bar-n" x={x + 1} y={h - bh - eh} width={Math.max(1, bw - 2)} height={eh} rx={2} opacity={sel == null || sel === i ? 1 : 0.45} />}
+              {i % step === 0 && (
+                <text x={Math.min(x + bw / 2, w - 20)} y={h + 16} textAnchor="middle">
+                  {labels[i]}
+                </text>
+              )}
+            </g>
+          );
+        })}
+      </svg>
+    </div>
   );
 }
 

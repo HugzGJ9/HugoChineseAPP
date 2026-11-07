@@ -17,7 +17,18 @@ function cssVar(name: string, fallback: string): string {
   return v || fallback;
 }
 
-export function WritePad({ word, guided, onDone }: { word: string; guided: boolean; onDone: (r: WriteResult) => void }) {
+export function WritePad({
+  word,
+  guided,
+  onDone,
+  onSkip,
+}: {
+  word: string;
+  guided: boolean;
+  onDone: (r: WriteResult) => void;
+  /** "I don't know" (caller grades Again) or "Show answer" (caller lets the user grade). */
+  onSkip?: (kind: 'unknown' | 'reveal') => void;
+}) {
   const chars = [...word].filter((c) => HAN.test(c));
   const [index, setIndex] = useState(0);
   const [mistakes, setMistakes] = useState<number[]>(() => chars.map(() => 0));
@@ -39,6 +50,7 @@ export function WritePad({ word, guided, onDone }: { word: string; guided: boole
     const el = host.current;
     if (!el || index >= chars.length) return;
     el.innerHTML = '';
+    let timer: ReturnType<typeof setTimeout> | undefined;
     const size = el.clientWidth || 220;
     const ch = chars[index];
     const w = HanziWriter.create(el, ch, {
@@ -68,13 +80,16 @@ export function WritePad({ word, guided, onDone }: { word: string; guided: boole
         setMistakes((m) => m.map((x, i) => (i === index ? s.totalMistakes : x)));
         if (guided && s.mistakesOnStroke === 3) totals.current.hints++;
       },
-      onComplete: () => setTimeout(next, 350),
+      onComplete: () => {
+        timer = setTimeout(next, 350);
+      },
     });
     function next() {
       if (index + 1 >= chars.length) onDone({ ...totals.current, missing: totals.current.missing });
       else setIndex(index + 1);
     }
     return () => {
+      clearTimeout(timer);
       writer.current = null;
       try {
         w.cancelQuiz();
@@ -117,6 +132,16 @@ export function WritePad({ word, guided, onDone }: { word: string; guided: boole
           </button>
         )}
       </div>
+      {onSkip && (
+        <div className="row">
+          <button type="button" className="btn grow" onClick={() => onSkip('unknown')}>
+            I don't know
+          </button>
+          <button type="button" className="btn grow" onClick={() => onSkip('reveal')}>
+            Show answer
+          </button>
+        </div>
+      )}
     </div>
   );
 }

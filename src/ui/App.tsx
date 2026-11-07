@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { applyUpdate, onUpdateReady } from '../lib/pwa';
 import { useApp } from '../lib/store';
 import { Icon, Toaster } from './common';
 import { Today } from './Today';
@@ -31,6 +32,24 @@ const TABS = [
   { id: 'stats', label: 'Stats', icon: 'stats' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
 ];
+
+function UpdateBanner() {
+  const [on, setOn] = useState(false);
+  useEffect(() => onUpdateReady(() => setOn(true)), []);
+  if (!on) return null;
+  return (
+    <div
+      className="notice ok row"
+      role="status"
+      style={{ position: 'fixed', top: 'calc(8px + env(safe-area-inset-top))', left: 12, right: 12, maxWidth: 420, margin: '0 auto', zIndex: 60, alignItems: 'center', boxShadow: '0 2px 10px rgba(0,0,0,.18)' }}
+    >
+      <span className="grow">New version.</span>
+      <button type="button" className="btn small" onClick={applyUpdate}>
+        Reload
+      </button>
+    </div>
+  );
+}
 
 export function App() {
   const ready = useApp((s) => s.ready);
@@ -78,7 +97,7 @@ export function App() {
             Hugo 中文
           </div>
           {TABS.map((t) => (
-            <a key={t.id} href={`#/${t.id}`} aria-current={page === t.id || (page === 'report' && t.id === 'settings') ? 'page' : undefined} className={t.id === 'settings' ? 'nav-settings' : undefined}>
+            <a key={t.id} href={`#/${t.id}`} aria-current={page === t.id || (page === 'report' && t.id === 'settings') ? 'page' : undefined} className={t.id === 'grammar' ? 'nav-grammar' : undefined}>
               <Icon name={t.icon} />
               <span>{t.label === 'Quick memory' ? 'Quick' : t.label}</span>
             </a>
@@ -86,6 +105,7 @@ export function App() {
         </nav>
       )}
       {view}
+      <UpdateBanner />
       <Toaster />
     </div>
   );

@@ -1,5 +1,6 @@
 """End-to-end: a computer (OneDrive folder simulated with OPFS) and an iPhone (iPhone 13 emulation) syncing through an
-in-memory stand-in for the GitHub API. Needs a real vocab file: HUGO_XLSX=/path/to/Hugo_chinese_vocab.xlsx.
+in-memory stand-in for the GitHub API. Uses HUGO_XLSX=/path/to/Hugo_chinese_vocab.xlsx when set, otherwise a synthetic
+workbook made by e2e/make_sample.py (no personal data).
 Screenshots and the progress workbook go to E2E_OUT (default e2e-out/, git-ignored: it holds personal data)."""
 import asyncio, base64, json, re, sys, os
 from urllib.parse import urlsplit
@@ -9,6 +10,11 @@ U = os.environ.get('HUGO_URL', 'http://localhost:4173/HugoChineseAPP/')
 ORIGIN = '{0.scheme}://{0.netloc}'.format(urlsplit(U))
 S = os.environ.get('E2E_OUT', 'e2e-out').rstrip('/') + '/'
 XLSX = os.environ.get('HUGO_XLSX', '')
+if not XLSX:
+    import subprocess
+    os.makedirs(S, exist_ok=True)
+    XLSX = S + 'sample.xlsx'
+    subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'make_sample.py'), XLSX], check=True)
 TOKEN = 'test-token-not-real'
 
 files = {}   # path -> (sha, bytes)
@@ -82,7 +88,7 @@ Object.defineProperty(IDBRequest.prototype, 'result', { get() {
 
 async def main():
     if not os.path.isfile(XLSX):
-        sys.exit('Set HUGO_XLSX to a copy of Hugo_chinese_vocab.xlsx (never commit it).')
+        sys.exit(f'HUGO_XLSX is not a file: {XLSX}')
     os.makedirs(S, exist_ok=True)
     errs = []
     async with async_playwright() as p:
@@ -111,6 +117,16 @@ async def main():
         await pg.click('text=Choose the OneDrive folder')
         await pg.wait_for_selector('.today-figure', timeout=30000)
         print('PC words:', await pg.inner_text('.today-figure'))
+
+        # Offline warm-up: stroke data of the imported words is saved in the background (cache API, no worker needed).
+        strokes = 0
+        for _ in range(40):
+            strokes = await pg.evaluate("caches.open('strokes').then(c => c.keys()).then(k => k.length)")
+            if strokes > 0: break
+            await pg.wait_for_timeout(500)
+        print('Stroke files cached by the warm-up:', strokes)
+        if strokes == 0:
+            errs.append('PC warm-up saved no stroke data')
 
         # Turn on sync (first device).
         await pg.goto(U + '#/settings')
@@ -195,7 +211,7 @@ async def main():
         print('API calls:', len(log))
         print('\n'.join(errs[:20]) or 'no console errors')
         await b.close()
-    ok = pc_events == ph_events and pc_events > 0
+    ok = pc_events == ph_events and pc_events > 0 and not any('warm-up' in e for e in errs)
     print('PASS' if ok else 'FAIL: devices disagree')
     sys.exit(0 if ok else 1)
 

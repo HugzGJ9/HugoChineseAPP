@@ -5,8 +5,9 @@ don't run `playwright install`.
 
 ```sh
 npm run build && npx vite preview --port 4173 &   # serves http://localhost:4173/HugoChineseAPP/
-python3 e2e/offline.py                            # service worker installs, offline reload works
-HUGO_XLSX=/path/to/Hugo_chinese_vocab.xlsx python3 e2e/sync.py
+python3 e2e/offline.py                            # service worker, dictionary warm-up, offline reload, update flow
+python3 e2e/sync.py                               # uses a synthetic workbook from make_sample.py
+HUGO_XLSX=/path/to/Hugo_chinese_vocab.xlsx python3 e2e/sync.py   # or a real file
 ```
 
 `sync.py` plays a computer and an iPhone (iPhone 13 emulation):
@@ -17,8 +18,11 @@ HUGO_XLSX=/path/to/Hugo_chinese_vocab.xlsx python3 e2e/sync.py
 
 It fakes the GitHub API in memory, so nothing is sent anywhere. It exits non-zero when the two devices disagree.
 
+- `make_sample.py OUT.xlsx` writes a made-up workbook (about 35 HSK 1 words, two green rows, one grammar sheet; needs
+  `openpyxl`). CI uses it, so nothing personal is involved. `sync.py` calls it when `HUGO_XLSX` is unset.
+- CI runs both scripts in the `e2e` job of `.github/workflows/deploy.yml`; a failure blocks the deploy.
 - `HUGO_URL` changes the app URL.
 - `E2E_OUT` changes the output folder (default `e2e-out/`). It holds screenshots and `progress-e2e.xlsx`, which show
   Hugo's words: it is git-ignored and must never be committed.
-- The real Excel file is never in the repo. Ask Hugo for a copy, or reuse one already in the session's scratchpad.
+- A real Excel file is never in the repo. Ask Hugo for a copy, or reuse one already in the session's scratchpad.
 - The only expected console error is the first 409 from the empty fake repository.

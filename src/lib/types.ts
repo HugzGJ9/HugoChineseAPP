@@ -65,6 +65,8 @@ export interface ReviewEvent {
   /** Answer mode: reveal, type-pinyin, type-hanzi, type-meaning, write-guided, write-free, choice, build, quick. */
   m: string;
   dev: string;
+  /** Month (YYYY-MM) of the sync file the event belongs to. Local only, never written into sync files. */
+  mo?: string;
 }
 
 /** Scheduling state of one card, derived from the note and its review events. */
@@ -111,6 +113,8 @@ export interface SheetReport {
 
 export interface VocabFile {
   version: 1;
+  /** Old note id → new note id, for words renamed in Excel (history follows the word). */
+  aliases?: Record<string, string>;
   importedAt: number;
   /** Device that imported the file. */
   device?: string;
@@ -122,4 +126,11 @@ export interface VocabFile {
   /** noteId → time the word was first imported as green. Keeps seeding identical on every device. */
   seeds: Record<string, number>;
   report: SheetReport[];
+}
+
+/** An import held back because it looks broken (many words gone, a sheet skipped). */
+export interface PendingImport {
+  vocab: VocabFile;
+  reasons: string[];
+  prevCount: number;
 }

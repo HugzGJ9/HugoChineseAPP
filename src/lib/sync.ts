@@ -8,9 +8,22 @@
 //
 // Every device replays all logs through the same scheduler, so they agree on every card.
 import { gunzipSync, gzipSync, strFromU8, strToU8 } from 'fflate';
-import { kvGet, kvSet, type Settings } from './db';
+import { db, kvGet, kvSet, type Settings } from './db';
 import { GitHubError, listFiles, readBlob, repoInfo, writeFile, type RepoLink } from './github';
-import { clearDirty, dirtyMonths, eventsOf, getState, mergeDeviceEvents, onLocalChange, setSync, setVocab, updateSettings } from './store';
+import {
+  clearDirty,
+  dirtyMonths,
+  getState,
+  hasOwnEvents,
+  mergeDeviceEvents,
+  onLocalChange,
+  ownMonthEvents,
+  rebuildAll,
+  renewDeviceId,
+  setSync,
+  setVocab,
+  updateSettings,
+} from './store';
 import type { Grade, ReviewEvent, VocabFile } from './types';
 
 export interface SyncLink extends RepoLink {
@@ -32,9 +45,22 @@ export function encodeEvents(device: string, month: string, events: ReviewEvent[
   return `{"device":${JSON.stringify(device)},"month":${JSON.stringify(month)},"fields":${JSON.stringify(FIELDS)},"events":[\n${rows.join(',\n')}\n]}\n`;
 }
 
+/** Columns are found through the file's `fields` header, so a later version may add or reorder them. */
 export function decodeEvents(text: string, device: string): ReviewEvent[] {
-  const j = JSON.parse(text) as { events: [string, string, number, number, number, string][] };
-  return j.events.map(([id, card, r, t, d, m]) => ({ id, card, r: r as Grade, t, d, m, dev: device }));
+  const j = JSON.parse(text) as { fields?: unknown; events?: unknown };
+  if (!Array.isArray(j.events)) throw new Error('no event list');
+  const fields: readonly string[] = Array.isArray(j.fields) && j.fields.every((f) => typeof f === 'string') ? (j.fields as string[]) : FIELDS;
+  const [ci, cc, cr, ct, cd, cm] = FIELDS.map((f) => fields.indexOf(f));
+  if (ci < 0 || cc < 0 || cr < 0 || ct < 0) throw new Error('missing columns');
+  return j.events.map((row: unknown, i) => {
+    const x = Array.isArray(row) ? (row as unknown[]) : [];
+    const [id, card, r, t, d, m] = [x[ci], x[cc], x[cr], x[ct], cd < 0 ? 0 : x[cd], cm < 0 ? '' : x[cm]];
+    if (typeof id !== 'string' || !id || typeof card !== 'string' || ![1, 2, 3, 4].includes(r as number) || typeof t !== 'number' || !Number.isFinite(t)) {
+      // Refuse the whole file rather than drop a row: merging a partial file would delete that review here.
+      throw new Error(`event ${i + 1} is malformed`);
+    }
+    return { id, card, r: r as Grade, t, d: typeof d === 'number' ? d : 0, m: typeof m === 'string' ? m : '', dev: device };
+  });
 }
 
 // ---------- sync key: what another device needs to join ----------
@@ -72,11 +98,23 @@ export async function linkRepo(repo: RepoLink): Promise<void> {
   }
   const link: SyncLink = { ...repo, owner: info.full_name.split('/')[0], name: info.full_name.split('/')[1], branch: info.default_branch || 'main', linkedAt: Date.now() };
   const files = await listFiles(link, link.branch);
-  const me = getState().device;
+  let me = getState().device;
+  if (idUsed(files, me)) {
+    // Either this device linked before, or another device drew the same id (older ids are short).
+    if (!(await hasOwnEvents())) {
+      do me = await renewDeviceId();
+      while (idUsed(files, me));
+    } else if (!(await isOurs(link, files, me))) {
+      throw new Error(
+        `Another device in this repository already uses the id ${me}. Linking would mix the two review logs, so it was stopped. Export your progress, then reset this device and link again.`,
+      );
+    }
+  }
   const path = `devices/${me}.json`;
   const body = JSON.stringify({ id: me, linkedAt: link.linkedAt, agent: typeof navigator !== 'undefined' ? navigator.userAgent : '' }, null, 1);
   // Writing this file proves the token can write.
   const sha = await writeFile(link, link.branch, path, strToU8(body), files.get(path), `${me}: linked`);
+  await kvSet('linkStamps', [...(await kvGet<number[]>('linkStamps', [])), link.linkedAt]);
   await kvSet('syncLink', link);
   await kvSet('syncShas', { [path]: sha });
   // Joining devices take the shared word list; the computer sends a newer one when it next reads the Excel file.
@@ -84,6 +122,37 @@ export async function linkRepo(repo: RepoLink): Promise<void> {
   setSync({ state: 'idle', repo: info.full_name, message: undefined });
   installTriggers();
   await syncNow();
+}
+
+function idUsed(files: Map<string, string>, id: string): boolean {
+  if (files.has(`devices/${id}.json`)) return true;
+  for (const p of files.keys()) if (p.startsWith(`events/${id}/`)) return true;
+  return false;
+}
+
+/** Whether the files under this id in the repository were written by this device (it linked before). */
+async function isOurs(link: SyncLink, files: Map<string, string>, id: string): Promise<boolean> {
+  const dev = files.get(`devices/${id}.json`);
+  if (dev) {
+    try {
+      const j = JSON.parse(strFromU8(await readBlob(link, dev))) as { linkedAt?: number };
+      if ((await kvGet<number[]>('linkStamps', [])).includes(j.linkedAt as number)) return true;
+    } catch (e) {
+      if (e instanceof GitHubError) throw e;
+    }
+  }
+  // Linked before link stamps existed: the latest review log under this id holds reviews stored here.
+  const logs = [...files.keys()].filter((p) => p.startsWith(`events/${id}/`)).sort();
+  const latest = logs[logs.length - 1];
+  if (!latest) return false;
+  try {
+    const evs = decodeEvents(strFromU8(await readBlob(link, files.get(latest)!)), id);
+    const here = await db.events.bulkGet(evs.map((e) => e.id));
+    return here.some((e) => e?.dev === id);
+  } catch (e) {
+    if (e instanceof GitHubError) throw e;
+    return false;
+  }
 }
 
 export async function unlinkRepo(): Promise<void> {
@@ -97,6 +166,21 @@ export async function unlinkRepo(): Promise<void> {
 let running: Promise<void> | null = null;
 let again = false;
 let pendingLocal = false;
+// After a failed sync, automatic syncs wait: 1, 2, 4… up to 30 minutes, or as long as GitHub asks.
+let failures = 0;
+let retryAt = 0;
+
+export function backoffDelay(failures: number, retryAfter?: number): number {
+  const minutes = Math.min(30, 2 ** Math.max(0, failures - 1));
+  return Math.max(minutes * 60000, retryAfter ?? 0);
+}
+
+/** One sync at a time across every tab of the app (Web Locks; iOS before 15.4 has none and runs directly). */
+function exclusive(fn: () => Promise<void>): Promise<void> {
+  const locks = typeof navigator !== 'undefined' ? (navigator as { locks?: LockManager }).locks : undefined;
+  if (!locks?.request) return fn();
+  return locks.request('hz-sync', fn) as Promise<void>;
+}
 
 /** Pull what the other devices wrote, then push this device's changes. Safe to call at any time. */
 export function syncNow(): Promise<void> {
@@ -108,7 +192,7 @@ export function syncNow(): Promise<void> {
     try {
       do {
         again = false;
-        await syncOnce();
+        await exclusive(syncOnce);
       } while (again);
     } finally {
       running = null;
@@ -127,25 +211,46 @@ async function syncOnce(): Promise<void> {
     setSync({ state: 'idle', message: 'Offline. Changes are kept and sent when the connection is back.' });
     return;
   }
+  const hadLocal = pendingLocal;
   pendingLocal = false;
   setSync({ state: 'running', repo: `${link.owner}/${link.name}` });
+  let report = newReport();
   try {
     try {
-      await pullAndPush(link);
+      await pullAndPush(link, report);
     } catch (e) {
       // Another device wrote the same file in the meantime: pull again and retry once.
-      if (e instanceof GitHubError && (e.status === 409 || e.status === 422)) await pullAndPush(link);
+      if (e instanceof GitHubError && (e.status === 409 || e.status === 422)) await pullAndPush(link, (report = newReport()));
       else throw e;
     }
     const last = Date.now();
     await kvSet('syncLast', last);
-    setSync({ state: 'idle', last, message: undefined });
+    failures = 0;
+    retryAt = 0;
+    setSync({
+      state: 'idle',
+      last,
+      message: undefined,
+      warnings: report.warnings.length ? report.warnings : undefined,
+      updateNeeded: report.updateNeeded || undefined,
+    });
   } catch (e) {
-    setSync({ state: 'error', message: (e as Error).message });
+    // Changes not sent yet stay queued (the dirty months are kept too), and automatic syncs back off.
+    pendingLocal ||= hadLocal;
+    failures++;
+    retryAt = Date.now() + backoffDelay(failures, e instanceof GitHubError ? e.retryAfter : undefined);
+    setSync({ state: 'error', message: (e as Error).message, warnings: report.warnings.length ? report.warnings : undefined });
   }
 }
 
-async function pullAndPush(link: SyncLink): Promise<void> {
+interface SyncReport {
+  warnings: string[];
+  updateNeeded: boolean;
+}
+const newReport = (): SyncReport => ({ warnings: [], updateNeeded: false });
+const why = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
+async function pullAndPush(link: SyncLink, report: SyncReport): Promise<void> {
   const me = getState().device;
   const remote = await listFiles(link, link.branch);
   const known = await kvGet<Record<string, string>>('syncShas', {});
@@ -157,47 +262,81 @@ async function pullAndPush(link: SyncLink): Promise<void> {
     await kvSet('syncShas', known);
   };
 
+  // Each remote file is read on its own: one that cannot be read is reported and retried at the next sync (its blob id
+  // is not recorded), and this device's changes are still sent. GitHub errors (network, token, rate limit) stop the sync.
+  const isolate = async (what: string, fn: () => Promise<void>) => {
+    try {
+      await fn();
+    } catch (e) {
+      if (e instanceof GitHubError) throw e;
+      report.warnings.push(`${what} could not be read (${why(e)}). It is tried again at the next sync.`);
+    }
+  };
+  let vocabTooNew = false;
+
   try {
     // 1. Word list.
     let vocabDirty = await kvGet<boolean>('vocabDirty', false);
     const vSha = remote.get(VOCAB_PATH);
     if (vSha && known[VOCAB_PATH] !== vSha) {
-      const v = JSON.parse(strFromU8(gunzipSync(await read(vSha)))) as VocabFile;
-      const local = getState().meta;
-      const keepLocal = vocabDirty && local && local.importedAt >= v.importedAt;
-      if (!keepLocal) {
-        await setVocab(v, true);
-        vocabDirty = false;
-        await kvSet('vocabDirty', false);
-      }
-      known[VOCAB_PATH] = vSha;
+      await isolate('The shared word list', async () => {
+        const v = JSON.parse(strFromU8(gunzipSync(await read(vSha)))) as VocabFile;
+        if (typeof v.version !== 'number' || (v.version as number) > 1) {
+          // Written by a newer app version: neither apply it nor overwrite it.
+          vocabTooNew = true;
+          report.updateNeeded = true;
+          report.warnings.push('Update the app to read this word list: it was saved by a newer version.');
+          return;
+        }
+        if (!Array.isArray(v.notes) || !v.seeds) throw new Error('no word list inside');
+        const local = getState().meta;
+        const keepLocal = vocabDirty && local && local.importedAt >= v.importedAt;
+        if (!keepLocal) {
+          await setVocab(v, true);
+          vocabDirty = false;
+          await kvSet('vocabDirty', false);
+        }
+        known[VOCAB_PATH] = vSha;
+      });
     }
 
     // 2. Settings: the most recent change wins.
     let settingsDirty = await kvGet<boolean>('settingsDirty', false);
     const sSha = remote.get(SETTINGS_PATH);
     if (sSha && known[SETTINGS_PATH] !== sSha) {
-      const rs = JSON.parse(strFromU8(await read(sSha))) as Settings;
-      if (!settingsDirty || rs.updatedAt > getState().settings.updatedAt) {
-        await updateSettings(rs, true);
-        settingsDirty = false;
-        await kvSet('settingsDirty', false);
-      }
-      known[SETTINGS_PATH] = sSha;
+      await isolate('The shared settings', async () => {
+        const rs = JSON.parse(strFromU8(await read(sSha))) as Settings;
+        if (!rs || typeof rs !== 'object' || typeof rs.updatedAt !== 'number') throw new Error('no settings inside');
+        if (!settingsDirty || rs.updatedAt > getState().settings.updatedAt) {
+          await updateSettings(rs, true);
+          settingsDirty = false;
+          await kvSet('settingsDirty', false);
+        }
+        known[SETTINGS_PATH] = sSha;
+      });
     }
 
-    // 3. Review logs of the other devices.
-    for (const [path, sha] of remote) {
-      const m = EVENTS_PATH.exec(path);
-      if (!m || m[1] === me || known[path] === sha) continue;
-      await mergeDeviceEvents(m[1], m[2], decodeEvents(strFromU8(await read(sha)), m[1]));
-      known[path] = sha;
+    // 3. Review logs of the other devices. Cards are rebuilt once, after every file is merged.
+    let merged = false;
+    try {
+      for (const [path, sha] of remote) {
+        const m = EVENTS_PATH.exec(path);
+        if (!m || m[1] === me || known[path] === sha) continue;
+        await isolate(`Reviews ${m[2]} of ${m[1]}`, async () => {
+          const evs = decodeEvents(strFromU8(await read(sha)), m[1]);
+          if (await mergeDeviceEvents(m[1], m[2], evs, { rebuild: false })) merged = true;
+          known[path] = sha;
+        });
+      }
+    } finally {
+      if (merged) rebuildAll();
     }
     await kvSet('syncShas', known);
 
-    // 4. This device's review log, month by month.
+    // 4. This device's review log, month by month, read from the database (it also holds reviews made in other tabs).
     for (const [month, stamp] of Object.entries(await dirtyMonths())) {
-      await write(eventsPath(me, month), strToU8(encodeEvents(me, month, eventsOf(me, month))), `${me}: reviews ${month}`);
+      const evs = await ownMonthEvents(month);
+      await write(eventsPath(me, month), strToU8(encodeEvents(me, month, evs)), `${me}: reviews ${month}`);
       await clearDirty(month, stamp);
     }
 
@@ -210,7 +349,7 @@ async function pullAndPush(link: SyncLink): Promise<void> {
 
     // 6. A word list imported here (or none in the repository yet).
     const { meta, notes } = getState();
-    if ((vocabDirty || !remote.has(VOCAB_PATH)) && meta) {
+    if ((vocabDirty || !remote.has(VOCAB_PATH)) && meta && !vocabTooNew) {
       const vf: VocabFile = { ...meta, notes };
       await write(VOCAB_PATH, gzipSync(strToU8(JSON.stringify(vf)), { level: 9 }), `${me}: words from ${meta.source.name}`);
       if (getState().meta?.hash === meta.hash) await kvSet('vocabDirty', false);
@@ -241,21 +380,28 @@ function installTriggers(): void {
   if (installed || typeof window === 'undefined') return;
   installed = true;
   const since = () => Date.now() - (getState().sync.last ?? 0);
+  // Automatic syncs wait out the back-off after a failure; the Sync button (syncNow) does not.
+  const auto = () => {
+    if (Date.now() >= retryAt) void syncNow();
+  };
   // Reviews and settings: upload after a short pause, so a session is not sent card by card.
   onLocalChange(() => {
     pendingLocal = true;
     clearTimeout(timer);
-    timer = setTimeout(() => void syncNow(), 20000);
+    timer = setTimeout(auto, 20000);
   });
-  window.addEventListener('online', () => void syncNow());
+  window.addEventListener('online', () => {
+    retryAt = 0;
+    void syncNow();
+  });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
-      if (pendingLocal) void syncNow();
+      if (pendingLocal) auto();
     } else if (since() > 60000) {
-      void syncNow();
+      auto();
     }
   });
   setInterval(() => {
-    if (document.visibilityState === 'visible' && (pendingLocal || since() > 10 * 60000)) void syncNow();
+    if (document.visibilityState === 'visible' && (pendingLocal || since() > 10 * 60000)) auto();
   }, 60000);
 }

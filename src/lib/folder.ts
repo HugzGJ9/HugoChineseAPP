@@ -4,7 +4,7 @@
 import { dayKey } from './engine/schedule';
 import { kvGet, kvSet } from './db';
 import { PROGRESS_FILE, progressWorkbook } from './progress';
-import { importBytes, summary } from './sources';
+import { importBytes, summary, wasRejected } from './sources';
 import { getState, onLocalChange, setFolder, subscribe } from './store';
 
 type Mode = { mode: 'read' | 'readwrite' };
@@ -69,6 +69,8 @@ export async function allowFolder(): Promise<void> {
 }
 
 let checking = false;
+/** name|modified|size of the last Excel file that was held for review, not applied. */
+let heldSig = '';
 
 /** Read the Excel file if it changed since the last import. */
 export async function checkFolder(force = false): Promise<void> {
@@ -93,10 +95,19 @@ export async function checkFolder(force = false): Promise<void> {
       return;
     }
     const src = getState().meta?.source;
-    if (force || !src || src.name !== file.name || src.modified !== file.lastModified || src.size !== file.size) {
-      const v = await importBytes(await file.arrayBuffer(), { name: file.name, modified: file.lastModified, size: file.size });
-      if (src) notify(`Words updated from Excel: ${summary(v)}`);
-      scheduleWrite(1000);
+    const sig = `${file.name}|${file.lastModified}|${file.size}`;
+    const changed = !src || src.name !== file.name || src.modified !== file.lastModified || src.size !== file.size;
+    // A held file is not read again until it changes (or Hugo links the folder again).
+    if (force || (changed && sig !== heldSig)) {
+      const o = await importBytes(await file.arrayBuffer(), { name: file.name, modified: file.lastModified, size: file.size });
+      if (o.applied) {
+        heldSig = '';
+        if (src) notify(`Words updated from Excel: ${summary(o)}`);
+        scheduleWrite(1000);
+      } else {
+        heldSig = sig;
+        if (!(await wasRejected(o.vocab))) notify(`${fileName} changed a lot, so the new word list is held for review. ${(o.reasons ?? []).join(' ')}`);
+      }
     }
     setFolder({ state: 'ok', name: dir.name, message: undefined, checked: Date.now() });
   } catch (e) {

@@ -1,8 +1,8 @@
 import { useMemo, useRef, useState } from 'react';
-import { useApp } from '../lib/store';
-import { buildQueue } from '../lib/engine/queue';
+import { getState, useApp } from '../lib/store';
+import { buildQueue, moreNew, reviewAhead } from '../lib/engine/queue';
 import { streak } from '../lib/stats';
-import { importFile, summary } from '../lib/sources';
+import { acceptPendingImport, importFile, rejectPendingImport, summary, type ImportOutcome } from '../lib/sources';
 import { formatAgo, Icon, LangSwitch, toast, TopBar, useNow } from './common';
 import { SetupSources } from './Setup';
 import { allowFolder } from '../lib/folder';
@@ -13,6 +13,14 @@ export function Today() {
   const q = useMemo(() => buildQueue([...cards.values()], noteMap, events, settings, now), [cards, noteMap, events, settings, now]);
   const fixes = meta?.issues.filter((i) => i.level === 'fix').length ?? 0;
   const days = useMemo(() => streak(events, now), [events, now]);
+
+  // Only needed once today's queue is empty.
+  const caughtUp = notes.length > 0 && q.cards.length === 0;
+  const more = useMemo(
+    () => (caughtUp ? moreNew([...cards.values()], noteMap, events, settings, now, 5) : []),
+    [caughtUp, cards, noteMap, events, settings, now],
+  );
+  const ahead = useMemo(() => (caughtUp ? reviewAhead([...cards.values()], noteMap, now, 20) : []), [caughtUp, cards, noteMap, now]);
 
   if (!notes.length && sync.state === 'running') {
     return (
@@ -28,6 +36,7 @@ export function Today() {
       <div className="main">
         <TopBar title="Hugo 中文" />
         <div className="stack-l">
+          <AppNotices />
           <p className="muted" style={{ maxWidth: '52ch' }}>
             Your words come from Hugo_chinese_vocab.xlsx. Choose how this device gets them; you only do this once.
           </p>
@@ -49,6 +58,7 @@ export function Today() {
         </a>
       </TopBar>
       <div className="stack-l">
+        <AppNotices />
         <section className="stack">
           <div className="today-figure">
             <span className="n">{total}</span>
@@ -73,7 +83,23 @@ export function Today() {
               Start
             </a>
           ) : (
-            <p className="notice ok">All caught up for today. Quick memory is always open for free practice.</p>
+            <>
+              <p className="notice ok">All caught up for today.</p>
+              {(more.length > 0 || ahead.length > 0) && (
+                <div className="stack" style={{ gap: 8 }}>
+                  {more.length > 0 && (
+                    <a className="btn primary block" href={cardsHref(more, more)}>
+                      Learn {more.length} more new
+                    </a>
+                  )}
+                  {ahead.length > 0 && (
+                    <a className="btn block" href={cardsHref(ahead)}>
+                      Review ahead ({ahead.length})
+                    </a>
+                  )}
+                </div>
+              )}
+            </>
           )}
           <p className="small muted">
             {days > 0 ? `${days}-day streak. ` : ''}
@@ -120,9 +146,99 @@ export function Today() {
   );
 }
 
+/** Review link for a custom list of cards; `fresh` marks the ones that are new words (for the intro screen). */
+function cardsHref(ids: string[], fresh: string[] = []): string {
+  const enc = (l: string[]) => l.map(encodeURIComponent).join(',');
+  return `#/review?cards=${enc(ids)}${fresh.length ? `&fresh=${enc(fresh)}` : ''}`;
+}
+
+/** Notices that matter on any screen with words: reload, newer app needed, held import. */
+export function AppNotices() {
+  const needsReload = useApp((s) => s.needsReload);
+  const updateNeeded = useApp((s) => s.sync.updateNeeded);
+  return (
+    <>
+      {needsReload && (
+        <div className="notice row wrap" role="status">
+          <span className="grow">The app was updated in another tab or window. Reload to keep working.</span>
+          <button type="button" className="btn small" onClick={() => location.reload()}>
+            Reload
+          </button>
+        </div>
+      )}
+      {updateNeeded && (
+        <div className="notice row wrap" role="status">
+          <span className="grow">Your words were saved by a newer version of the app. Reload to update.</span>
+          <button type="button" className="btn small" onClick={() => location.reload()}>
+            Update the app
+          </button>
+        </div>
+      )}
+      <PendingImportNotice />
+    </>
+  );
+}
+
+/** A new Excel list that looks broken is held here until Hugo chooses. */
+export function PendingImportNotice() {
+  const pending = useApp((s) => s.pendingImport);
+  const [busy, setBusy] = useState(false);
+  if (!pending) return null;
+  const run = async (fn: () => Promise<void>, done: string) => {
+    setBusy(true);
+    try {
+      await fn();
+      toast(done);
+    } catch (err) {
+      toast(`Couldn't do that: ${(err as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="notice bad stack" style={{ gap: 8 }} role="alert">
+      <b>New word list held for review</b>
+      <span>
+        The Excel file now has {pending.vocab.notes.length} words; the list in the app has {pending.prevCount}.
+      </span>
+      <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>
+        {pending.reasons.map((r) => (
+          <li key={r}>{r}</li>
+        ))}
+      </ul>
+      <div className="row wrap">
+        <button type="button" className="btn" disabled={busy} onClick={() => run(rejectPendingImport, 'Kept the current list')}>
+          Keep current list
+        </button>
+        <button type="button" className="btn primary" disabled={busy} onClick={() => run(acceptPendingImport, 'New list applied')}>
+          Use the new list
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ImportResult({ outcome }: { outcome: ImportOutcome }) {
+  const noteMap = getState().noteMap;
+  const renamed = Object.values(outcome.renames ?? {}).map((id) => noteMap.get(id)?.hanzi ?? id);
+  if (!outcome.applied) return <p className="notice">{summary(outcome)}</p>;
+  return (
+    <div className="notice ok stack" style={{ gap: 4 }}>
+      <span>{summary(outcome.vocab)}</span>
+      {renamed.length > 0 && (
+        <span className="small">
+          Renamed in Excel, history kept ({renamed.length}): <span className="zh">{renamed.slice(0, 12).join('、')}</span>
+          {renamed.length > 12 ? '…' : ''}
+        </span>
+      )}
+    </div>
+  );
+}
+
 export function FileImportButton({ label = 'Import the Excel file', primary = false }: { label?: string; primary?: boolean }) {
   const input = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState(false);
+  const [outcome, setOutcome] = useState<ImportOutcome | null>(null);
   return (
     <>
       <input
@@ -137,6 +253,7 @@ export function FileImportButton({ label = 'Import the Excel file', primary = fa
           setBusy(true);
           try {
             const v = await importFile(f);
+            setOutcome(v);
             toast(summary(v));
           } catch (err) {
             toast(`Couldn't read ${f.name}: ${(err as Error).message}`);
@@ -148,6 +265,7 @@ export function FileImportButton({ label = 'Import the Excel file', primary = fa
       <button type="button" className={`btn ${primary ? 'primary' : ''}`} disabled={busy} onClick={() => input.current?.click()}>
         {busy ? 'Reading…' : label}
       </button>
+      {outcome && <ImportResult outcome={outcome} />}
     </>
   );
 }

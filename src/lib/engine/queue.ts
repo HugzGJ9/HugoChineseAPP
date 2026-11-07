@@ -120,6 +120,33 @@ export function buildQueue(
   };
 }
 
+/**
+ * Next `n` new words beyond today's limit, for "Learn more" once the daily new words are done.
+ * Stateless: words introduced by an earlier "more" count as introduced, so each call returns the following ones.
+ */
+export function moreNew(cards: CardState[], notes: Map<string, Note>, events: ReviewEvent[], s: QueueSettings, now: number, n = 5): string[] {
+  const base = buildQueue(cards, notes, events, s, now);
+  let vocabIntro = 0;
+  for (const id of introducedToday(events, now)) if (notes.get(id)?.kind === 'vocab') vocabIntro++;
+  const wider = buildQueue(cards, notes, events, { ...s, newVocab: Math.max(s.newVocab, vocabIntro) + n }, now);
+  return wider.cards.filter((id) => wider.fresh.has(id) && !base.fresh.has(id));
+}
+
+/** Reviews due after today, soonest first, one card per word. Normal reviews: FSRS handles the early ones. */
+export function reviewAhead(cards: CardState[], notes: Map<string, Note>, now: number, limit = 20): string[] {
+  const end = addDays(dayStart(now), 1);
+  const seen = new Set<string>();
+  const out: string[] = [];
+  const list = cards.filter((c) => !c.locked && c.state !== 0 && c.due >= end && notes.has(c.note)).sort((a, b) => a.due - b.due);
+  for (const c of list) {
+    if (out.length >= limit) break;
+    if (seen.has(c.note)) continue;
+    seen.add(c.note);
+    out.push(c.id);
+  }
+  return out;
+}
+
 /** Where a card that is still in (re)learning goes back into the running session. */
 export function reinsertIndex(queue: string[], pos: number, dueIn: number): number {
   // Short steps come back after a few cards; longer ones at the end.

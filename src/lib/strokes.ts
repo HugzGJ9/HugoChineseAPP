@@ -1,6 +1,11 @@
 // Stroke data for Hanzi Writer, served from this site (public/hw, from hanzi-writer-data)
 // and cached by the service worker, so writing practice works offline.
 import { HAN } from './pinyin';
+import { pref, setPref } from './db';
+import { getState, subscribe } from './store';
+import { dictUrl } from './import';
+
+declare const __APP_VERSION__: string;
 
 const BASE = import.meta.env.BASE_URL;
 
@@ -70,4 +75,100 @@ export async function prefetchStrokes(chars: string[], onProgress?: (done: numbe
   };
   await Promise.all(Array.from({ length: 6 }, worker));
   return missing;
+}
+
+// ---------- offline warm-up ----------
+// After the first online launch (and after each new app version) save the French dictionary, then the stroke data
+// of Hugo's own words in idle batches of 50, so the import report and WritePad work offline without any tap.
+
+export interface WarmStatus {
+  phase: 'idle' | 'dict' | 'strokes' | 'done';
+  done: number;
+  total: number;
+}
+
+let status: WarmStatus = { phase: 'idle', done: 0, total: 0 };
+const statusListeners = new Set<() => void>();
+function setStatus(s: WarmStatus) {
+  status = s;
+  for (const l of statusListeners) l();
+}
+export const getWarmStatus = (): WarmStatus => status;
+export function onWarmStatus(l: () => void): () => void {
+  statusListeners.add(l);
+  return () => statusListeners.delete(l);
+}
+
+const idle = () =>
+  new Promise<void>((r) => {
+    const ric = (window as unknown as { requestIdleCallback?: (f: () => void, o?: { timeout: number }) => void }).requestIdleCallback;
+    if (ric) ric(() => r(), { timeout: 2000 });
+    else setTimeout(r, 200);
+  });
+
+let running = false;
+let again = false;
+const noData = new Set<string>();
+
+/** Characters of the vocabulary (grammar patterns have no stroke data worth keeping). */
+function ownChars(): string[] {
+  return uniqueChars(getState().notes.filter((n) => n.kind !== 'grammar').map((n) => n.hanzi + n.alts.join('')));
+}
+
+export async function warmOffline(): Promise<void> {
+  if (!('caches' in window) || !navigator.onLine) return;
+  if (running) {
+    again = true;
+    return;
+  }
+  running = true;
+  try {
+    const key = `warm.dict.${__APP_VERSION__}`;
+    if (!pref(key, false)) {
+      setStatus({ phase: 'dict', done: 0, total: 0 });
+      try {
+        const res = await fetch(dictUrl());
+        if (res.ok) {
+          await (await caches.open('dictionary')).put(dictUrl(), res);
+          setPref(key, true);
+        }
+      } catch {
+        // offline or blocked: tried again at the next launch
+      }
+    }
+    const all = ownChars().filter((c) => !noData.has(c));
+    const cache = await caches.open('strokes');
+    const todo: string[] = [];
+    for (const c of all) if (!(await cache.match(new URL(strokeUrl(c), location.href).href))) todo.push(c);
+    let done = 0;
+    for (let i = 0; i < todo.length && navigator.onLine; i += 50) {
+      setStatus({ phase: 'strokes', done, total: todo.length });
+      await idle();
+      const batch = todo.slice(i, i + 50);
+      await prefetchStrokes(batch);
+      for (const c of batch) if (!(await cache.match(new URL(strokeUrl(c), location.href).href))) noData.add(c);
+      done += batch.length;
+    }
+    setStatus({ phase: 'done', done, total: todo.length });
+  } finally {
+    running = false;
+    if (again) {
+      again = false;
+      void warmOffline();
+    }
+  }
+}
+
+/** Runs the warm-up now (the dictionary does not need words) and again whenever the word list changes (a sync can bring it in later). */
+export function startWarmOffline(): void {
+  let seen: unknown = null;
+  const run = () => {
+    const notes = getState().notes;
+    if (notes === seen) return;
+    seen = notes;
+    void warmOffline().catch(() => {});
+  };
+  subscribe(run);
+  window.addEventListener('online', () => ((seen = null), run()));
+  run();
 }

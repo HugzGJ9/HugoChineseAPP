@@ -8,7 +8,7 @@ import { speak } from '../lib/speech';
 import { cardId, DAY, noteStatus } from '../lib/engine/schedule';
 import { groupCards } from '../lib/stats';
 import { fnv1a } from '../lib/import/build';
-import { Meaning, Pinyin, toast, TopBar } from './common';
+import { LangSwitch, Meaning, Pinyin, toast, TopBar } from './common';
 
 type Layer = 'hz' | 'py' | 'mn';
 type Shown = Record<Layer, boolean>;
@@ -86,13 +86,7 @@ export function Quick() {
   return (
     <div className="main">
       <TopBar title="Quick memory">
-        <div className="seg" role="group" aria-label="Meaning language">
-          {(['en', 'fr'] as const).map((l) => (
-            <button key={l} type="button" aria-pressed={lang === l} onClick={() => setLang(l)}>
-              {l.toUpperCase()}
-            </button>
-          ))}
-        </div>
+        <LangSwitch />
       </TopBar>
       <div className="stack">
         <div className="qm-bar" role="group" aria-label="Show or hide">
@@ -134,6 +128,14 @@ export function Quick() {
             {seed ? 'Sheet order' : 'Shuffle'}
           </button>
           <span className="small muted">{list.length} words</span>
+          <div className="seg" role="group" aria-label="View">
+            <button type="button" aria-pressed={mode === 'list'} onClick={() => switchMode('list')}>
+              List
+            </button>
+            <button type="button" aria-pressed={mode === 'card'} onClick={() => switchMode('card')}>
+              Cards
+            </button>
+          </div>
         </div>
         {mode === 'list' ? (
           <QmList notes={list.slice(0, limit)} shown={shown} listen={listen} />
@@ -145,16 +147,6 @@ export function Quick() {
             Show more
           </button>
         )}
-        <div className="dock" style={{ display: 'flex', justifyContent: 'center' }}>
-          <div className="seg" role="group" aria-label="View">
-            <button type="button" aria-pressed={mode === 'list'} onClick={() => switchMode('list')}>
-              List
-            </button>
-            <button type="button" aria-pressed={mode === 'card'} onClick={() => switchMode('card')}>
-              Cards
-            </button>
-          </div>
-        </div>
       </div>
     </div>
   );

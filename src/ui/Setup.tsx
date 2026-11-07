@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import qrcode from 'qrcode-generator';
 import { useApp } from '../lib/store';
 import { allowFolder, checkFolder, folderSupported, linkFolder, unlinkFolder, writeProgress } from '../lib/folder';
@@ -6,7 +6,7 @@ import { PROGRESS_FILE } from '../lib/progress';
 import { decodeKey, encodeKey, getLink, linkRepo, syncNow, unlinkRepo } from '../lib/sync';
 import { parseRepo } from '../lib/github';
 import { formatAgo, toast, TopBar, useNow } from './common';
-import { FileImportButton } from './Today';
+import { FileImportButton, PendingImportNotice } from './Today';
 
 const DATA_REPO = 'HugoChineseData';
 
@@ -16,35 +16,58 @@ function isStandalone(): boolean {
 
 /** First-run choices for getting the words onto this device. */
 export function SetupSources({ linked = false }: { linked?: boolean }) {
+  // Computer (can open a folder): link the folder first. Phone: the sync key first. The other ways stay folded.
   const computer = folderSupported();
+  const folderPanel = (
+    <div className="panel stack">
+      <h2>Link your OneDrive folder</h2>
+      <p className="muted small">
+        Pick the folder that holds Hugo_chinese_vocab.xlsx. The app reads the file each time it changes and writes {PROGRESS_FILE} next to it. You can allow
+        access on every visit when the browser asks.
+      </p>
+      <LinkFolderButton label="Choose the OneDrive folder" primary />
+    </div>
+  );
+  const keyPanel = (
+    <div className="stack">
+      <h2>{computer ? 'Already set up on another device?' : 'Get your words from your computer'}</h2>
+      <p className="muted small">On the device that has your words, open Settings › Sync › Add another device, and paste the sync key here.</p>
+      <KeyForm />
+    </div>
+  );
+  const filePanel = (
+    <div className="stack">
+      <h2>Import the file by hand</h2>
+      <p className="muted small">
+        Pick Hugo_chinese_vocab.xlsx.
+        {!computer && ' On iPhone, choose it in the Files app (OneDrive appears under Browse once the OneDrive app is installed).'}
+      </p>
+      <div className="stack" style={{ gap: 8 }}>
+        <FileImportButton />
+      </div>
+    </div>
+  );
+  const fold = (title: string, body: ReactNode) => (
+    <details className="panel">
+      <summary style={{ minHeight: 44, display: 'flex', alignItems: 'center' }}>{title}</summary>
+      <div className="stack" style={{ marginTop: 8 }}>
+        {body}
+      </div>
+    </details>
+  );
+  if (computer) {
+    return (
+      <>
+        {folderPanel}
+        {!linked && fold('Already set up on another device?', keyPanel)}
+        {fold('Import the file by hand', filePanel)}
+      </>
+    );
+  }
   return (
     <>
-      {computer && (
-        <div className="panel stack">
-          <h2>Link your OneDrive folder</h2>
-          <p className="muted small">
-            Pick the folder that holds Hugo_chinese_vocab.xlsx, usually <code>C:\Users\you\OneDrive</code>. The app reads the file each time it changes and
-            writes {PROGRESS_FILE} next to it. You can allow access on every visit when the browser asks.
-          </p>
-          <LinkFolderButton label="Choose the OneDrive folder" primary />
-        </div>
-      )}
-      {!linked && (
-        <div className="panel stack">
-          <h2>{computer ? 'Already set up on another device?' : 'Get your words from your computer'}</h2>
-          <p className="muted small">On the device that has your words, open Settings › Sync › Add another device, and paste the sync key here.</p>
-          <KeyForm />
-        </div>
-      )}
-      <div className="panel stack">
-        <h2>Or import the file by hand</h2>
-        <p className="muted small">
-          Pick Hugo_chinese_vocab.xlsx. On iPhone, choose it in the Files app (OneDrive appears under Browse once the OneDrive app is installed).
-        </p>
-        <div>
-          <FileImportButton />
-        </div>
-      </div>
+      {!linked && <div className="panel">{keyPanel}</div>}
+      {fold('Import the file by hand', filePanel)}
     </>
   );
 }
@@ -81,6 +104,15 @@ function LinkFolderButton({ label, primary = false, small = false }: { label: st
 
 /** OneDrive folder link (computer). */
 export function SourceSettings() {
+  return (
+    <div className="stack">
+      <PendingImportNotice />
+      <SourceBody />
+    </div>
+  );
+}
+
+function SourceBody() {
   const folder = useApp((s) => s.folder);
   const fileName = useApp((s) => s.settings.fileName);
   const now = useNow(30000);
@@ -163,6 +195,19 @@ export function SyncSettings() {
         {sync.state === 'running' ? 'Syncing…' : `Synced with ${sync.repo} ${formatAgo(sync.last, now)}.`} This device is <b>{device}</b>.
       </p>
       {sync.message && <p className={`notice ${sync.state === 'error' ? 'bad' : ''}`}>{sync.message}</p>}
+      {sync.updateNeeded && (
+        <div className="notice row wrap">
+          <span className="grow">A newer version of the app saved your words. Update to read them.</span>
+          <button type="button" className="btn small" onClick={() => location.reload()}>
+            Update the app
+          </button>
+        </div>
+      )}
+      {sync.warnings?.map((w) => (
+        <p key={w} className="notice">
+          {w}
+        </p>
+      ))}
       <div className="row wrap">
         <button type="button" className="btn small" disabled={sync.state === 'running'} onClick={() => syncNow()}>
           Sync now
@@ -351,6 +396,10 @@ function RepoForm() {
         </li>
         <li>Fill in both below. The token stays on your devices and is only sent to GitHub.</li>
       </ol>
+      <p className="small muted">
+        Keep the token fine-grained, for this one repository, with an expiry date. If a phone is lost, revoke the token on GitHub and link your devices again
+        with a new one.
+      </p>
       <label className="field">
         <span className="small">Repository</span>
         <input type="text" value={repo} onChange={(e) => setRepo(e.target.value)} placeholder={`HugzGJ9/${DATA_REPO}`} autoCapitalize="off" autoCorrect="off" spellCheck={false} />

@@ -11,8 +11,15 @@ export class GitHubError extends Error {
   constructor(
     public status: number,
     message: string,
+    /** When GitHub says how long to wait (rate limit), in ms. */
+    public retryAfter?: number,
   ) {
     super(message);
+  }
+
+  /** Rate limited: wait before trying again. */
+  get rateLimited(): boolean {
+    return this.status === 429 || (this.status === 403 && this.retryAfter != null);
   }
 }
 
@@ -45,12 +52,23 @@ async function call<T>(link: RepoLink, path: string, init: RequestInit = {}): Pr
     } catch {
       // no JSON body
     }
-    throw new GitHubError(res.status, explain(res.status, detail));
+    const limited = res.status === 429 || (res.status === 403 && (/rate limit/i.test(detail) || res.headers.get('x-ratelimit-remaining') === '0'));
+    throw new GitHubError(res.status, explain(limited ? 429 : res.status, detail), limited ? waitFor(res.headers) : undefined);
   }
   return (await res.json()) as T;
 }
 
+/** How long GitHub asks us to wait, from `retry-after` (seconds) or `x-ratelimit-reset` (epoch seconds). Default 1 min. */
+function waitFor(h: Headers): number {
+  const after = Number(h.get('retry-after'));
+  if (after > 0) return after * 1000;
+  const reset = Number(h.get('x-ratelimit-reset'));
+  if (reset > 0) return Math.max(0, reset * 1000 - Date.now());
+  return 60000;
+}
+
 function explain(status: number, detail: string): string {
+  if (status === 429) return 'GitHub rate limit reached. Sync resumes in a few minutes.';
   if (status === 401) return 'GitHub refused the token. It may have expired: create a new one and link again.';
   if (status === 403 && /rate limit/i.test(detail)) return 'GitHub rate limit reached. Sync resumes in a few minutes.';
   if (status === 403) return 'The token cannot write to this repository. Give it "Contents: Read and write" on this repository.';
@@ -76,6 +94,10 @@ export async function listFiles(link: RepoLink, branch: string): Promise<Map<str
       link,
       `/git/trees/${encodeURIComponent(branch)}?recursive=1`,
     );
+    if (t.truncated) {
+      // A partial listing would make files look missing; refuse rather than sync against it.
+      throw new Error('The sync repository has too many files for GitHub to list at once. Sync is paused: use a fresh repository for sync.');
+    }
     return new Map(t.tree.filter((e) => e.type === 'blob').map((e) => [e.path, e.sha]));
   } catch (e) {
     // 409: "Git Repository is empty". 404: the branch has no commit yet.
