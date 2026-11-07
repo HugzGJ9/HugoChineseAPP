@@ -5,7 +5,7 @@ tools: Read, Grep, Glob, Bash, Write
 disallowedTools: Agent
 model: opus
 effort: max
-maxTurns: 40
+maxTurns: 90
 color: purple
 ---
 You are the architect of Hugo 中文. The project brief (CLAUDE.md) is already in your context: use its map instead of exploring.
