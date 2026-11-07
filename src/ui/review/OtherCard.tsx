@@ -17,6 +17,7 @@ export function OtherCard({
   onGrade,
   retention,
   start,
+  onExplain,
 }: {
   card: CardState;
   note: Note;
@@ -26,6 +27,7 @@ export function OtherCard({
   onGrade: (g: Grade) => void;
   retention: number;
   start: number;
+  onExplain?: () => void;
 }) {
   const notes = useApp((s) => s.notes);
   const ex = note.examples.find((e) => e.zh.includes(note.hanzi)) ?? note.examples[0];
@@ -106,14 +108,14 @@ export function OtherCard({
           </div>
         )}
         {answered?.check && <VerdictLine a={answered} lang="en" />}
-        {showAnswer && <OtherBack note={note} />}
+        {showAnswer && <OtherBack note={note} onExplain={onExplain} />}
       </div>
       {showAnswer && <GradeBar card={card} retention={retention} auto={answered?.auto} onGrade={onGrade} />}
     </>
   );
 }
 
-function OtherBack({ note }: { note: Note }) {
+function OtherBack({ note, onExplain }: { note: Note; onExplain?: () => void }) {
   return (
     <div className="back">
       {note.kind === 'grammar' ? (
@@ -139,6 +141,11 @@ function OtherBack({ note }: { note: Note }) {
           {ex.en && <div className="muted">{ex.en}</div>}
         </div>
       ))}
+      {onExplain && (
+        <button type="button" className="btn small" onClick={onExplain} title="Explain (E)">
+          Explain <span className="faint small">E</span>
+        </button>
+      )}
     </div>
   );
 }

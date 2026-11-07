@@ -7,6 +7,7 @@ don't run `playwright install`.
 npm run build && npx vite preview --port 4173 &   # serves http://localhost:4173/HugoChineseAPP/
 python3 e2e/offline.py                            # service worker, dictionary warm-up, offline reload, update flow
 python3 e2e/sync.py                               # uses a synthetic workbook from make_sample.py
+python3 e2e/explain.py                            # word panel, Settings key, "Explain more" (needs LEXICON_SAMPLE=1 build)
 HUGO_XLSX=/path/to/Hugo_chinese_vocab.xlsx python3 e2e/sync.py   # or a real file
 ```
 
@@ -23,7 +24,12 @@ It fakes the GitHub API in memory, so nothing is sent anywhere. It exits non-zer
 
 - `make_sample.py OUT.xlsx` writes a made-up workbook with the colour layout of the real file: HSK四级 (A-B coloured),
   HSK五级 (A-D coloured, blank rows) and a Grammar sheet; needs `openpyxl`. CI uses it, so nothing personal is involved. `sync.py` calls it when `HUGO_XLSX` is unset.
-- CI runs both scripts in the `e2e` job of `.github/workflows/deploy.yml`; a failure blocks the deploy.
+- `explain.py` needs a build made with `LEXICON_SAMPLE=1 npm run build` (synthetic dictionary and sentences). The Anthropic
+  API is mocked with `page.route` (models list and a canned SSE `tool_use` stream) and the key is a fake `sk-ant-test-…`:
+  no real key and no real request. It checks the panel on desktop and iPhone 13 emulation (bottom flush with the viewport,
+  16 px key input, no sideways scroll), the no-key message, the request headers, the cache on reopen, offline reload, and
+  that the key is not in `localStorage`.
+- CI runs the e2e scripts in the `e2e` job of `.github/workflows/deploy.yml`; a failure blocks the deploy.
 - `HUGO_URL` changes the app URL.
 - `E2E_OUT` changes the output folder (default `e2e-out/`). It holds screenshots and `copy-e2e.xlsx` (the workbook copy), which show
   Hugo's words: it is git-ignored and must never be committed.

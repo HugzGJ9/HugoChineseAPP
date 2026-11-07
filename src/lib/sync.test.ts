@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import Dexie from 'dexie';
-import { gzipSync } from 'fflate';
+import { gunzipSync, gzipSync } from 'fflate';
 import type { Note, ReviewEvent, StatusMark, VocabFile } from './types';
 import { fromBase64, toBase64 } from './github';
 import { latestMarks } from './engine/schedule';
@@ -71,8 +71,9 @@ async function device(idb = new IDBFactory()) {
   const store = await import('./store');
   const sync = await import('./sync');
   const db = await import('./db');
+  const explain = await import('./explain');
   await store.init();
-  return { store, sync, db, idb, id: store.getState().device };
+  return { store, sync, db, explain, idb, id: store.getState().device };
 }
 
 function note(i: number, over: Partial<Note> = {}): Note {
@@ -845,5 +846,175 @@ describe('shared preferences', () => {
     await pc.sync.syncNow();
     expect(pc.store.getState().settings.newVocab).toBe(4);
     expect(pc.store.getState().settings.prefs).toEqual({ lang: 'fr' });
+  });
+});
+
+describe('explanations', () => {
+  const KEY = 'sk-ant-test-sync-0000';
+  const ex5 = Array.from({ length: 5 }, (_, i) => ({ zh: `我们每天学习${i}个小时。`, pinyin: 'wǒmen …', tr: `example ${i}` }));
+  const X = (summary: string) => ({ summary, senses: [{ meaning: 'm' }], register: 'neutral', nuance: [], collocations: [], patterns: [], mistakes: [], examples: ex5 });
+  let claudeCalls = 0;
+  let nextSummary = 'first';
+
+  /** Anthropic's streamed answer with a forced tool call. */
+  function sse(input: unknown): Response {
+    const evs = [
+      { type: 'message_start', message: { model: 'claude-sonnet-5-5', usage: { input_tokens: 1600, output_tokens: 1 } } },
+      { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', name: 'word_explanation', input: {} } },
+      { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: JSON.stringify(input) } },
+      { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 1500 } },
+      { type: 'message_stop' },
+    ];
+    return new Response(evs.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(''), { status: 200 });
+  }
+
+  beforeEach(() => {
+    claudeCalls = 0;
+    vi.stubGlobal('fetch', async (input: string | URL, init: RequestInit = {}) => {
+      const url = new URL(String(input));
+      if (url.host === 'api.anthropic.com') {
+        expect((init.headers as Record<string, string>)['x-api-key']).toBe(KEY);
+        claudeCalls++;
+        return sse(X(nextSummary));
+      }
+      expect(url.host).toBe('api.github.com');
+      expect(JSON.stringify(init.body ?? '')).not.toContain('sk-ant');
+      return gh.fetch(input, init);
+    });
+  });
+
+  const explainFiles = () => [...gh.files.keys()].filter((p) => p.startsWith('explain/'));
+  const fileOf = (sync: { decodeExplain(b: Uint8Array): unknown[] }, path: string) => sync.decodeExplain(gh.files.get(path)!.bytes) as { k: string; at: number; x: { summary: string } }[];
+  const gz = (o: unknown) => gzipSync(new TextEncoder().encode(JSON.stringify(o)));
+  function putBytes(path: string, bytes: Uint8Array) {
+    const sha = `x${Math.random().toString(16).slice(2, 10)}`;
+    gh.files.set(path, { sha, bytes });
+    gh.blobs.set(sha, bytes);
+  }
+
+  it('one device explains, the other gets it without asking; no other file changes', async () => {
+    const pc = await device();
+    await pc.store.setVocab(vocab(4, T0));
+    await pc.sync.linkRepo(LINK);
+    const phone = await device();
+    await phone.sync.linkRepo(LINK);
+    await pc.store.recordReview('v:词2|ci2#recog', 3, 'reveal', 1000, T0 + 500);
+    await pc.store.setNoteStatus('v:词3|ci3', 'st:mastered', T0 + 600);
+    await pc.sync.syncNow();
+    const before = new Map([...gh.files].map(([p, f]) => [p, f.sha]));
+
+    const word = pc.store.getState().notes[1];
+    await pc.explain.setClaudeKey(KEY);
+    const e = await pc.explain.requestExplanation(word, 'fr');
+    expect(claudeCalls).toBe(1);
+    await pc.sync.syncNow();
+    const path = `explain/${pc.id}/${pc.db.monthKey(e.at)}.json.gz`;
+    expect(explainFiles()).toEqual([path]);
+    const bytes = gh.files.get(path)!.bytes;
+    expect([bytes[0], bytes[1]]).toEqual([0x1f, 0x8b]);
+    const j = JSON.parse(new TextDecoder().decode(gunzipSync(bytes)));
+    expect(j).toMatchObject({ device: pc.id, month: pc.db.monthKey(e.at), v: 1 });
+    expect(Object.keys(j.entries[0]).sort()).toEqual(['at', 'hz', 'k', 'lang', 'model', 'pv', 'py', 'u', 'x']);
+    expect(fileOf(pc.sync, path)).toEqual([{ k: `${word.id}|fr`, hz: word.hanzi, py: word.pinyin, lang: 'fr', at: e.at, model: 'claude-sonnet-5-5', pv: 1, u: [1600, 1500], x: e.x }]);
+    expect(new TextDecoder().decode(gunzipSync(bytes))).not.toContain('sk-ant');
+    expect(await pc.explain.dirtyExplainMonths()).toEqual({});
+    // Reviews, marks, settings and the word list are untouched.
+    for (const [p, sha] of before) expect(gh.files.get(p)?.sha).toBe(sha);
+
+    await phone.sync.syncNow();
+    const got = await phone.explain.getExplanation(word, 'fr');
+    expect(got).toMatchObject({ k: e.k, at: e.at, dev: pc.id });
+    expect(got?.x).toEqual(e.x);
+    expect(await phone.explain.getExplanation(word, 'en')).toBeNull();
+    expect((await phone.explain.requestExplanation(word, 'fr')).at).toBe(e.at);
+    expect(claudeCalls).toBe(1);
+    expect(phone.store.getState().events.map((x) => x.id)).toEqual(pc.store.getState().events.map((x) => x.id));
+    expect(snapshot(phone.store.getState().cards)).toEqual(snapshot(pc.store.getState().cards));
+    expect(phone.store.getState().marks.map((m) => m.a)).toEqual(['st:mastered']);
+    // The phone does not send the computer's explanation back, and a sync with no change commits nothing.
+    expect(explainFiles()).toEqual([path]);
+    expect(await phone.explain.ownExplanations(pc.db.monthKey(e.at))).toEqual([]);
+    const commits = gh.commits;
+    await pc.sync.syncNow();
+    await phone.sync.syncNow();
+    expect(gh.commits).toBe(commits);
+  });
+
+  it('the newest explanation wins, both ways', async () => {
+    const pc = await device();
+    await pc.store.setVocab(vocab(3, T0));
+    await pc.sync.linkRepo(LINK);
+    const phone = await device();
+    await phone.sync.linkRepo(LINK);
+    const word = pc.store.getState().notes[0];
+    await pc.explain.setClaudeKey(KEY);
+    await phone.explain.setClaudeKey(KEY);
+
+    nextSummary = 'pc 1';
+    await pc.explain.requestExplanation(word, 'en');
+    await pc.sync.syncNow();
+    await phone.sync.syncNow();
+    nextSummary = 'phone 2';
+    const p2 = await phone.explain.requestExplanation(word, 'en', { again: true });
+    await phone.sync.syncNow();
+    expect(explainFiles().sort()).toHaveLength(2);
+    await pc.sync.syncNow();
+    expect((await pc.explain.getExplanation(word, 'en'))?.x.summary).toBe('phone 2');
+    nextSummary = 'pc 3';
+    const p3 = await pc.explain.requestExplanation(word, 'en', { again: true });
+    expect(p3.at).toBeGreaterThan(p2.at);
+    await pc.sync.syncNow();
+    await phone.sync.syncNow();
+    expect((await phone.explain.getExplanation(word, 'en'))?.x.summary).toBe('pc 3');
+    expect((await pc.explain.getExplanation(word, 'en'))?.x.summary).toBe('pc 3');
+    // An older file read later changes nothing.
+    expect(await phone.explain.mergeExplanations('tablet-1', '2026-01', [{ ...p2, at: p2.at - 1 }])).toBe(false);
+  });
+
+  it('a file from a newer app version is not applied; a malformed entry is skipped; the rest syncs', async () => {
+    const pc = await device();
+    await pc.store.setVocab(vocab(3, T0));
+    await pc.sync.linkRepo(LINK);
+    const W = 'v:词1|ci1';
+    const good = { k: `${W}|en`, hz: '词1', py: 'cí', lang: 'en', at: T0, model: 'm', pv: 1, x: X('from tablet') };
+    putBytes('explain/tablet-1/2026-11.json.gz', gz({ device: 'tablet-1', month: '2026-11', v: 2, entries: [good] }));
+    putBytes('explain/tablet-2/2026-11.json.gz', gz({
+      device: 'tablet-2',
+      month: '2026-11',
+      v: 1,
+      entries: [{ ...good, k: 'v:词2|ci2|en', x: { summary: 'no examples' } }, { ...good, k: 'v:词0|ci0|xx' }, 'junk', { ...good, at: 'soon' }, { ...good, x: X('from tablet 2') }],
+    }));
+    putBytes('explain/tablet-3/2026-10.json.gz', new TextEncoder().encode('not gzip'));
+    putFile('marks/tablet-1/2026-11.json', pc.sync.encodeMarks('tablet-1', '2026-11', [{ id: 't1', note: W, a: 'suspend', t: T0 + 1, dev: 'tablet-1' }]));
+    const own = await pc.store.setNoteStatus('v:词2|ci2', 'known', T0 + 2000);
+    await pc.sync.syncNow();
+
+    const s = pc.store.getState();
+    expect(s.sync.state).toBe('idle');
+    expect(s.sync.updateNeeded).toBe(true);
+    expect(s.sync.warnings).toHaveLength(2);
+    expect(s.sync.warnings!.some((w) => /Update the app to read the explanations 2026-11 of tablet-1/.test(w))).toBe(true);
+    expect(s.sync.warnings!.some((w) => /Explanations 2026-10 of tablet-3 could not be read/.test(w))).toBe(true);
+    const shas = await pc.db.kvGet<Record<string, string>>('syncShas', {});
+    expect(Object.keys(shas)).not.toContain('explain/tablet-1/2026-11.json.gz');
+    expect(Object.keys(shas)).not.toContain('explain/tablet-3/2026-10.json.gz');
+    expect(Object.keys(shas)).toContain('explain/tablet-2/2026-11.json.gz');
+    const n1 = s.noteMap.get(W)!;
+    expect(await pc.explain.getExplanation(n1, 'en')).toMatchObject({ dev: 'tablet-2', x: { summary: 'from tablet 2' } });
+    expect(await pc.explain.getExplanation(s.noteMap.get('v:词2|ci2')!, 'en')).toBeNull();
+    expect((await pc.explain.explainUsage()).saved).toBe(1);
+    // The rest went through.
+    expect(s.cards.get(`${W}#recog`)?.suspended).toBe(true);
+    expect(JSON.parse(gh.text(`marks/${pc.id}/2026-11.json`)).marks.map((r: unknown[]) => r[0])).toEqual([own.id]);
+    expect(pc.sync.decodeExplain(pc.sync.encodeExplain('a', '2026-11', []))).toEqual([]);
+    expect(() => pc.sync.decodeExplain(gz({ v: 1 }))).toThrow(/no explanation list/);
+  });
+
+  it('linking sees an id used only by explanation files', async () => {
+    const phone = await device();
+    const old = phone.id;
+    putBytes(`explain/${old}/2026-10.json.gz`, phone.sync.encodeExplain(old, '2026-10', []));
+    await phone.sync.linkRepo(LINK);
+    expect(phone.store.getState().device).not.toBe(old);
   });
 });

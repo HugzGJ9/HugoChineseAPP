@@ -1,0 +1,43 @@
+# Tries the dictionary and example-sentence downloads (CFDICT, CC-CEDICT, Tatoeba) without deploying anything.
+# Run it by hand, or push a branch that touches scripts/. Never runs on main (deploy.yml builds the data there).
+name: Lexicon data check
+
+on:
+  workflow_dispatch:
+  push:
+    branches-ignore: [main]
+    paths: ['scripts/**', '.github/workflows/data.yml']
+
+permissions:
+  contents: read
+
+jobs:
+  data:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+      - name: Build the dictionaries
+        run: |
+          mkdir -p "$RUNNER_TEMP/out"
+          { node scripts/build-cfdict.mjs && node scripts/build-lexicon.mjs; } 2>&1 | tee "$RUNNER_TEMP/out/stats.log"
+          exit "${PIPESTATUS[0]}"
+      - name: Sizes
+        run: |
+          {
+            echo "--- sizes"; du -sb public/dict public/dict/w; ls public/dict/w | wc -l
+            echo "--- gzip total"; tar -cz -C public/dict w | wc -c
+            echo "--- index.json"; cat public/dict/w/index.json
+          } 2>&1 | tee -a "$RUNNER_TEMP/out/stats.log"
+          cp public/dict/w/index.json public/dict/w/SOURCES.txt "$RUNNER_TEMP/out/"
+          cp "$(ls public/dict/w/*.json | grep -v index | head -1)" "$RUNNER_TEMP/out/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lexicon-stats
+          path: ${{ runner.temp }}/out
+          retention-days: 7

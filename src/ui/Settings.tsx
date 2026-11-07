@@ -6,6 +6,8 @@ import { countCached, getWarmStatus, onWarmStatus, prefetchStrokes, uniqueChars 
 import { lastBackup, requestPersist, restoreBackup, saveBackupFile, storageStatus } from '../lib/backup';
 import { CFDICT_CREDIT } from '../lib/french';
 import { dictUrl } from '../lib/import';
+import { claudeKeyHint, ClaudeError, explainUsage, EXPLAIN_MODEL, onExplainChange, removeClaudeKey, setClaudeKey, testClaudeKey } from '../lib/explain';
+import { LEXICON_SHARDS, lexiconCached, lexiconMeta, prefetchLexicon } from '../lib/lexicon';
 import { formatAgo, LangSwitch, toast, TopBar } from './common';
 import { FileImportButton } from './Today';
 import { SourceSettings, SyncSettings } from './Setup';
@@ -76,13 +78,12 @@ export function Settings() {
           <p className="small muted">{CFDICT_CREDIT}.</p>
         </section>
 
+        <ClaudeSettings />
         <AudioSettings />
         <OfflineSettings />
 
         <DataSettings />
-        <p className="small faint center">
-          Stroke data: Hanzi Writer / Make Me a Hanzi. Scheduling: FSRS (ts-fsrs). Pinyin: pinyin-pro.
-        </p>
+        <AboutSection />
       </div>
     </div>
   );
@@ -309,6 +310,216 @@ function OfflineSettings() {
       <p className="small muted">
         French dictionary {dict ? 'saved on this device' : 'downloads on the first import'}.
       </p>
+      <LexiconOffline />
+    </section>
+  );
+}
+
+function LexiconOffline() {
+  const [c, setC] = useState<{ cached: number; total: number } | null>(null);
+  const [progress, setProgress] = useState<string | null>(null);
+  const warm = useSyncExternalStore(onWarmStatus, getWarmStatus);
+  const refresh = () => lexiconCached().then(setC, () => setC(null));
+  useEffect(() => void refresh(), [warm.phase, warm.done]);
+  const total = c?.total ?? LEXICON_SHARDS;
+  const done = c?.cached ?? 0;
+  return (
+    <>
+      <p className="small muted">
+        Dictionary and examples: {c ? done : '…'} of {total} parts on this device.
+        {warm.phase === 'lexicon' ? ' Saving in the background…' : ''}
+      </p>
+      {c && done < total && (
+        <div>
+          <button
+            type="button"
+            className="btn"
+            disabled={!!progress}
+            onClick={async () => {
+              const failed = await prefetchLexicon((d, t) => setProgress(`${d} / ${t}`));
+              setProgress(null);
+              await refresh();
+              toast(failed ? `${failed} parts could not be downloaded` : 'Dictionary saved for offline use');
+            }}
+          >
+            {progress ? `Downloading ${progress}` : 'Download dictionary and examples'}
+          </button>
+        </div>
+      )}
+    </>
+  );
+}
+
+function money(x: number): string {
+  return x < 0.01 ? 'under $0.01' : `$${x.toFixed(2)}`;
+}
+
+function ClaudeSettings() {
+  const [hint, setHint] = useState<{ hint: string; savedAt: number } | null | undefined>(undefined);
+  const [usage, setUsage] = useState<{ saved: number; mineThisMonth: number; costThisMonth: number } | null>(null);
+  const [value, setValue] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<{ text: string; bad?: boolean } | null>(null);
+  const refresh = () => {
+    claudeKeyHint().then(setHint, () => setHint(null));
+    explainUsage().then(setUsage, () => setUsage(null));
+  };
+  useEffect(() => {
+    refresh();
+    return onExplainChange(refresh);
+  }, []);
+  const fail = (err: unknown) => setNote({ text: err instanceof ClaudeError ? err.message : "Couldn't check the key.", bad: true });
+  const save = async () => {
+    const key = value.trim();
+    if (!key) return;
+    setBusy(true);
+    setNote(null);
+    try {
+      let msg = 'Key saved on this device.';
+      try {
+        const r = await testClaudeKey(key);
+        if (!r.checked) msg = "Key saved on this device. Couldn't check it.";
+        else if (r.modelListed === false) msg = `Key saved. It works, but ${EXPLAIN_MODEL} was not in its model list.`;
+        else msg = 'Key saved on this device and checked.';
+      } catch (err) {
+        if (err instanceof ClaudeError && err.kind === 'key') {
+          fail(err);
+          return;
+        }
+        msg = "Key saved on this device. Couldn't check it.";
+      }
+      await setClaudeKey(key);
+      setValue('');
+      setNote({ text: msg });
+      refresh();
+    } catch (err) {
+      fail(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  const test = async () => {
+    setBusy(true);
+    setNote(null);
+    try {
+      // The saved key is never read back into the page; test what was typed.
+      const r = await testClaudeKey(value.trim());
+      setNote({ text: r.checked ? 'The key works.' : "Couldn't check the key. Check the connection." });
+    } catch (err) {
+      fail(err);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <section className="panel stack" aria-labelledby="claude-h">
+      <h2 id="claude-h">Explanations by Claude</h2>
+      <p className="small muted">
+        Tap Explain more on a word to get a precise meaning, nuances, collocations and example sentences from Claude (Anthropic). It needs your own API key.
+      </p>
+      <ol className="small muted" style={{ paddingLeft: '1.2em', margin: 0 }}>
+        <li>
+          Go to console.anthropic.com › API keys › Create key. Name it "Hugo 中文" and the device, for example "Hugo 中文 iPhone".
+        </li>
+        <li>Add a little credit, then set a monthly spend limit (Settings › Limits).</li>
+        <li>Use one key per device, and paste it here. On iPhone, do this in the Home Screen app.</li>
+      </ol>
+      <p className="small muted">
+        Cost: about 2 to 3 cents per word, paid once, because each explanation is saved and shared between your devices. 300 words come to about $8.
+      </p>
+      {hint && (
+        <p className="small">
+          Saved on this device: <code>{hint.hint}</code>, {formatAgo(hint.savedAt)}.
+        </p>
+      )}
+      <label className="field">
+        <span className="small">{hint ? 'Replace the key' : 'Claude API key'}</span>
+        <input
+          type="password"
+          aria-label="Claude API key"
+          autoComplete="off"
+          autoCapitalize="off"
+          autoCorrect="off"
+          spellCheck={false}
+          placeholder="sk-ant-…"
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+        />
+      </label>
+      <div className="row wrap">
+        <button type="button" className="btn primary" disabled={busy || !value.trim()} onClick={save}>
+          Save key
+        </button>
+        <button type="button" className="btn" disabled={busy || !value.trim()} onClick={test}>
+          Test key
+        </button>
+        {hint && (
+          <button
+            type="button"
+            className="btn danger"
+            disabled={busy}
+            onClick={async () => {
+              if (!window.confirm('Remove the Claude key from this device?')) return;
+              await removeClaudeKey();
+              setNote({ text: 'Key removed from this device.' });
+              refresh();
+            }}
+          >
+            Remove key
+          </button>
+        )}
+      </div>
+      {note && (
+        <p className={`notice ${note.bad ? 'bad' : 'ok'}`} role="status">
+          {note.text}
+        </p>
+      )}
+      <p className="small muted">
+        The key stays on this device (it is not synced or backed up) and is only sent to api.anthropic.com. The words you explain are sent to Anthropic.
+      </p>
+      {usage && (
+        <p className="small muted">
+          This device this month: {usage.mineThisMonth} explanations, about {money(usage.costThisMonth)}. Saved explanations: {usage.saved}.
+        </p>
+      )}
+    </section>
+  );
+}
+
+const SOURCES: { name: string; use: string; licence: string; url: string }[] = [
+  { name: 'CC-CEDICT (MDBG)', use: 'English dictionary', licence: 'CC BY-SA 4.0', url: 'https://creativecommons.org/licenses/by-sa/4.0/' },
+  { name: 'CFDICT', use: 'French dictionary', licence: 'CC BY-SA 3.0', url: 'https://creativecommons.org/licenses/by-sa/3.0/' },
+  { name: 'Tatoeba', use: 'example sentences', licence: 'CC BY 2.0 FR', url: 'https://creativecommons.org/licenses/by/2.0/fr/' },
+  { name: 'Hanzi Writer / Make Me a Hanzi', use: 'stroke data', licence: 'open licences', url: 'https://github.com/skishore/makemeahanzi' },
+  { name: 'ts-fsrs', use: 'review scheduling (FSRS)', licence: 'MIT', url: 'https://github.com/open-spaced-repetition/ts-fsrs' },
+  { name: 'pinyin-pro', use: 'pinyin', licence: 'MIT', url: 'https://github.com/zh-lx/pinyin-pro' },
+];
+
+declare const __APP_VERSION__: string;
+
+function AboutSection() {
+  const [meta, setMeta] = useState<Awaited<ReturnType<typeof lexiconMeta>>>(null);
+  useEffect(() => {
+    lexiconMeta().then(setMeta, () => setMeta(null));
+  }, []);
+  return (
+    <section className="panel stack" aria-labelledby="about-h">
+      <h2 id="about-h">About</h2>
+      <p className="small muted">Hugo 中文, version {typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : 'dev'}.</p>
+      <ul className="small" style={{ paddingLeft: '1.2em', margin: 0 }}>
+        {SOURCES.map((s) => (
+          <li key={s.name}>
+            {s.name}: {s.use}.{' '}
+            <a href={s.url} target="_blank" rel="noopener noreferrer">
+              {s.licence}
+            </a>
+          </li>
+        ))}
+      </ul>
+      {meta && !meta.sample && (
+        <p className="small muted">Dictionary and examples built on {meta.built}, adapted: filtered and reformatted.</p>
+      )}
+      <p className="small muted">Explanations: Claude (Anthropic), with your own key.</p>
     </section>
   );
 }

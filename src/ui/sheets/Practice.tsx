@@ -1,11 +1,11 @@
 // Writing area for one row: type pinyin or hanzi, draw stroke by stroke, or use a free pad.
 // Practice never records review events and never changes the status by itself.
-import { useEffect, useRef, useState, type ReactNode } from 'react';
-import type { Note, WordStatus } from '../../lib/types';
+import { useEffect, useRef, useState } from 'react';
+import type { Note } from '../../lib/types';
 import { checkHanzi, checkPinyin, type Check } from '../../lib/engine/grade';
-import { AudioButton, Icon, Meaning, Pinyin } from '../common';
+import { AudioButton, Meaning, Pinyin } from '../common';
 import { StrokeAnimation, WritePad, type WriteResult } from '../WritePad';
-import { StatusPicker } from '../StatusPicker';
+import { Shell } from '../panel';
 import { ScratchPad } from './ScratchPad';
 import './practice.css';
 
@@ -16,57 +16,21 @@ function verdictText(c: Check): string {
   return c.verdict === 'right' ? 'Right' : c.verdict === 'tones' ? 'Right letters but wrong tones' : c.verdict === 'near' ? 'Almost' : 'Not quite';
 }
 
-/** Shared shell: dialog, Esc to close, focus moves in and returns on close. */
-function Shell({ title, onClose, children }: { title: string; onClose: () => void; children: ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const before = document.activeElement as HTMLElement | null;
-    ref.current?.focus({ preventScroll: true });
-    const key = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        e.preventDefault();
-        onClose();
-      }
-    };
-    document.addEventListener('keydown', key);
-    return () => {
-      document.removeEventListener('keydown', key);
-      before?.focus?.({ preventScroll: true });
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-  return (
-    <>
-      <div className="pp-backdrop" onClick={onClose} aria-hidden="true" />
-      <div className="pp-panel" role="dialog" aria-label={title} ref={ref} tabIndex={-1}>
-        <div className="pp-head">
-          <h2>{title}</h2>
-          <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
-            <Icon name="close" />
-          </button>
-        </div>
-        {children}
-      </div>
-    </>
-  );
-}
-
 export function ScratchPanel({ onClose }: { onClose: () => void }) {
   return (
-    <Shell title="Scratch pad" onClose={onClose}>
+    <Shell title="Scratch pad" label="Scratch pad" onClose={onClose}>
       <ScratchPad height={320} />
     </Shell>
   );
 }
 
-export function PracticePanel({ note, status, onStatus, onClose }: { note: Note; status: WordStatus; onStatus: (s: WordStatus) => void; onClose: () => void }) {
+/** The Practise tab: type pinyin or hanzi, draw, or a free pad. */
+export function PracticeBody({ note }: { note: Note }) {
   const grammar = note.kind === 'grammar';
   const modes: Mode[] = grammar ? ['free'] : ['pinyin', 'hanzi', 'draw', 'free'];
   const [mode, setMode] = useState<Mode>(modes[0]);
-  const details = `#/${grammar ? 'grammar' : 'words'}/${encodeURIComponent(note.id)}`;
-
   return (
-    <Shell title={`Practise ${note.hanzi}`} onClose={onClose}>
+    <>
       {modes.length > 1 && (
         <div className="modes" role="group" aria-label="Practice mode">
           {modes.map((m) => (
@@ -80,14 +44,7 @@ export function PracticePanel({ note, status, onStatus, onClose }: { note: Note;
       {mode === 'hanzi' && <TypeMode key={`h${note.id}`} kind="hanzi" note={note} />}
       {mode === 'draw' && <DrawMode key={`d${note.id}`} note={note} />}
       {mode === 'free' && <ScratchPad height={grammar ? 300 : 260} />}
-      <div className="pp-foot">
-        <div className="small muted">
-          <span id="pp-status-label">Set status</span>
-          <a href={details}>Details</a>
-        </div>
-        <StatusPicker value={status} onChange={onStatus} compact />
-      </div>
-    </Shell>
+    </>
   );
 }
 

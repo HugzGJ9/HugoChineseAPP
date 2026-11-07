@@ -130,6 +130,20 @@ describe('backup file', () => {
     expect(await d.backup.lastBackup()).toBe(j.exportedAt);
   });
 
+  it('never holds the Claude key nor the saved explanations', async () => {
+    const d = await filled();
+    const explain = await import('./explain');
+    await explain.setClaudeKey('sk-ant-test-backup-9z9z');
+    const x = { summary: 'meaning', senses: [], register: '', nuance: [], collocations: [], patterns: [], mistakes: [], examples: Array.from({ length: 3 }, () => ({ zh: '我学习。', pinyin: '', tr: 'EXPLAINED' })) };
+    await explain.mergeExplanations('iphone-1', '2026-11', [{ k: `${W}|en`, hz: '词1', py: 'cí', lang: 'en', at: T0, model: 'm', pv: 1, x }]);
+    const { bytes } = await d.backup.buildBackup();
+    const text = strFromU8(gunzipSync(bytes));
+    expect(text).not.toContain('sk-ant');
+    expect(text).not.toContain('claudeKey');
+    expect(text).not.toContain('EXPLAINED');
+    expect(text).not.toContain('explainDirty');
+  });
+
   it('a wiped device gets everything back, and its own months are sent again', async () => {
     const a = await filled();
     await vi.waitFor(() => expect(a.store.getState().settings.prefs?.lang).toBe('fr'), { timeout: 4000, interval: 100 });

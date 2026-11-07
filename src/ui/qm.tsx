@@ -4,6 +4,7 @@ import type { Note } from '../lib/types';
 import { pref, setPref } from '../lib/db';
 import { speak } from '../lib/speech';
 import { Meaning, Pinyin } from './common';
+import { inDialog } from './panel';
 
 export type Layer = 'hz' | 'py' | 'mn';
 export type Shown = Record<Layer, boolean>;
@@ -105,11 +106,13 @@ export function useShift(): boolean {
 type Item = { key: string; note: Note };
 
 export function QmList<T extends Item>({
-  items, shown, listen, lead, trail, rowClass, onKey, hidePinyin = false,
+  items, shown, listen, lead, trail, rowClass, onKey, onOpen, hidePinyin = false,
 }: {
   items: T[]; shown: Shown; listen: boolean;
   lead?: (it: T) => ReactNode; trail?: (it: T) => ReactNode; rowClass?: (it: T) => string;
   onKey?: (e: KeyboardEvent, it: T) => boolean; hidePinyin?: boolean;
+  /** Called when a shown hanzi is tapped (it is still spoken). */
+  onOpen?: (it: T) => void;
 }) {
   const [peek, setPeek] = useState<Record<string, boolean>>({});
   const [focus, setFocus] = useState(0);
@@ -119,7 +122,7 @@ export function QmList<T extends Item>({
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement)?.tagName;
-      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA' || inDialog(e)) return;
       if (e.ctrlKey || e.metaKey || e.altKey) return;
       const it = items[cur];
       if (e.key === 'ArrowDown') {
@@ -129,7 +132,7 @@ export function QmList<T extends Item>({
         e.preventDefault();
         setFocus(Math.max(0, cur - 1));
       } else if (e.key === ' ' && it) {
-        if ((e.target as HTMLElement)?.closest?.('[role="dialog"], [role="menu"]')) return;
+        if ((e.target as HTMLElement)?.closest?.('[role="menu"]')) return;
         e.preventDefault();
         setPeek((p) => ({ ...p, [it.key + ':all']: !p[it.key + ':all'] }));
       } else if ((e.key === 'a' || e.key === 'A') && it) speak(it.note.hanzi);
@@ -161,6 +164,7 @@ export function QmList<T extends Item>({
           onPeek={(k) => setPeek((p) => ({ ...p, [it.key + ':' + k]: !p[it.key + ':' + k] }))}
           onAll={(on) => setPeek((p) => ({ ...p, [it.key + ':all']: on }))}
           onFocus={() => setFocus(i)}
+          onOpen={onOpen ? () => onOpen(it) : undefined}
         />
       ))}
     </div>
@@ -168,19 +172,21 @@ export function QmList<T extends Item>({
 }
 
 function QmRow({
-  id, note, pk, shown, listen, all, peek, focused, extra, lead, trail, noPinyin, onPeek, onAll, onFocus,
+  id, note, pk, shown, listen, all, peek, focused, extra, lead, trail, noPinyin, onPeek, onAll, onFocus, onOpen,
 }: {
   id: string; note: Note; pk: string; shown: Shown; listen: boolean; all: boolean; peek: Record<string, boolean>; focused: boolean;
   extra: string; lead?: ReactNode; trail?: ReactNode; noPinyin: boolean;
-  onPeek: (k: Layer) => void; onAll: (on: boolean) => void; onFocus: () => void;
+  onPeek: (k: Layer) => void; onAll: (on: boolean) => void; onFocus: () => void; onOpen?: () => void;
 }) {
   const hold = useHold(onAll);
   const vis = (k: Layer) => all || shown[k] !== !!peek[pk + ':' + k];
   const tap = (k: Layer) => () => {
     if (hold.held.current) return;
     onFocus();
-    if (k === 'hz' && vis('hz')) speak(note.hanzi);
-    else onPeek(k);
+    if (k === 'hz' && vis('hz')) {
+      speak(note.hanzi);
+      onOpen?.();
+    } else onPeek(k);
   };
   // Buttons and menus in the lead and trail slots must not peek, hold or speak.
   const own = {

@@ -1,0 +1,84 @@
+# Synthetic sample in CC-CEDICT format, written for Hugo 中文 tests (not taken from CC-CEDICT).
+#! version=1
+#! subversion=0
+#! format=ts
+#! charset=UTF-8
+#! date=2026-11-01T00:00:00Z
+你好 你好 [ni3 hao3] /hello/hi there/
+謝謝 谢谢 [xie4 xie5] /thanks/thank you/
+再見 再见 [zai4 jian4] /goodbye/see you/
+請 请 [qing3] /please/to ask/to invite/
+對不起 对不起 [dui4 bu5 qi3] /sorry/excuse me/
+沒關係 没关系 [mei2 guan1 xi5] /it doesn't matter/never mind/
+我 我 [wo3] /I/me/
+我們 我们 [wo3 men5] /we/us/
+你 你 [ni3] /you/
+他 他 [ta1] /he/him/
+他們 他们 [ta1 men5] /they/them/
+她 她 [ta1] /she/her/
+們 们 [men5] /plural suffix for pronouns and people/
+是 是 [shi4] /to be/yes/
+不 不 [bu4] /not/no/
+有 有 [you3] /to have/there is/
+好 好 [hao3] /good/well/
+好 好 [hao4] /to be fond of/
+大 大 [da4] /big/large/
+小 小 [xiao3] /small/little/
+多 多 [duo1] /many/much/
+少 少 [shao3] /few/little/
+少 少 [shao4] /young/
+人 人 [ren2] /person/people/CL:個|个[ge4],位[wei4]/
+水 水 [Shui3] /surname Shui/
+水 水 [shui3] /water/CL:杯[bei1],瓶[ping2]/
+茶 茶 [cha2] /tea/CL:杯[bei1],壺|壶[hu2]/
+米飯 米饭 [mi3 fan4] /cooked rice/CL:碗[wan3]/
+飯 饭 [fan4] /meal/cooked rice/CL:頓|顿[dun4]/
+吃 吃 [chi1] /to eat/
+吃飯 吃饭 [chi1 fan4] /to have a meal/
+喝 喝 [he1] /to drink/
+看 看 [kan4] /to look at/to read/
+看書 看书 [kan4 shu1] /to read a book/
+說 说 [shuo1] /to speak/to say/
+說中 说中 [shuo1 zhong4] /to guess right (trap for tests)/
+會 会 [hui4] /can/will/meeting/
+去 去 [qu4] /to go/
+來 来 [lai2] /to come/
+今天 今天 [jin1 tian1] /today/
+明天 明天 [ming2 tian1] /tomorrow/
+學校 学校 [xue2 xiao4] /school/CL:所[suo3]/
+學習 学习 [xue2 xi2] /to learn/to study/
+學生 学生 [xue2 sheng5] /student/CL:個|个[ge4],名[ming2]/
+老師 老师 [lao3 shi1] /teacher/CL:個|个[ge4],位[wei4]/
+朋友 朋友 [peng2 you5] /friend/CL:個|个[ge4],位[wei4]/
+中國 中国 [Zhong1 guo2] /China/
+中文 中文 [Zhong1 wen2] /Chinese (language)/
+個 个 [ge4] /measure word for people and objects/
+本 本 [ben3] /root/measure word for books/
+書 书 [shu1] /book/CL:本[ben3]/
+樂 乐 [Le4] /surname Le/
+樂 乐 [le4] /happy/glad/
+樂 乐 [yue4] /music/
+快樂 快乐 [kuai4 le4] /happy/
+樂子 乐子 [le4 zi5] /fun/see also 快樂|快乐[kuai4 le4]/
+東西 东西 [dong1 xi1] /east and west/
+東西 东西 [dong1 xi5] /thing/stuff/CL:個|个[ge4],件[jian4]/
+張 张 [Zhang1] /surname Zhang/
+張 张 [zhang1] /to open/measure word for flat things/
+北京 北京 [Bei3 jing1] /Beijing/
+女 女 [nu:3] /woman/female/
+女兒 女儿 [nu:3 er2] /daughter/
+長 长 [chang2] /long/
+長 长 [zhang3] /to grow/chief/
+乾 干 [gan1] /dry/
+干 干 [gan1] /to concern/
+幹 干 [gan4] /to do/to work/
+漢字 汉字 [Han4 zi4] /Chinese character/CL:個|个[ge4]/
+喜歡 喜欢 [xi3 huan5] /to like/
+在 在 [zai4] /at/in/to be located/
+家 家 [jia1] /home/family/CL:個|个[ge4]/
+一起 一起 [yi1 qi3] /together/
+圖書館 图书馆 [tu2 shu1 guan3] /library/CL:家[jia1],個|个[ge4]/
+歡迎 欢迎 [huan1 ying2] /to welcome/
+想 想 [xiang3] /to think/to want/
+一 一 [yi1] /one/
+一二三四五六七八九 一二三四五六七八九 [yi1 er4 san1 si4 wu3 liu4 qi1 ba1 jiu3] /one to nine (too long, dropped)/

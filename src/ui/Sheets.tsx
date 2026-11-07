@@ -13,7 +13,8 @@ import { HomeNotices, NoWords } from './Today';
 import { LayerBar, QmList, useQmShown } from './qm';
 import { StatusChip, StatusPicker, STATUS_GLYPH } from './StatusPicker';
 import { FilterMenu, MoreMenu } from './sheets/Menus';
-import { PracticePanel, ScratchPanel } from './sheets/Practice';
+import { ScratchPanel } from './sheets/Practice';
+import { WordPanel, type PanelTab } from './word/WordPanel';
 
 type Filter = 'all' | WordStatus;
 const PAGE = 150;
@@ -44,7 +45,7 @@ export function Sheets() {
   const dq = useDeferredValue(q);
   const [limit, setLimit] = useState(PAGE);
   const [menu, setMenu] = useState<string | null>(null);
-  const [practice, setPractice] = useState<string | null>(null);
+  const [panel, setPanel] = useState<{ key: string; tab: PanelTab } | null>(null);
   const [scratch, setScratch] = useState(false);
   const [dlg, setDlg] = useState<'filter' | 'more' | null>(null);
   const [undo, setUndo] = useState<{ id: string; text: string } | null>(null);
@@ -110,7 +111,7 @@ export function Sheets() {
     return () => clearTimeout(t);
   }, [undo]);
 
-  const dialogOpen = !!menu || !!practice || scratch || !!dlg;
+  const dialogOpen = !!menu || !!panel || scratch || !!dlg;
 
   // Keys: 1 2 3 layers, L language, / search. Row keys (m k s u w) come through QmList.onKey.
   useEffect(() => {
@@ -139,8 +140,8 @@ export function Sheets() {
         void apply(row, s);
         return true;
       }
-      if (k === 'w') {
-        setPractice(row.key);
+      if (k === 'w' || k === 'e') {
+        setPanel({ key: row.key, tab: k === 'w' ? 'practise' : 'explain' });
         return true;
       }
       return false;
@@ -158,7 +159,7 @@ export function Sheets() {
   }
 
   const menuRow = menu ? all.find((r) => r.key === menu) : undefined;
-  const practiceRow = practice ? all.find((r) => r.key === practice) : undefined;
+  const panelRow = panel ? all.find((r) => r.key === panel.key) : undefined;
   const reviewIds = [...new Set(list.map((r) => r.note))]
     .slice(0, 100)
     .map((n) => cardId(n.id, n.kind === 'vocab' ? 'recog' : n.kind))
@@ -239,12 +240,13 @@ export function Sheets() {
             trail={(r) => (
               <>
                 <StatusChip status={r.status} onClick={() => (paint ? void apply(r, paint) : setMenu(r.key))} />
-                <button type="button" className="icon-btn" onClick={() => setPractice(r.key)} aria-label={`Practise ${r.note.hanzi}`} title="Practise (W)">
+                <button type="button" className="icon-btn" onClick={() => setPanel({ key: r.key, tab: 'practise' })} aria-label={`Practise ${r.note.hanzi}`} title="Practise (W)">
                   <Icon name="pen" />
                 </button>
               </>
             )}
             onKey={onRowKey}
+            onOpen={(r) => setPanel({ key: r.key, tab: 'explain' })}
           />
         )}
         {list.length > limit && (
@@ -264,8 +266,15 @@ export function Sheets() {
           onClose={() => setMenu(null)}
         />
       )}
-      {practiceRow && (
-        <PracticePanel note={practiceRow.note} status={practiceRow.status} onStatus={(s) => void apply(practiceRow, s)} onClose={() => setPractice(null)} />
+      {panel && panelRow && (
+        <WordPanel
+          key={`${panelRow.key}:${panel.tab}`}
+          note={panelRow.note}
+          tab={panel.tab}
+          status={panelRow.status}
+          onStatus={(s) => void apply(panelRow, s)}
+          onClose={() => setPanel(null)}
+        />
       )}
       {dlg === 'filter' && (
         <FilterMenu

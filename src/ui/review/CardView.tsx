@@ -11,6 +11,8 @@ import { WritePad } from '../WritePad';
 import { GradeBar } from './GradeBar';
 import { OtherCard } from './OtherCard';
 import { VocabBack } from './VocabBack';
+import { inDialog } from '../panel';
+import { WordPanel } from '../word/WordPanel';
 import { VerdictLine, coarse, type Answered, type Mode } from './shared';
 
 const MODES: Partial<Record<CardType, Mode[]>> = {
@@ -43,6 +45,7 @@ export function CardView({ cardId, fresh, onGraded }: { cardId: string; fresh: b
   const type = card?.type ?? 'recog';
   const [mode, setModeState] = useState<Mode>(() => pref<Mode>(`mode.${type}`, DEFAULT_MODE[type] ?? 'reveal'));
   const [answered, setAnswered] = useState<Answered | null>(fresh ? { mode: 'reveal', note: 'New' } : null);
+  const [explain, setExplain] = useState(false);
 
   const setMode = (m: Mode) => {
     setModeState(m);
@@ -62,7 +65,7 @@ export function CardView({ cardId, fresh, onGraded }: { cardId: string; fresh: b
   // Keyboard: Space/Enter reveal or accept, 1–4 grade, A audio. Held keys (repeat) are ignored.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.repeat) return;
+      if (e.repeat || inDialog(e)) return;
       const typing = (e.target as HTMLElement)?.tagName === 'INPUT';
       if (e.key === 'a' && !typing && note) speak(note.hanzi);
       if (!answered) {
@@ -73,6 +76,7 @@ export function CardView({ cardId, fresh, onGraded }: { cardId: string; fresh: b
         return;
       }
       if (typing) return;
+      if (e.key === 'e' && !e.ctrlKey && !e.metaKey && !e.altKey) setExplain(true);
       if (['1', '2', '3', '4'].includes(e.key)) grade(Number(e.key) as Grade);
       if ((e.key === ' ' || e.key === 'Enter') && answered.auto) {
         e.preventDefault();
@@ -146,6 +150,7 @@ export function CardView({ cardId, fresh, onGraded }: { cardId: string; fresh: b
 
   if (type === 'grammar' || type === 'measure' || type === 'synonym') {
     return (
+      <>
       <OtherCard
         card={card}
         note={note}
@@ -155,7 +160,10 @@ export function CardView({ cardId, fresh, onGraded }: { cardId: string; fresh: b
         onGrade={grade}
         retention={retention}
         start={start.current}
+        onExplain={() => setExplain(true)}
       />
+      {explain && <WordPanel key={note.id} note={note} tabs={['explain']} onClose={() => setExplain(false)} />}
+      </>
     );
   }
 
@@ -178,11 +186,12 @@ export function CardView({ cardId, fresh, onGraded }: { cardId: string; fresh: b
           <>
             {answered.check && <VerdictLine a={answered} lang={lang} />}
             {answered.note && !answered.check && answered.note !== 'New' && <p className="small muted">{answered.note}</p>}
-            <VocabBack note={note} type={type} />
+            <VocabBack note={note} type={type} onExplain={() => setExplain(true)} />
           </>
         )}
       </div>
       {answered && <GradeBar card={card} retention={retention} auto={answered.auto} onGrade={grade} />}
+      {explain && <WordPanel key={note.id} note={note} tabs={['explain']} onClose={() => setExplain(false)} />}
     </>
   );
 }

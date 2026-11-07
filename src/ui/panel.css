@@ -1,0 +1,25 @@
+/* Shared panel shell: bottom sheet on phones, right side panel on wide screens. */
+.pp-backdrop { position: fixed; inset: 0; z-index: 70; background: rgb(0 0 0 / 0.4); }
+.pp-panel {
+  position: fixed; z-index: 71; left: 0; right: 0; bottom: 0;
+  max-height: 92dvh; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+  background: var(--sheet); color: var(--ink); border-top: 1px solid var(--line);
+  border-radius: var(--radius-l) var(--radius-l) 0 0;
+  padding: 12px calc(16px + env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+  display: flex; flex-direction: column; gap: 12px; outline: none; overflow-wrap: anywhere;
+  box-shadow: 0 -8px 28px rgb(0 0 0 / 0.22);
+}
+.pp-head { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.pp-head h2 { flex: 1; min-width: 0; margin: 0; font-size: 1.05rem; }
+.pp-head .icon-btn, .pp-panel .icon-btn { min-width: 44px; min-height: 44px; }
+.pp-panel .btn { min-height: 44px; }
+.pp-panel .chip { min-height: 44px; }
+
+@media (min-width: 900px) {
+  .pp-backdrop { display: none; }
+  .pp-panel {
+    left: auto; top: 0; bottom: 0; width: 400px; max-height: none;
+    border-top: 0; border-left: 1px solid var(--line); border-radius: 0;
+    padding-bottom: 16px; box-shadow: -8px 0 28px rgb(0 0 0 / 0.15);
+  }
+}

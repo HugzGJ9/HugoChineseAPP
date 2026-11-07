@@ -6,7 +6,7 @@ import { speak } from '../../lib/speech';
 import { AudioButton, GridWord, Icon, Meaning, Pinyin } from '../common';
 import { StrokeAnimation } from '../WritePad';
 
-export function VocabBack({ note, type }: { note: Note; type?: CardType }) {
+export function VocabBack({ note, type, onExplain }: { note: Note; type?: CardType; onExplain?: () => void }) {
   const all = useApp((s) => s.notes);
   const groupWords = useMemo(() => (note.group ? all.filter((n) => n.group === note.group && n.id !== note.id) : []), [all, note]);
   const [strokes, setStrokes] = useState(false);
@@ -39,6 +39,11 @@ export function VocabBack({ note, type }: { note: Note; type?: CardType }) {
             <p key={i}>{n}</p>
           ))}
         </div>
+      )}
+      {onExplain && (
+        <button type="button" className="btn small" onClick={onExplain} title="Explain (E)">
+          Explain <span className="faint small">E</span>
+        </button>
       )}
       {strokes ? (
         <StrokeAnimation word={note.hanzi} size={120} />

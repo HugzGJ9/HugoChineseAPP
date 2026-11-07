@@ -30,15 +30,21 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
-      # The French dictionary is cached per month. If the download fails and there is no cache, the build fails
+      # Dictionary data is cached per month. If a download fails and there is no cache, the build fails
       # (CI is set) and the live site stays as it is.
       - id: month
         run: echo "ym=$(date +%Y-%m)" >> "$GITHUB_OUTPUT"
       - uses: actions/cache@v4
         with:
-          path: public/dict
+          path: public/dict/cfdict.tsv
           key: cfdict-${{ hashFiles('scripts/build-cfdict.mjs') }}-${{ steps.month.outputs.ym }}
           restore-keys: cfdict-${{ hashFiles('scripts/build-cfdict.mjs') }}-
+      # Lexicon shards (CC-CEDICT, CFDICT senses, Tatoeba examples).
+      - uses: actions/cache@v4
+        with:
+          path: public/dict/w
+          key: lexicon-${{ hashFiles('scripts/build-lexicon.mjs', 'scripts/lexicon-lib.mjs') }}-${{ steps.month.outputs.ym }}
+          restore-keys: lexicon-${{ hashFiles('scripts/build-lexicon.mjs', 'scripts/lexicon-lib.mjs') }}-
       # Copies the stroke data, builds the dictionary, type-checks and builds into dist/.
       - run: npm run build
       - uses: actions/upload-artifact@v4
@@ -85,6 +91,12 @@ jobs:
         run: |
           python e2e/make_sample.py "$RUNNER_TEMP/sample.xlsx"
           python e2e/sync.py
+        env:
+          HUGO_URL: http://localhost:4175/HugoChineseAPP/
+          HUGO_XLSX: ${{ runner.temp }}/sample.xlsx
+          E2E_OUT: ${{ runner.temp }}/e2e-out
+      - name: Explain check
+        run: python e2e/explain.py
         env:
           HUGO_URL: http://localhost:4175/HugoChineseAPP/
           HUGO_XLSX: ${{ runner.temp }}/sample.xlsx

@@ -9,6 +9,8 @@ import { AudioButton, formatDate, GridWord, LangSwitch, Meaning, Pinyin, StatusP
 import { StrokeAnimation } from './WritePad';
 import { normMeaning } from '../lib/engine/grade';
 import { StatusPicker } from './StatusPicker';
+import { ExplainView } from './word/ExplainView';
+import './word/word.css';
 
 const CARD_LABEL: Record<string, string> = { recog: 'Recognition', recall: 'Recall', listen: 'Listening', grammar: 'Grammar', measure: 'Measure word', synonym: 'Which word fits' };
 const MODE_LABEL: Record<string, string> = {
@@ -173,6 +175,9 @@ export function NoteDetail({ note }: { note: Note }) {
       </p>
       {note.kind !== 'grammar' &&
         (strokes ? <StrokeAnimation word={note.hanzi} size={110} /> : <button type="button" className="btn small" onClick={() => setStrokes(true)}>Stroke order</button>)}
+      <div className="divider" />
+      <h3>Explanation</h3>
+      <ExplainView note={note} inline />
       <div className="divider" />
       <h3>Your status</h3>
       <StatusPicker value={wordStatus} onChange={(st) => setStatus(STATUS_MARK[st], `Set to ${STATUS_LABEL[st]}`)} />

@@ -9,6 +9,8 @@ import { cardId, DAY } from '../lib/engine/schedule';
 import { noteStatuses, sheetRows, STATUS_LABEL, WORD_STATUSES } from '../lib/status';
 import { fnv1a } from '../lib/import/build';
 import { LangSwitch, Pinyin, toast, TopBar } from './common';
+import { inDialog } from './panel';
+import { WordPanel } from './word/WordPanel';
 import { LayerBar, QmList, useQmShown, useShift, type Layer, type Shown } from './qm';
 
 type Filter = 'all' | `st:${WordStatus}` | 'week' | 'missed';
@@ -24,6 +26,7 @@ export function Quick() {
   const [filter, setFilter] = useState<Filter>(() => readFilter(pref('qm.filter', 'all')));
   const [seed, setSeed] = useState<string>('');
   const [limit, setLimit] = useState(100);
+  const [open, setOpen] = useState<Note | null>(null);
 
   const tags = useMemo(() => [...new Set(notes.filter((n) => n.kind === 'vocab').flatMap((n) => n.tags))], [notes]);
   const list = useMemo(() => {
@@ -49,7 +52,7 @@ export function Quick() {
   // Keys: 1 2 3 layers, L language, Tab list/card.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'SELECT') return;
+      if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'SELECT' || inDialog(e)) return;
       if (e.key === '1') toggle('hz');
       else if (e.key === '2') toggle('py');
       else if (e.key === '3') toggle('mn');
@@ -108,9 +111,9 @@ export function Quick() {
           </div>
         </div>
         {mode === 'list' ? (
-          <QmList items={list.slice(0, limit).map((n) => ({ key: n.id, note: n }))} shown={shown} listen={listen} />
+          <QmList items={list.slice(0, limit).map((n) => ({ key: n.id, note: n }))} shown={shown} listen={listen} onOpen={(it) => setOpen(it.note)} />
         ) : (
-          <QmCards key={seed + tag + filter} notes={list} shown={shown} listen={listen} />
+          <QmCards key={seed + tag + filter} notes={list} shown={shown} listen={listen} onExplain={setOpen} />
         )}
         {mode === 'list' && list.length > limit && (
           <button type="button" className="btn" onClick={() => setLimit(limit + 200)}>
@@ -118,11 +121,12 @@ export function Quick() {
           </button>
         )}
       </div>
+      {open && <WordPanel key={open.id} note={open} tabs={['explain']} onClose={() => setOpen(null)} />}
     </div>
   );
 }
 
-function QmCards({ notes, shown, listen }: { notes: Note[]; shown: Shown; listen: boolean }) {
+function QmCards({ notes, shown, listen, onExplain }: { notes: Note[]; shown: Shown; listen: boolean; onExplain: (n: Note) => void }) {
   const [order, setOrder] = useState<Note[]>(notes);
   const [i, setI] = useState(0);
   const [peek, setPeek] = useState<Record<string, boolean>>({});
@@ -151,7 +155,7 @@ function QmCards({ notes, shown, listen }: { notes: Note[]; shown: Shown; listen
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'SELECT') return;
+      if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'SELECT' || inDialog(e)) return;
       if (e.key === 'ArrowRight') answer(true);
       else if (e.key === 'ArrowLeft') answer(false);
       else if (e.key === ' ') {
@@ -248,6 +252,11 @@ function QmCards({ notes, shown, listen }: { notes: Note[]; shown: Shown; listen
           {vis('mn') ? meaning(n, lang).text : <span className="bar w-mn" />}
         </button>
       </div>
+      {vis('hz') && vis('mn') && (
+        <button type="button" className="btn block" onClick={() => onExplain(n)}>
+          Explain
+        </button>
+      )}
       <div className="grades" style={{ gridTemplateColumns: '1fr 1fr' }}>
         <button type="button" className="g1" onClick={() => answer(false)}>
           Missed <small>← or swipe left</small>

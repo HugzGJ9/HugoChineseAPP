@@ -4,6 +4,7 @@ import { HAN } from './pinyin';
 import { pref, setPref } from './db';
 import { getState, subscribe } from './store';
 import { dictUrl } from './import';
+import { prefetchLexicon } from './lexicon';
 
 declare const __APP_VERSION__: string;
 
@@ -80,9 +81,11 @@ export async function prefetchStrokes(chars: string[], onProgress?: (done: numbe
 // ---------- offline warm-up ----------
 // After the first online launch (and after each new app version) save the French dictionary, then the stroke data
 // of Hugo's own words in idle batches of 50, so the import report and WritePad work offline without any tap.
+// Last, the lexicon shards (dictionary + examples) missing from the cache, in idle batches of 8; checked at each launch
+// and skipped when the build has no lexicon (index.json 404).
 
 export interface WarmStatus {
-  phase: 'idle' | 'dict' | 'strokes' | 'done';
+  phase: 'idle' | 'dict' | 'strokes' | 'lexicon' | 'done';
   done: number;
   total: number;
 }
@@ -148,6 +151,17 @@ export async function warmOffline(): Promise<void> {
       await prefetchStrokes(batch);
       for (const c of batch) if (!(await cache.match(new URL(strokeUrl(c), location.href).href))) noData.add(c);
       done += batch.length;
+    }
+    if (navigator.onLine) {
+      try {
+        await prefetchLexicon((d, t) => t && setStatus({ phase: 'lexicon', done: d, total: t }), {
+          batch: 8,
+          pause: idle,
+          online: () => navigator.onLine,
+        });
+      } catch {
+        // tried again at the next launch
+      }
     }
     setStatus({ phase: 'done', done, total: todo.length });
   } finally {

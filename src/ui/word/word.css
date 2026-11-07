@@ -1,0 +1,43 @@
+/* Word panel: tabs, dictionary, Claude's explanation, examples. Tokens only, so light and dark both work. */
+.wp-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; min-width: 0; }
+.wp-hz { font-size: 1.6rem; line-height: 1.2; }
+.wp-py { font-size: 1rem; font-weight: 500; }
+.wp-tabs { display: flex; gap: 8px; }
+.wp-tabs .chip { flex: 1; justify-content: center; }
+
+.wx { display: flex; flex-direction: column; gap: 16px; min-width: 0; text-align: left; }
+.wx-sec { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.wx h3 { margin: 0; font-size: 0.8rem; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-3); }
+.wx h4 { margin: 8px 0 0; font-size: 0.9rem; }
+.wx p { margin: 0; }
+.wx-sech { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.wx-pychip { min-height: 44px; }
+.wx-senses { margin: 0; padding-left: 1.3em; display: flex; flex-direction: column; gap: 4px; }
+.wx-reading { display: flex; flex-direction: column; gap: 4px; }
+.wx-rpy { font-size: 1.05rem; }
+.wx-measure { display: flex; flex-direction: column; gap: 4px; }
+.wx-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.wx-chip { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; padding: 0 10px; border-radius: 999px; background: var(--sheet-2); }
+.wx-other summary { min-height: 44px; }
+.wx-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 12px; }
+.wx-list li { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; max-width: 100%; }
+.wx-zh {
+  display: block; width: 100%; min-height: 44px; padding: 4px 0; border: 0; background: none; color: var(--ink);
+  text-align: left; font-size: 1.2rem; line-height: 1.5; cursor: pointer; overflow-wrap: anywhere;
+}
+.wx-tr { color: var(--ink-2); }
+.wx-sub { width: 100%; padding-left: 10px; border-left: 2px solid var(--line); }
+.wx-src { display: inline-flex; align-items: center; min-height: 44px; color: var(--ink-3); }
+.wx-summary { font-size: 1.02rem; }
+.wx-claude { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: var(--radius-m); background: var(--sheet-2); min-width: 0; }
+.wx-check { padding: 8px 10px; border-radius: var(--radius-m); background: var(--blue-soft); }
+.wx-wrong { color: var(--seal); }
+.wx-right { color: var(--jade); }
+.wx-run { display: flex; flex-direction: column; gap: 6px; }
+.wx-ask { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.wx-err { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: var(--radius-m); background: var(--seal-soft); color: var(--seal); }
+.wx-err a { color: inherit; text-decoration: underline; }
+.wx-link { min-height: 44px; padding: 0; border: 0; background: none; color: var(--ink); text-decoration: underline; }
+.wx-link:disabled { opacity: 0.5; }
+.wx-foot { margin-top: 2px; }
+.wx.inline { gap: 14px; }

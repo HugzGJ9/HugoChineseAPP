@@ -5,11 +5,13 @@
 //   settings.json                  study settings shared by every device (newest wins)
 //   events/<device>/<YYYY-MM>.json each device's own review log, one file per month; only that device writes it
 //   marks/<device>/<YYYY-MM>.json  each device's own status marks ("I know this", "Suspend"…), same rules as the logs
+//   explain/<device>/<YYYY-MM>.json.gz  each device's own saved Claude explanations (gzipped), same rules; a cache
 //   devices/<device>.json          written when a device links
 //
 // Every device replays all logs through the same scheduler, so they agree on every card.
 import { gunzipSync, gzipSync, strFromU8, strToU8 } from 'fflate';
 import { db, kvGet, kvSet, type Settings } from './db';
+import { clearExplainDirty, dirtyExplainMonths, mergeExplanations, normalizeExplanation, ownExplanations, type ExplainEntry } from './explain';
 import { GitHubError, listFiles, readBlob, repoInfo, writeFile, type RepoLink } from './github';
 import {
   clearDirty,
@@ -42,6 +44,8 @@ const EVENTS_PATH = /^events\/([A-Za-z0-9_-]+)\/(\d{4}-\d{2})\.json$/;
 export const eventsPath = (device: string, month: string) => `events/${device}/${month}.json`;
 const MARKS_PATH = /^marks\/([A-Za-z0-9_-]+)\/(\d{4}-\d{2})\.json$/;
 export const marksPath = (device: string, month: string) => `marks/${device}/${month}.json`;
+export const EXPLAIN_PATH = /^explain\/([A-Za-z0-9_-]+)\/(\d{4}-\d{2})\.json\.gz$/;
+export const explainPath = (device: string, month: string) => `explain/${device}/${month}.json.gz`;
 
 // ---------- review log files ----------
 
@@ -109,6 +113,63 @@ export function decodeMarks(text: string, device: string): StatusMark[] {
   });
 }
 
+// ---------- explanation files ----------
+
+const EXPLAIN_VERSION = 1;
+
+/** An explanations file written by a newer app version: not applied (and its blob id not recorded) until this app is updated. */
+export class ExplainTooNewError extends Error {
+  constructor(v: number) {
+    super(`saved by a newer app version (format ${v})`);
+    this.name = 'ExplainTooNewError';
+  }
+}
+
+/** Only the synced fields, in a fixed order (never the local dev / mo / own). */
+function explainRow(e: ExplainEntry): ExplainEntry {
+  return { k: e.k, hz: e.hz, py: e.py, lang: e.lang, at: e.at, model: e.model, pv: e.pv, ...(e.u ? { u: e.u } : {}), x: e.x };
+}
+
+export function encodeExplain(device: string, month: string, entries: ExplainEntry[]): Uint8Array {
+  const rows = [...entries].sort((a, b) => (a.k < b.k ? -1 : a.k > b.k ? 1 : a.at - b.at)).map((e) => JSON.stringify(explainRow(e)));
+  const text = `{"device":${JSON.stringify(device)},"month":${JSON.stringify(month)},"v":${EXPLAIN_VERSION},"entries":[\n${rows.join(',\n')}\n]}\n`;
+  return gzipSync(strToU8(text), { level: 9, mtime: 0 });
+}
+
+/**
+ * The entries of an explanations file. A malformed entry is skipped on its own: this is a cache, so a partial file
+ * deletes nothing. Throws ExplainTooNewError for a newer format, and an error when there is no entry list at all.
+ */
+export function decodeExplain(bytes: Uint8Array): ExplainEntry[] {
+  const j = JSON.parse(strFromU8(gunzipSync(bytes))) as { v?: unknown; entries?: unknown };
+  if (typeof j.v === 'number' && j.v > EXPLAIN_VERSION) throw new ExplainTooNewError(j.v);
+  if (!Array.isArray(j.entries)) throw new Error('no explanation list');
+  const out: ExplainEntry[] = [];
+  for (const raw of j.entries as unknown[]) {
+    if (!raw || typeof raw !== 'object') continue;
+    const e = raw as Record<string, unknown>;
+    const lang = e.lang;
+    if (lang !== 'en' && lang !== 'fr') continue;
+    if (typeof e.k !== 'string' || !e.k.endsWith(`|${lang}`) || e.k.length <= 3) continue;
+    if (typeof e.at !== 'number' || !Number.isFinite(e.at)) continue;
+    const x = normalizeExplanation(e.x);
+    if (!x) continue;
+    const u = Array.isArray(e.u) && e.u.length === 2 && e.u.every((n) => typeof n === 'number' && Number.isFinite(n)) ? (e.u as [number, number]) : undefined;
+    out.push({
+      k: e.k,
+      hz: typeof e.hz === 'string' ? e.hz : '',
+      py: typeof e.py === 'string' ? e.py : '',
+      lang,
+      at: e.at,
+      model: typeof e.model === 'string' ? e.model : '',
+      pv: typeof e.pv === 'number' ? e.pv : 0,
+      ...(u ? { u } : {}),
+      x,
+    });
+  }
+  return out;
+}
+
 // ---------- sync key: what another device needs to join ----------
 
 const KEY_PREFIX = 'hz1.';
@@ -172,7 +233,9 @@ export async function linkRepo(repo: RepoLink): Promise<void> {
 
 function idUsed(files: Map<string, string>, id: string): boolean {
   if (files.has(`devices/${id}.json`)) return true;
-  for (const p of files.keys()) if (p.startsWith(`events/${id}/`) || p.startsWith(`marks/${id}/`)) return true;
+  for (const p of files.keys()) {
+    if (p.startsWith(`events/${id}/`) || p.startsWith(`marks/${id}/`) || p.startsWith(`explain/${id}/`)) return true;
+  }
   return false;
 }
 
@@ -395,6 +458,25 @@ async function pullAndPush(link: SyncLink, report: SyncReport): Promise<void> {
     } finally {
       if (merged) rebuildAll();
     }
+
+    // 3c. Saved explanations of the other devices (a cache: no card is involved).
+    for (const [path, sha] of remote) {
+      const m = EXPLAIN_PATH.exec(path);
+      if (!m || m[1] === me || known[path] === sha) continue;
+      await isolate(`Explanations ${m[2]} of ${m[1]}`, async () => {
+        let entries: ExplainEntry[];
+        try {
+          entries = decodeExplain(await read(sha));
+        } catch (e) {
+          if (!(e instanceof ExplainTooNewError)) throw e;
+          report.updateNeeded = true;
+          report.warnings.push(`Update the app to read the explanations ${m[2]} of ${m[1]}: they were saved by a newer version.`);
+          return;
+        }
+        await mergeExplanations(m[1], m[2], entries);
+        known[path] = sha;
+      });
+    }
     await kvSet('syncShas', known);
 
     // 4. This device's review log, month by month, read from the database (it also holds reviews made in other tabs).
@@ -411,6 +493,14 @@ async function pullAndPush(link: SyncLink, report: SyncReport): Promise<void> {
       // A mark set and undone before any upload: nothing to send.
       if (marks.length || remote.has(path)) await write(path, strToU8(encodeMarks(me, month, marks)), `${me}: marks ${month}`);
       await clearMarkDirty(month, stamp);
+    }
+
+    // 4c. This device's saved explanations, the same way.
+    for (const [month, stamp] of Object.entries(await dirtyExplainMonths())) {
+      const entries = await ownExplanations(month);
+      const path = explainPath(me, month);
+      if (entries.length || remote.has(path)) await write(path, encodeExplain(me, month, entries), `${me}: explanations ${month}`);
+      await clearExplainDirty(month, stamp);
     }
 
     // 5. Settings changed here (or none in the repository yet).
