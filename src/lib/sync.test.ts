@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import Dexie from 'dexie';
 import { gzipSync } from 'fflate';
-import type { Note, ReviewEvent, VocabFile } from './types';
+import type { Note, ReviewEvent, StatusMark, VocabFile } from './types';
 import { fromBase64, toBase64 } from './github';
 
 class FakeGitHub {
@@ -121,9 +121,33 @@ function setTZ(tz: string | undefined) {
   if (tz == null) delete env.TZ;
   else env.TZ = tz;
 }
+/** localStorage for Node: one per browser profile (device). */
+class MemStorage implements Storage {
+  private m = new Map<string, string>();
+  get length() {
+    return this.m.size;
+  }
+  key(i: number) {
+    return [...this.m.keys()][i] ?? null;
+  }
+  getItem(k: string) {
+    return this.m.get(k) ?? null;
+  }
+  setItem(k: string, v: string) {
+    this.m.set(k, String(v));
+  }
+  removeItem(k: string) {
+    this.m.delete(k);
+  }
+  clear() {
+    this.m.clear();
+  }
+}
+
 beforeEach(() => {
   gh = new FakeGitHub();
   vi.stubGlobal('fetch', gh.fetch);
+  vi.stubGlobal('localStorage', new MemStorage());
 });
 afterEach(() => {
   setTZ(TZ);
@@ -581,5 +605,200 @@ describe('robustness', () => {
     vi.stubGlobal('fetch', async () => new Response('{"message":"slow down"}', { status: 429, headers: { 'retry-after': '120' } }));
     await pc.sync.syncNow();
     expect(pc.store.getState().sync.message).toMatch(/rate limit/);
+  });
+});
+
+describe('status marks', () => {
+  const W = 'v:词1|ci1';
+  const mark = (id: string, t: number, a = 'known', note = W): StatusMark => ({ id, note, a: a as StatusMark['a'], t, dev: 'tablet-1' });
+  /** Ids of the marks in a marks file of the fake repository. */
+  const markIds = (path: string): string[] => JSON.parse(gh.text(path)).marks.map((r: unknown[]) => r[0]);
+
+  it('mark files round-trip and are read through their fields header', async () => {
+    const { sync } = await device();
+    const marks = [mark('b', 2, 'suspend'), mark('a', 1), mark('c', 2, 'later-kind')];
+    const text = sync.encodeMarks('tablet-1', '2026-11', marks.map((m) => ({ ...m, mo: '2026-11' })));
+    const j = JSON.parse(text);
+    expect(j).toMatchObject({ device: 'tablet-1', month: '2026-11', v: 1, fields: ['id', 'note', 'a', 't'] });
+    expect(sync.decodeMarks(text, 'tablet-1')).toEqual([marks[1], marks[0], marks[2]]);
+    expect(sync.decodeMarks(JSON.stringify({ v: 1, fields: ['t', 'x', 'a', 'id', 'note'], marks: [[5, 0, 'relearn', 'z', W]] }), 'pc-1')).toEqual([
+      { id: 'z', note: W, a: 'relearn', t: 5, dev: 'pc-1' },
+    ]);
+    // A bad row refuses the whole file.
+    expect(() => sync.decodeMarks(JSON.stringify({ v: 1, marks: [['a', W, 'known', 1], ['b', '', 'known', 2]] }), 'pc-1')).toThrow(/mark 2 is malformed/);
+    expect(() => sync.decodeMarks(JSON.stringify({ v: 1, marks: [['a', W, 'known', 'x']] }), 'pc-1')).toThrow(/malformed/);
+    expect(() => sync.decodeMarks(JSON.stringify({ v: 2, marks: [] }), 'pc-1')).toThrow(sync.MarksTooNewError);
+    // Review logs never read as marks, nor the other way round.
+    expect(() => sync.decodeEvents(text, 'tablet-1')).toThrow();
+  });
+
+  it('a mark set on one device reaches the other; undo takes it back', async () => {
+    const pc = await device();
+    await pc.store.setVocab(vocab(6, T0));
+    await pc.sync.linkRepo(LINK);
+    const phone = await device();
+    await phone.sync.linkRepo(LINK);
+
+    const m = await pc.store.setNoteStatus(W, 'known', T0 + 1000);
+    await pc.store.setNoteStatus('v:词2|ci2', 'suspend', T0 + 2000);
+    await pc.sync.syncNow();
+    const path = `marks/${pc.id}/2026-11.json`;
+    expect(markIds(path)).toHaveLength(2);
+    expect(await pc.store.dirtyMarkMonths()).toEqual({});
+    // Marks are not reviews: the review logs are untouched.
+    expect(gh.files.has(`events/${pc.id}/2026-11.json`)).toBe(false);
+
+    await phone.sync.syncNow();
+    expect(phone.store.getState().marks.map((x) => x.id).sort()).toEqual(pc.store.getState().marks.map((x) => x.id).sort());
+    expect(phone.store.getState().cards.get(`${W}#recog`)?.state).toBe(2);
+    expect(phone.store.getState().cards.get('v:词2|ci2#recog')?.suspended).toBe(true);
+    expect(snapshot(phone.store.getState().cards)).toEqual(snapshot(pc.store.getState().cards));
+    // The phone does not send the computer's marks back.
+    expect(gh.files.has(`marks/${phone.id}/2026-11.json`)).toBe(false);
+
+    await pc.store.undoMark(m.id);
+    await pc.sync.syncNow();
+    expect(markIds(path)).toHaveLength(1);
+    await phone.sync.syncNow();
+    expect(phone.store.getState().cards.get(`${W}#recog`)?.state).toBe(pc.store.getState().cards.get(`${W}#recog`)?.state);
+    expect(phone.store.getState().cards.get(`${W}#recog`)?.mark).toBeUndefined();
+    expect(snapshot(phone.store.getState().cards)).toEqual(snapshot(pc.store.getState().cards));
+
+    // Nothing changed: no commit.
+    const commits = gh.commits;
+    await pc.sync.syncNow();
+    await phone.sync.syncNow();
+    expect(gh.commits).toBe(commits);
+  });
+
+  it('a mark set and undone before an upload sends nothing', async () => {
+    const pc = await device();
+    await pc.store.setVocab(vocab(3, T0));
+    await pc.sync.linkRepo(LINK);
+    const m = await pc.store.setNoteStatus(W, 'known', T0);
+    await pc.store.undoMark(m.id);
+    const commits = gh.commits;
+    await pc.sync.syncNow();
+    expect(gh.commits).toBe(commits);
+    expect(await pc.store.dirtyMarkMonths()).toEqual({});
+  });
+
+  it('a malformed marks file is reported; other files still merge and own marks are still sent', async () => {
+    const pc = await device();
+    await pc.store.setVocab(vocab(4, T0));
+    await pc.sync.linkRepo(LINK);
+    putFile('marks/tablet-1/2026-10.json', '{"v":1,"marks":[["a"');
+    putFile('marks/tablet-1/2026-11.json', pc.sync.encodeMarks('tablet-1', '2026-11', [mark('t1', T0 + 1, 'suspend')]));
+    const own = await pc.store.setNoteStatus('v:词2|ci2', 'known', T0 + 2000);
+    await pc.sync.syncNow();
+    let s = pc.store.getState();
+    expect(s.sync.state).toBe('idle');
+    expect(s.sync.warnings).toHaveLength(1);
+    expect(s.sync.warnings![0]).toMatch(/2026-10 of tablet-1/);
+    expect(s.marks.map((x) => x.id).sort()).toEqual(['t1', own.id].sort());
+    expect(s.cards.get(`${W}#recog`)?.suspended).toBe(true);
+    expect(markIds(`marks/${pc.id}/2026-11.json`)).toEqual([own.id]);
+    // Its blob id is not recorded: read again once fixed.
+    putFile('marks/tablet-1/2026-10.json', pc.sync.encodeMarks('tablet-1', '2026-10', [mark('t0', T0 - 10 * 86400000, 'known', 'v:词3|ci3')]));
+    await pc.sync.syncNow();
+    s = pc.store.getState();
+    expect(s.sync.warnings).toBeUndefined();
+    expect(s.marks.map((x) => x.id).sort()).toEqual(['t0', 't1', own.id].sort());
+  });
+
+  it('a marks file from a newer app version is not applied and asks for an update', async () => {
+    const pc = await device();
+    await pc.store.setVocab(vocab(3, T0));
+    await pc.sync.linkRepo(LINK);
+    putFile('marks/tablet-1/2026-11.json', JSON.stringify({ device: 'tablet-1', month: '2026-11', v: 2, fields: ['id', 'note', 'a', 't'], marks: [['n1', W, 'known', T0]] }));
+    await pc.sync.syncNow();
+    const s = pc.store.getState();
+    expect(s.sync.state).toBe('idle');
+    expect(s.sync.updateNeeded).toBe(true);
+    expect(s.sync.warnings?.[0]).toMatch(/Update the app/);
+    expect(s.marks).toEqual([]);
+    expect(Object.keys(await pc.db.kvGet<Record<string, string>>('syncShas', {}))).not.toContain('marks/tablet-1/2026-11.json');
+  });
+
+  it('marks files are never read as review logs', async () => {
+    const pc = await device();
+    await pc.store.setVocab(vocab(3, T0));
+    await pc.sync.linkRepo(LINK);
+    putFile('marks/tablet-1/2026-11.json', pc.sync.encodeMarks('tablet-1', '2026-11', [mark('t1', T0)]));
+    putFile('marks/tablet-1/notes.txt', 'whatever');
+    await pc.sync.syncNow();
+    const s = pc.store.getState();
+    expect(s.sync.warnings).toBeUndefined();
+    expect(s.events).toEqual([]);
+    expect(s.marks.map((x) => x.id)).toEqual(['t1']);
+  });
+
+  it('an upload includes a mark written straight into the database by another tab', async () => {
+    const pc = await device();
+    await pc.store.setVocab(vocab(4, T0));
+    await pc.sync.linkRepo(LINK);
+    const m: StatusMark = { id: 'tab-mark', note: W, a: 'suspend', t: T0 + 5000, dev: pc.id, mo: '2026-11' };
+    await pc.db.kvSet(`marks:${pc.id}:2026-11`, [m]);
+    await pc.db.kvSet('marksDirty', { '2026-11': Date.now() + 1000 });
+    await pc.sync.syncNow();
+    expect(markIds(`marks/${pc.id}/2026-11.json`)).toEqual(['tab-mark']);
+    expect(await pc.store.dirtyMarkMonths()).toEqual({});
+  });
+
+  it('linking sees an id used by marks files, and keeps the id of a device that has marks', async () => {
+    const phone = await device();
+    const old = phone.id;
+    putFile(`marks/${old}/2026-10.json`, '{"v":1,"marks":[]}');
+    await phone.sync.linkRepo(LINK);
+    expect(phone.store.getState().device).not.toBe(old);
+
+    const tablet = await device();
+    await tablet.store.setNoteStatus(W, 'known', T0);
+    putFile(`marks/${tablet.id}/2026-10.json`, '{"v":1,"marks":[]}');
+    await expect(tablet.sync.linkRepo(LINK)).rejects.toThrow(/already uses the id/);
+    expect(tablet.store.getState().device).toBe(tablet.id);
+  });
+});
+
+describe('shared preferences', () => {
+  it('the meaning language follows to the other device; per-device prefs do not', async () => {
+    const pcLS = new MemStorage();
+    const phoneLS = new MemStorage();
+    vi.stubGlobal('localStorage', pcLS);
+    const pc = await device();
+    await pc.store.setVocab(vocab(3, T0));
+    await pc.sync.linkRepo(LINK);
+    vi.stubGlobal('localStorage', phoneLS);
+    const phone = await device();
+    await phone.sync.linkRepo(LINK);
+
+    vi.stubGlobal('localStorage', pcLS);
+    pc.db.setPref('mode.recog', 'type-pinyin');
+    pc.store.setLang('fr');
+    await vi.waitFor(() => expect(pc.store.getState().settings.prefs?.lang).toBe('fr'), { timeout: 4000, interval: 100 });
+    await pc.sync.syncNow();
+    expect(JSON.parse(gh.text('settings.json')).prefs).toEqual({ lang: 'fr' });
+
+    vi.stubGlobal('localStorage', phoneLS);
+    await phone.sync.syncNow();
+    expect(phone.store.getState().lang).toBe('fr');
+    expect(phoneLS.getItem('hz.lang')).toBe('"fr"');
+    expect(phoneLS.getItem('hz.mode.recog')).toBeNull();
+    // Taking it in does not send it back.
+    expect(await phone.db.kvGet('settingsDirty', false)).toBe(false);
+  });
+
+  it('an older app version saving settings keeps the shared prefs', async () => {
+    const pc = await device();
+    await pc.sync.linkRepo(LINK);
+    pc.store.setLang('fr');
+    await vi.waitFor(() => expect(pc.store.getState().settings.prefs?.lang).toBe('fr'), { timeout: 4000, interval: 100 });
+    await pc.sync.syncNow();
+    // An older version: {...current, ...patch}, uploaded whole.
+    const cur = JSON.parse(gh.text('settings.json'));
+    putFile('settings.json', JSON.stringify({ ...cur, newVocab: 4, updatedAt: Date.now() + 1000 }));
+    await pc.sync.syncNow();
+    expect(pc.store.getState().settings.newVocab).toBe(4);
+    expect(pc.store.getState().settings.prefs).toEqual({ lang: 'fr' });
   });
 });

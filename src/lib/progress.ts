@@ -1,12 +1,13 @@
 // The progress workbook written next to the Excel file: the status of every word and daily figures.
-import type { CardState, Note, ReviewEvent } from './types';
-import { DAY, dayStart, noteOfCard, noteStatus, type Status } from './engine/schedule';
-import { daily, groupCards, retention30, statusCounts, streak } from './stats';
+import type { CardState, Note, ReviewEvent, StatusMark } from './types';
+import { DAY, dayStart, latestMarks, noteOfCard, noteStatus, type Status } from './engine/schedule';
+import { daily, groupCards, markCounts, retention30, statusCounts, streak } from './stats';
 import { buildXlsx, type Sheet } from './xlsx/write';
 
 export const PROGRESS_FILE = 'Hugo_chinese_progress.xlsx';
 
-const STATUS_LABEL: Record<Status, string> = { new: 'New', learning: 'Learning', review: 'Review', mastered: 'Mastered', leech: 'Leech' };
+const STATUS_LABEL: Record<Status, string> = { new: 'New', learning: 'Learning', review: 'Review', mastered: 'Mastered', leech: 'Leech', suspended: 'Suspended' };
+const MARK_LABEL: Record<string, string> = { known: 'Known', relearn: 'Relearn', suspend: 'Suspended' };
 const KIND_LABEL: Record<Note['kind'], string> = { vocab: 'Word', grammar: 'Grammar', measure: 'Measure word', synonym: 'Near-synonym' };
 
 export interface ProgressInput {
@@ -15,10 +16,28 @@ export interface ProgressInput {
   events: ReviewEvent[];
   device: string;
   now: number;
+  /** Status marks set by Hugo, alias-resolved (state.marks). */
+  marks?: StatusMark[];
 }
 
-export function progressSheets({ notes, cards, events, now }: ProgressInput): Sheet[] {
+/** Local calendar date, YYYY-MM-DD. */
+function isoDay(t: number): string {
+  const d = new Date(t);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/** "Set by you" cell: the latest of the word's status mark and a suspension still in force. */
+function setByYou(l: { status?: StatusMark; suspend?: StatusMark } | undefined): string {
+  if (!l) return '';
+  const cands = [l.status, l.suspend?.a === 'suspend' ? l.suspend : undefined].filter((m): m is StatusMark => !!m);
+  if (!cands.length) return '';
+  const m = cands.reduce((a, b) => (b.t > a.t || (b.t === a.t && b.id > a.id) ? b : a));
+  return `${MARK_LABEL[m.a]} ${isoDay(m.t)}`;
+}
+
+export function progressSheets({ notes, cards, events, now, marks = [] }: ProgressInput): Sheet[] {
   const byNote = groupCards(cards);
+  const marked = latestMarks(marks);
   const evByNote = new Map<string, { n: number; ok: number; last: number }>();
   for (const e of events) {
     const k = noteOfCard(e.card);
@@ -47,6 +66,8 @@ export function progressSheets({ notes, cards, events, now }: ProgressInput): Sh
       { header: 'Last review', width: 12, format: 'date' },
       { header: 'Memory (days)', width: 14, format: 'dec1' },
       { header: 'Green in Excel', width: 14 },
+      // Last on purpose: Hugo's existing column positions don't move.
+      { header: 'Set by you', width: 18 },
     ],
     rows: [...notes]
       .sort((a, b) => a.order - b.order)
@@ -73,6 +94,7 @@ export function progressSheets({ notes, cards, events, now }: ProgressInput): Sh
           ev?.last ? new Date(ev.last) : null,
           started.length ? Math.round(Math.min(...started.map((c) => c.stability)) * 10) / 10 : null,
           n.studied ? 'Yes' : '',
+          setByYou(marked.get(n.id)),
         ];
       }),
   };
@@ -105,7 +127,8 @@ export function progressSheets({ notes, cards, events, now }: ProgressInput): Sh
   const kinds = (k: Note['kind']) => notes.filter((n) => n.kind === k).length;
   const week = events.filter((e) => e.t >= now - 7 * DAY).length;
   const ret = retention30(events, now);
-  const dueTomorrow = [...byNote.values()].flat().filter((c) => !c.locked && c.state !== 0 && c.due < dayStart(now) + 2 * DAY).length;
+  const dueTomorrow = [...byNote.values()].flat().filter((c) => !c.locked && !c.suspended && c.state !== 0 && c.due < dayStart(now) + 2 * DAY).length;
+  const byYou = markCounts(marks, new Set(notes.map((n) => n.id)));
   const summary: Sheet = {
     name: 'Summary',
     table: false,
@@ -125,6 +148,8 @@ export function progressSheets({ notes, cards, events, now }: ProgressInput): Sh
       ['Review', counts.review],
       ['Mastered (next review in 3+ weeks)', counts.mastered],
       ['Leech (8+ lapses)', counts.leech],
+      ['Suspended', counts.suspended],
+      ['Marked known by you', byYou.known],
       [],
       ['Reviews, all time', events.length],
       ['Reviews, last 7 days', week],

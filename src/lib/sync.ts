@@ -4,6 +4,7 @@
 //   vocab.json.gz                  the word list, written by the device that last imported the Excel file
 //   settings.json                  study settings shared by every device (newest wins)
 //   events/<device>/<YYYY-MM>.json each device's own review log, one file per month; only that device writes it
+//   marks/<device>/<YYYY-MM>.json  each device's own status marks ("I know this", "Suspend"…), same rules as the logs
 //   devices/<device>.json          written when a device links
 //
 // Every device replays all logs through the same scheduler, so they agree on every card.
@@ -12,19 +13,23 @@ import { db, kvGet, kvSet, type Settings } from './db';
 import { GitHubError, listFiles, readBlob, repoInfo, writeFile, type RepoLink } from './github';
 import {
   clearDirty,
+  clearMarkDirty,
+  dirtyMarkMonths,
   dirtyMonths,
   getState,
   hasOwnEvents,
   mergeDeviceEvents,
+  mergeDeviceMarks,
   onLocalChange,
   ownMonthEvents,
+  ownMonthMarks,
   rebuildAll,
   renewDeviceId,
   setSync,
   setVocab,
   updateSettings,
 } from './store';
-import type { Grade, ReviewEvent, VocabFile } from './types';
+import type { Grade, MarkKind, ReviewEvent, StatusMark, VocabFile } from './types';
 
 export interface SyncLink extends RepoLink {
   branch: string;
@@ -35,6 +40,8 @@ export const VOCAB_PATH = 'vocab.json.gz';
 export const SETTINGS_PATH = 'settings.json';
 const EVENTS_PATH = /^events\/([A-Za-z0-9_-]+)\/(\d{4}-\d{2})\.json$/;
 export const eventsPath = (device: string, month: string) => `events/${device}/${month}.json`;
+const MARKS_PATH = /^marks\/([A-Za-z0-9_-]+)\/(\d{4}-\d{2})\.json$/;
+export const marksPath = (device: string, month: string) => `marks/${device}/${month}.json`;
 
 // ---------- review log files ----------
 
@@ -60,6 +67,45 @@ export function decodeEvents(text: string, device: string): ReviewEvent[] {
       throw new Error(`event ${i + 1} is malformed`);
     }
     return { id, card, r: r as Grade, t, d: typeof d === 'number' ? d : 0, m: typeof m === 'string' ? m : '', dev: device };
+  });
+}
+
+// ---------- status mark files ----------
+
+const MARKS_VERSION = 1;
+const MARK_FIELDS = ['id', 'note', 'a', 't'] as const;
+
+/** A marks file written by a newer app version: not applied (and its blob id not recorded) until this app is updated. */
+export class MarksTooNewError extends Error {
+  constructor(v: number) {
+    super(`saved by a newer app version (format ${v})`);
+    this.name = 'MarksTooNewError';
+  }
+}
+
+export function encodeMarks(device: string, month: string, marks: StatusMark[]): string {
+  const rows = [...marks].sort((a, b) => a.t - b.t || (a.id < b.id ? -1 : 1)).map((m) => JSON.stringify([m.id, m.note, m.a, m.t]));
+  return `{"device":${JSON.stringify(device)},"month":${JSON.stringify(month)},"v":${MARKS_VERSION},"fields":${JSON.stringify(MARK_FIELDS)},"marks":[\n${rows.join(',\n')}\n]}\n`;
+}
+
+/**
+ * Columns are found through the `fields` header. A bad row refuses the whole file (a partial merge would delete marks);
+ * a row with an action this version does not know is kept as is (the engine ignores it).
+ */
+export function decodeMarks(text: string, device: string): StatusMark[] {
+  const j = JSON.parse(text) as { v?: unknown; fields?: unknown; marks?: unknown };
+  if (typeof j.v === 'number' && j.v > MARKS_VERSION) throw new MarksTooNewError(j.v);
+  if (!Array.isArray(j.marks)) throw new Error('no mark list');
+  const fields: readonly string[] = Array.isArray(j.fields) && j.fields.every((f) => typeof f === 'string') ? (j.fields as string[]) : MARK_FIELDS;
+  const [ci, cn, ca, ct] = MARK_FIELDS.map((f) => fields.indexOf(f));
+  if (ci < 0 || cn < 0 || ca < 0 || ct < 0) throw new Error('missing columns');
+  return j.marks.map((row: unknown, i) => {
+    const x = Array.isArray(row) ? (row as unknown[]) : [];
+    const [id, note, a, t] = [x[ci], x[cn], x[ca], x[ct]];
+    if (typeof id !== 'string' || !id || typeof note !== 'string' || !note || typeof a !== 'string' || typeof t !== 'number' || !Number.isFinite(t)) {
+      throw new Error(`mark ${i + 1} is malformed`);
+    }
+    return { id, note, a: a as MarkKind, t, dev: device };
   });
 }
 
@@ -126,7 +172,7 @@ export async function linkRepo(repo: RepoLink): Promise<void> {
 
 function idUsed(files: Map<string, string>, id: string): boolean {
   if (files.has(`devices/${id}.json`)) return true;
-  for (const p of files.keys()) if (p.startsWith(`events/${id}/`)) return true;
+  for (const p of files.keys()) if (p.startsWith(`events/${id}/`) || p.startsWith(`marks/${id}/`)) return true;
   return false;
 }
 
@@ -316,7 +362,7 @@ async function pullAndPush(link: SyncLink, report: SyncReport): Promise<void> {
       });
     }
 
-    // 3. Review logs of the other devices. Cards are rebuilt once, after every file is merged.
+    // 3. Review logs (3a) and status marks (3b) of the other devices. Cards are rebuilt once, after every file is merged.
     let merged = false;
     try {
       for (const [path, sha] of remote) {
@@ -325,6 +371,24 @@ async function pullAndPush(link: SyncLink, report: SyncReport): Promise<void> {
         await isolate(`Reviews ${m[2]} of ${m[1]}`, async () => {
           const evs = decodeEvents(strFromU8(await read(sha)), m[1]);
           if (await mergeDeviceEvents(m[1], m[2], evs, { rebuild: false })) merged = true;
+          known[path] = sha;
+        });
+      }
+      for (const [path, sha] of remote) {
+        const m = MARKS_PATH.exec(path);
+        if (!m || m[1] === me || known[path] === sha) continue;
+        await isolate(`Word statuses ${m[2]} of ${m[1]}`, async () => {
+          let marks: StatusMark[];
+          try {
+            marks = decodeMarks(strFromU8(await read(sha)), m[1]);
+          } catch (e) {
+            if (!(e instanceof MarksTooNewError)) throw e;
+            // Neither applied nor recorded: read again once this app is updated.
+            report.updateNeeded = true;
+            report.warnings.push(`Update the app to read the word statuses ${m[2]} of ${m[1]}: they were saved by a newer version.`);
+            return;
+          }
+          if (await mergeDeviceMarks(m[1], m[2], marks, { rebuild: false })) merged = true;
           known[path] = sha;
         });
       }
@@ -338,6 +402,15 @@ async function pullAndPush(link: SyncLink, report: SyncReport): Promise<void> {
       const evs = await ownMonthEvents(month);
       await write(eventsPath(me, month), strToU8(encodeEvents(me, month, evs)), `${me}: reviews ${month}`);
       await clearDirty(month, stamp);
+    }
+
+    // 4b. This device's status marks, the same way.
+    for (const [month, stamp] of Object.entries(await dirtyMarkMonths())) {
+      const marks = await ownMonthMarks(month);
+      const path = marksPath(me, month);
+      // A mark set and undone before any upload: nothing to send.
+      if (marks.length || remote.has(path)) await write(path, strToU8(encodeMarks(me, month, marks)), `${me}: marks ${month}`);
+      await clearMarkDirty(month, stamp);
     }
 
     // 5. Settings changed here (or none in the repository yet).

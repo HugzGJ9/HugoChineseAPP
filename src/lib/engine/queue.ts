@@ -59,7 +59,8 @@ export function buildQueue(
   }
   const reviewedToday = events.filter((e) => e.t >= dayStart(now)).length;
 
-  const active = cards.filter((c) => !c.locked && notes.has(c.note));
+  // Suspended words stay out of scheduled study (an explicit "Review now" list still reaches them).
+  const active = cards.filter((c) => !c.locked && !c.suspended && notes.has(c.note));
   const due = active.filter((c) => c.state !== 0 && c.due < end).sort((a, b) => a.due - b.due);
   // Siblings that unlocked (recall after recognition) are new cards that don't count as new words.
   const siblings = active.filter((c) => c.state === 0 && c.nEvents === 0 && (c.type === 'recall' || c.type === 'listen') && c.due < end && c.due > 0);
@@ -137,7 +138,7 @@ export function reviewAhead(cards: CardState[], notes: Map<string, Note>, now: n
   const end = addDays(dayStart(now), 1);
   const seen = new Set<string>();
   const out: string[] = [];
-  const list = cards.filter((c) => !c.locked && c.state !== 0 && c.due >= end && notes.has(c.note)).sort((a, b) => a.due - b.due);
+  const list = cards.filter((c) => !c.locked && !c.suspended && c.state !== 0 && c.due >= end && notes.has(c.note)).sort((a, b) => a.due - b.due);
   for (const c of list) {
     if (out.length >= limit) break;
     if (seen.has(c.note)) continue;

@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { updateSettings, useApp, wipeAll } from '../lib/store';
 import { pref, setPref } from '../lib/db';
 import { chineseVoices, setVoice, speak, speechAvailable } from '../lib/speech';
 import { countCached, getWarmStatus, onWarmStatus, prefetchStrokes, uniqueChars } from '../lib/strokes';
+import { lastBackup, requestPersist, restoreBackup, saveBackupFile, storageStatus } from '../lib/backup';
 import { CFDICT_CREDIT } from '../lib/french';
 import { dictUrl } from '../lib/import';
 import { formatAgo, LangSwitch, toast, TopBar } from './common';
@@ -10,7 +11,7 @@ import { FileImportButton } from './Today';
 import { SourceSettings, SyncSettings } from './Setup';
 
 export function Settings() {
-  const { settings, meta, notes, events } = useApp((s) => s);
+  const { settings, meta, notes } = useApp((s) => s);
   return (
     <div className="main">
       <TopBar title="Settings" />
@@ -68,36 +69,7 @@ export function Settings() {
         <AudioSettings />
         <OfflineSettings />
 
-        <section className="panel stack">
-          <h2>Your data</h2>
-          <p className="small muted">{events.length} reviews stored on this device.</p>
-          <div className="row wrap">
-            <button
-              type="button"
-              className="btn"
-              onClick={() => {
-                const blob = new Blob([JSON.stringify({ exportedAt: Date.now(), events }, null, 1)], { type: 'application/json' });
-                const a = document.createElement('a');
-                a.href = URL.createObjectURL(blob);
-                a.download = `hugo-zhongwen-reviews-${new Date().toISOString().slice(0, 10)}.json`;
-                a.click();
-                URL.revokeObjectURL(a.href);
-              }}
-            >
-              Export review history
-            </button>
-            <button
-              type="button"
-              className="btn danger"
-              onClick={() => {
-                if (confirmWipe()) wipeAll();
-              }}
-            >
-              Clear this device
-            </button>
-          </div>
-          <p className="small muted">Clearing removes words, reviews and the sync link from this device only. Reviews already synced come back when you link it again.</p>
-        </section>
+        <DataSettings />
         <p className="small faint center">
           Stroke data: Hanzi Writer / Make Me a Hanzi. Scheduling: FSRS (ts-fsrs). Pinyin: pinyin-pro.
         </p>
@@ -106,9 +78,106 @@ export function Settings() {
   );
 }
 
-function confirmWipe(): boolean {
+function confirmWipe(syncOff: boolean): boolean {
   // A deliberate, rare action: a native confirm is acceptable here.
-  return window.confirm('Clear all words, reviews and settings stored on this device?');
+  return window.confirm(
+    `Clear all words, reviews and settings stored on this device?${syncOff ? '\n\nSync is off. Back up to a file first, or this history is lost.' : ''}`,
+  );
+}
+
+function isIosSafariTab(): boolean {
+  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const standalone = (navigator as unknown as { standalone?: boolean }).standalone === true || matchMedia('(display-mode: standalone)').matches;
+  return ios && !standalone;
+}
+
+function DataSettings() {
+  const events = useApp((s) => s.events);
+  const syncOff = useApp((s) => s.sync.state === 'off');
+  const input = useRef<HTMLInputElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [last, setLast] = useState<number | null>(null);
+  const [store, setStore] = useState<{ persisted: boolean | null }>({ persisted: null });
+  const refresh = () => {
+    lastBackup().then(setLast, () => setLast(null));
+    storageStatus().then(setStore, () => undefined);
+  };
+  useEffect(refresh, []);
+  const run = async (fn: () => Promise<void>) => {
+    setBusy(true);
+    try {
+      await fn();
+    } catch (err) {
+      toast(`Couldn't do that: ${(err as Error).message}`);
+    } finally {
+      setBusy(false);
+      refresh();
+    }
+  };
+  return (
+    <section className="panel stack">
+      <h2>Your data</h2>
+      <p className="small muted">{events.length} reviews stored on this device.</p>
+      {syncOff && isIosSafariTab() && (
+        <p className="notice bad">
+          Safari clears data from websites you haven't opened for 7 days. Add this app to your Home Screen, or turn on sync, so your progress is kept.
+        </p>
+      )}
+      <p className="small muted">
+        Storage: {store.persisted === true ? 'protected from automatic clearing.' : store.persisted === false ? 'may be cleared by the browser.' : 'status unknown.'}
+        {syncOff ? ` ${last ? `Last backup ${formatAgo(last)}.` : 'No backup yet.'}` : ''}
+      </p>
+      <input
+        ref={input}
+        type="file"
+        className="sr"
+        aria-label="Backup file to restore"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          e.target.value = '';
+          if (!f) return;
+          run(async () => {
+            const r = await restoreBackup(new Uint8Array(await f.arrayBuffer()));
+            toast(`Restored ${r.events} reviews and ${r.marks} status changes${r.vocab === 'applied' ? ', and your word list' : ''}`);
+          });
+        }}
+      />
+      <div className="row wrap">
+        <button type="button" className="btn" disabled={busy} onClick={() => run(saveBackupFile)}>
+          Back up to a file
+        </button>
+        <button type="button" className="btn" disabled={busy} onClick={() => input.current?.click()}>
+          Restore from a file
+        </button>
+        {store.persisted === false && (
+          <button
+            type="button"
+            className="btn"
+            disabled={busy}
+            onClick={() =>
+              run(async () => {
+                toast((await requestPersist()) ? 'Storage protected' : 'The browser did not allow it');
+              })
+            }
+          >
+            Protect storage
+          </button>
+        )}
+        <button
+          type="button"
+          className="btn danger"
+          onClick={() => {
+            if (confirmWipe(syncOff)) wipeAll();
+          }}
+        >
+          Clear this device
+        </button>
+      </div>
+      <p className="small muted">
+        The backup file holds words, reviews, status changes and settings, but never the sync link. Restoring adds what is missing and removes nothing. Clearing removes words, reviews and the sync link from this device only. Reviews already synced come back when you link it again.
+      </p>
+    </section>
+  );
 }
 
 function NumberField({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (v: number) => void }) {
@@ -192,12 +261,10 @@ function OfflineSettings() {
   const [cached, setCached] = useState<number | null>(null);
   const [progress, setProgress] = useState<string | null>(null);
   const [dict, setDict] = useState<boolean | null>(null);
-  const [persisted, setPersisted] = useState<boolean | null>(null);
   const warm = useSyncExternalStore(onWarmStatus, getWarmStatus);
   useEffect(() => {
     countCached(chars).then(setCached);
     if ('caches' in window) caches.match(dictUrl()).then((r) => setDict(!!r));
-    navigator.storage?.persisted?.().then(setPersisted).catch(() => setPersisted(null));
   }, [chars, warm.phase, warm.done]);
   const ready = cached != null && cached >= chars.length;
   return (
@@ -231,7 +298,6 @@ function OfflineSettings() {
       )}
       <p className="small muted">
         French dictionary {dict ? 'saved on this device' : 'downloads on the first import'}.
-        {persisted === false ? ' The browser may clear storage when space runs low; your reviews are safe once synced.' : ''}
       </p>
     </section>
   );

@@ -89,6 +89,24 @@ export interface CardState {
   seeded?: boolean;
   /** Sibling card not unlocked yet (recall/listen before the word was first seen). */
   locked?: boolean;
+  /** Hugo took the word out of reviews. */
+  suspended?: boolean;
+  /** Latest "I know this" / "Relearn" set by Hugo. */
+  mark?: { a: 'known' | 'relearn'; t: number };
+  /** Lapse count when the word was last marked, so a reset word is not a leech straight away. */
+  leechBase?: number;
+}
+
+/** A status change Hugo made himself. Synced in marks/<device>/<YYYY-MM>.json, never in review event files. */
+export type MarkKind = 'known' | 'relearn' | 'suspend' | 'unsuspend';
+export interface StatusMark {
+  id: string;
+  note: string;
+  a: MarkKind;
+  t: number;
+  dev: string;
+  /** Month of the sync file the mark belongs to (local only). */
+  mo?: string;
 }
 
 export interface ImportIssue {

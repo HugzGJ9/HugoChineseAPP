@@ -312,6 +312,10 @@ label.check input { width: 20px; height: 20px; accent-color: var(--ink); }
 .status.s-review { background: var(--blue-soft); color: var(--blue); }
 .status.s-mastered { background: var(--jade-soft); color: var(--jade); }
 .status.s-leech { background: var(--seal-soft); color: var(--seal); }
+.status.s-suspended { background: transparent; color: var(--ink-2); border: 1px dashed var(--ink-2); padding: 1px 7px; }
+.card-actions { display: flex; justify-content: center; gap: 8px; margin-bottom: 8px; }
+.card-actions .btn { min-height: 44px; }
+.inline-undo { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 
 /* ---- today ---- */
 .today-figure { display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }

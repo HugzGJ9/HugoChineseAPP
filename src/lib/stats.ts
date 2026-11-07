@@ -1,5 +1,5 @@
-import type { CardState, Note, ReviewEvent } from './types';
-import { addDays, dayKey, dayStart, noteOfCard, noteStatus, type Status, DAY } from './engine/schedule';
+import type { CardState, Note, ReviewEvent, StatusMark } from './types';
+import { addDays, dayKey, dayStart, latestMarks, noteOfCard, noteStatus, type Status, DAY } from './engine/schedule';
 
 export function streak(events: ReviewEvent[], now: number): number {
   const days = new Set(events.map((e) => dayKey(e.t)));
@@ -75,7 +75,7 @@ export function forecast(cards: CardState[], days: number, now: number): number[
   const out = new Array(days).fill(0);
   const start = dayStart(now);
   for (const c of cards) {
-    if (c.locked || c.state === 0) continue;
+    if (c.locked || c.suspended || c.state === 0) continue;
     const d = Math.floor((c.due - start) / DAY);
     out[Math.max(0, Math.min(days - 1, d))] += d < days ? 1 : 0;
   }
@@ -83,8 +83,20 @@ export function forecast(cards: CardState[], days: number, now: number): number[
 }
 
 export function statusCounts(notes: Note[], cardsByNote: Map<string, CardState[]>, now: number): Record<Status, number> {
-  const out: Record<Status, number> = { new: 0, learning: 0, review: 0, mastered: 0, leech: 0 };
+  const out: Record<Status, number> = { new: 0, learning: 0, review: 0, mastered: 0, leech: 0, suspended: 0 };
   for (const n of notes) out[noteStatus(cardsByNote.get(n.id) ?? [], now)]++;
+  return out;
+}
+
+/** Words whose current status was set by Hugo: latest "I know this" / "Relearn", and currently suspended. */
+export function markCounts(marks: StatusMark[], noteIds: Set<string>): { known: number; relearn: number; suspended: number } {
+  const out = { known: 0, relearn: 0, suspended: 0 };
+  for (const [note, l] of latestMarks(marks)) {
+    if (!noteIds.has(note)) continue;
+    if (l.status?.a === 'known') out.known++;
+    else if (l.status?.a === 'relearn') out.relearn++;
+    if (l.suspend?.a === 'suspend') out.suspended++;
+  }
   return out;
 }
 

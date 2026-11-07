@@ -1,12 +1,37 @@
 // Grade buttons (or the automatic grade with Next) in the bottom dock.
-import { useMemo, useState } from 'react';
-import type { CardState, Grade } from '../../lib/types';
+import { createContext, useContext, useMemo, useState } from 'react';
+import type { CardState, Grade, StatusMark } from '../../lib/types';
 import { formatInterval, gradeName, previewIntervals } from '../../lib/engine/schedule';
+import { setNoteStatus } from '../../lib/store';
 import { coarse } from './shared';
 
-/** Slot for "I know this / Relearn / Suspend" on the answer side. Not implemented yet. */
-export function CardActions(_props: { card: CardState }) {
-  return null;
+/** Lets the session react when a word is marked from the dock. Without it, no actions are shown. */
+export const ReviewActionsContext = createContext<{ onMarked(m: StatusMark): void } | null>(null);
+
+/** "I know this" and "Suspend" above the grade buttons. "Relearn" is left out: Again covers it here. */
+export function CardActions({ card }: { card: CardState }) {
+  const ctx = useContext(ReviewActionsContext);
+  const [busy, setBusy] = useState(false);
+  if (!ctx) return null;
+  const mark = async (a: 'known' | 'suspend') => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      ctx.onMarked(await setNoteStatus(card.note, a));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="card-actions">
+      <button type="button" className="btn ghost small" disabled={busy} onClick={() => mark('known')}>
+        I know this
+      </button>
+      <button type="button" className="btn ghost small" disabled={busy} onClick={() => mark('suspend')}>
+        Suspend
+      </button>
+    </div>
+  );
 }
 
 export function GradeBar({ card, retention, auto, onGrade }: { card: CardState; retention: number; auto?: Grade; onGrade: (g: Grade) => void }) {

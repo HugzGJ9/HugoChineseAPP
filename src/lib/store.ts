@@ -1,8 +1,28 @@
 // App state in memory, persisted to IndexedDB. Cards are always derived from notes + seeds + events.
 import { useSyncExternalStore } from 'react';
-import { db, deviceId, getSettings, kvGet, kvSet, monthKey, monthOf, newDeviceId, onDbVersionChange, pref, saveSettings, setPref, uid, type Settings } from './db';
-import type { CardState, Grade, Note, PendingImport, ReviewEvent, VocabFile } from './types';
-import { addDays, applyReview, dayStart, deriveCards, resolveEventCards } from './engine/schedule';
+import {
+  SHARED_PREFS,
+  collectPrefs,
+  db,
+  deviceId,
+  getSettings,
+  kvGet,
+  kvSet,
+  monthKey,
+  monthOf,
+  newDeviceId,
+  onDbVersionChange,
+  onSharedPrefChange,
+  pref,
+  saveSettings,
+  setPref,
+  sharedPrefsChangedAt,
+  uid,
+  writePrefsSilently,
+  type Settings,
+} from './db';
+import type { CardState, Grade, MarkKind, Note, PendingImport, ReviewEvent, StatusMark, VocabFile } from './types';
+import { addDays, applyReview, dayStart, deriveCards, noteOfCard, resolveEventCards, resolveMarkNotes } from './engine/schedule';
 
 export type Lang = 'en' | 'fr';
 
@@ -39,6 +59,8 @@ export interface AppState {
   noteMap: Map<string, Note>;
   cards: Map<string, CardState>;
   events: ReviewEvent[];
+  /** Status marks set by Hugo (every device), with renamed words resolved (aliases). */
+  marks: StatusMark[];
   settings: Settings;
   meta: VocabMeta | null;
   lang: Lang;
@@ -59,6 +81,7 @@ let state: AppState = {
   noteMap: new Map(),
   cards: new Map(),
   events: [],
+  marks: [],
   settings: {} as Settings,
   meta: null,
   lang: pref<Lang>('lang', 'en'),
@@ -96,14 +119,16 @@ function engineSettings(s: Settings) {
   return { retention: s.retention, spreadDays: s.spreadDays, recall: s.recall, listen: s.listen };
 }
 
-function rebuild(notes: Note[], events: ReviewEvent[], seeds: Record<string, number>, settings: Settings): Map<string, CardState> {
-  const cards = deriveCards(notes, events, seeds, engineSettings(settings));
+function rebuild(notes: Note[], events: ReviewEvent[], seeds: Record<string, number>, settings: Settings, marks: StatusMark[]): Map<string, CardState> {
+  const cards = deriveCards(notes, events, seeds, engineSettings(settings), marks);
   return new Map(cards.map((c) => [c.id, c]));
 }
 
 // Every stored event, as stored (raw card ids). `state.events` is a view of it with renamed words resolved (aliases);
 // the stored rows and the uploaded files keep the raw events, so events are never rewritten.
 let raw: ReviewEvent[] = [];
+// The same for status marks (raw note ids).
+let rawMarks: StatusMark[] = [];
 // Bumped on every in-memory change, so a reload that read the database before it does not overwrite it.
 let gen = 0;
 
@@ -111,6 +136,41 @@ function eventsView(events: ReviewEvent[], notes: Note[], meta: VocabMeta | null
   const aliases = meta?.aliases;
   if (!aliases || !Object.keys(aliases).length) return events;
   return resolveEventCards(events, aliases, new Set(notes.map((n) => n.id)));
+}
+
+function marksView(marks: StatusMark[], notes: Note[], meta: VocabMeta | null): StatusMark[] {
+  const aliases = meta?.aliases;
+  if (!aliases || !Object.keys(aliases).length || !marks.length) return marks;
+  return resolveMarkNotes(marks, aliases, new Set(notes.map((n) => n.id)));
+}
+
+// ---------- status marks in the database ----------
+// One kv row per device and month: `marks:<device>:<YYYY-MM>` → StatusMark[] (device ids contain no ':').
+// The upload queue is kv.marksDirty (month → stamp), apart from kv.dirty so older app versions never touch it.
+
+const MARKS_PREFIX = 'marks:';
+const markKey = (device: string, month: string) => `${MARKS_PREFIX}${device}:${month}`;
+
+function parseMarkKey(k: string): { device: string; month: string } | null {
+  const m = /^marks:([^:]+):(\d{4}-\d{2})$/.exec(k);
+  return m ? { device: m[1], month: m[2] } : null;
+}
+
+/** Every stored mark, stamped with the device and month of the row it is stored in. */
+async function loadMarks(): Promise<StatusMark[]> {
+  const rows = await db.kv.where('k').startsWith(MARKS_PREFIX).toArray();
+  const out: StatusMark[] = [];
+  for (const row of rows) {
+    const key = parseMarkKey(row.k);
+    if (!key || !Array.isArray(row.v)) continue;
+    for (const m of row.v as StatusMark[]) out.push({ ...m, dev: key.device, mo: key.month });
+  }
+  return out;
+}
+
+async function markRow(device: string, month: string): Promise<StatusMark[]> {
+  const v = await kvGet<StatusMark[] | null>(markKey(device, month), null);
+  return Array.isArray(v) ? v : [];
 }
 
 // ---------- other tabs ----------
@@ -129,7 +189,7 @@ function openChannel() {
   (channel as unknown as { unref?: () => void }).unref?.();
 }
 
-function broadcast(what: 'review' | 'undo' | 'merge' | 'vocab' | 'settings' | 'pending' | 'device') {
+function broadcast(what: 'review' | 'undo' | 'mark' | 'merge' | 'vocab' | 'settings' | 'pending' | 'device') {
   try {
     channel?.postMessage({ what });
   } catch {
@@ -141,26 +201,32 @@ function broadcast(what: 'review' | 'undo' | 'merge' | 'vocab' | 'settings' | 'p
 export async function reloadFromDb(): Promise<void> {
   for (let tries = 0; tries < 5; tries++) {
     const g = gen;
-    const [device, settings, notes, events, meta, pendingImport] = await Promise.all([
+    const [device, settings, notes, events, meta, pendingImport, marks] = await Promise.all([
       deviceId(),
       getSettings(),
       db.notes.orderBy('order').toArray(),
       db.events.toArray(),
       kvGet<VocabMeta | null>('vocabMeta', null),
       kvGet<PendingImport | null>('pendingImport', null),
+      loadMarks(),
     ]);
     if (g !== gen) continue; // this tab changed something meanwhile: read again
     raw = events;
+    rawMarks = marks;
     const view = eventsView(events, notes, meta);
+    const mview = marksView(marks, notes, meta);
     set({
       device,
       settings,
       notes,
       noteMap: new Map(notes.map((n) => [n.id, n])),
       events: view,
+      marks: mview,
       meta,
       pendingImport: pendingImport ?? undefined,
-      cards: rebuild(notes, view, meta?.seeds ?? {}, settings),
+      cards: rebuild(notes, view, meta?.seeds ?? {}, settings, mview),
+      // localStorage is shared by the tabs: another tab may have changed the language.
+      lang: langPref(state.lang),
     });
     return;
   }
@@ -192,17 +258,22 @@ async function migrateMonths(me: string): Promise<void> {
 export async function init(): Promise<void> {
   const me = await deviceId();
   await migrateMonths(me);
-  const [settings, notes, events, meta, pendingImport] = await Promise.all([
+  const [settings, notes, events, meta, pendingImport, marks] = await Promise.all([
     getSettings(),
     db.notes.orderBy('order').toArray(),
     db.events.toArray(),
     kvGet<VocabMeta | null>('vocabMeta', null),
     kvGet<PendingImport | null>('pendingImport', null),
+    loadMarks(),
   ]);
   raw = events;
+  rawMarks = marks;
   gen++;
   const view = eventsView(events, notes, meta);
-  const cards = rebuild(notes, view, meta?.seeds ?? {}, settings);
+  const mview = marksView(marks, notes, meta);
+  const cards = rebuild(notes, view, meta?.seeds ?? {}, settings, mview);
+  // Shared preferences saved in the settings (from sync) take over, unless one was changed here after them.
+  applySharedPrefs(settings);
   set({
     ready: true,
     device: me,
@@ -210,13 +281,70 @@ export async function init(): Promise<void> {
     notes,
     noteMap: new Map(notes.map((n) => [n.id, n])),
     events: view,
+    marks: mview,
     meta,
     cards,
     pendingImport: pendingImport ?? undefined,
+    lang: langPref(state.lang),
   });
   openChannel();
+  watchSharedPrefs();
   onDbVersionChange(() => set({ needsReload: true }));
   if (typeof navigator !== 'undefined' && navigator.storage?.persist) navigator.storage.persist().catch(() => undefined);
+}
+
+// ---------- shared preferences (meaning language, Quick filters) ----------
+// Changed here: saved into Settings.prefs after a pause, which bumps updatedAt and queues settings.json for upload.
+// Arrived from sync (or present at start-up): written to localStorage without echo. Nothing is pushed at start-up,
+// so a device that was off for a while never overwrites newer settings.
+
+const PREFS_DEBOUNCE_MS = 1500;
+let prefsTimer: ReturnType<typeof setTimeout> | undefined;
+let prefsWatched = false;
+
+function langPref(fallback: Lang): Lang {
+  const l = pref<string>('lang', fallback);
+  return l === 'fr' || l === 'en' ? l : fallback;
+}
+
+function sharedOnly(p: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(p).filter(([k]) => SHARED_PREFS.includes(k)));
+}
+
+/** Write the shared preferences of these settings to localStorage, unless one was changed here after them. */
+function applySharedPrefs(s: Partial<Settings>): boolean {
+  const p = s.prefs;
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return false;
+  if (sharedPrefsChangedAt() > (s.updatedAt ?? 0)) return false;
+  return writePrefsSilently(sharedOnly(p)) > 0;
+}
+
+async function flushSharedPrefs(): Promise<void> {
+  clearTimeout(prefsTimer);
+  prefsTimer = undefined;
+  // Every shared key is read again: a change missed because the app closed early is carried by this one.
+  await updateSettings({ prefs: collectPrefs('shared') });
+}
+
+function watchSharedPrefs() {
+  if (prefsWatched) return;
+  prefsWatched = true;
+  onSharedPrefChange(() => {
+    clearTimeout(prefsTimer);
+    prefsTimer = setTimeout(() => void flushSharedPrefs().catch(() => undefined), PREFS_DEBOUNCE_MS);
+  });
+  if (typeof document !== 'undefined') {
+    // The app is being hidden (iPhone: swiped away): save a pending change now.
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'hidden' && prefsTimer) void flushSharedPrefs().catch(() => undefined);
+    });
+  }
+}
+
+/** Read the language again from localStorage (after a restore wrote preferences). */
+export function reloadPrefs(): void {
+  const lang = langPref(state.lang);
+  if (lang !== state.lang) set({ lang });
 }
 
 /** Replace the word list with a fresh import (from Excel), or with the shared list from sync (`exactSeeds`). */
@@ -235,8 +363,9 @@ export async function setVocab(vf: VocabFile, exactSeeds = false): Promise<void>
   });
   gen++;
   const events = eventsView(raw, notes, meta);
-  const cards = rebuild(notes, events, meta.seeds, state.settings);
-  set({ notes, noteMap: new Map(notes.map((n) => [n.id, n])), meta, events, cards });
+  const marks = marksView(rawMarks, notes, meta);
+  const cards = rebuild(notes, events, meta.seeds, state.settings, marks);
+  set({ notes, noteMap: new Map(notes.map((n) => [n.id, n])), meta, events, marks, cards });
   broadcast('vocab');
 }
 
@@ -258,12 +387,19 @@ function pickOlder(a: Record<string, number>, b: Record<string, number>): Record
 export async function updateSettings(patch: Partial<Settings>, fromSync = false): Promise<void> {
   const settings = await saveSettings(patch, fromSync);
   const engineChanged = ['retention', 'spreadDays', 'recall', 'listen'].some((k) => k in patch);
+  // Shared preferences from another device: into localStorage, without echo.
+  const prefsChanged = fromSync && applySharedPrefs(patch);
   gen++;
-  set({ settings, ...(engineChanged ? { cards: rebuild(state.notes, state.events, state.meta?.seeds ?? {}, settings) } : {}) });
+  set({
+    settings,
+    ...(engineChanged ? { cards: rebuild(state.notes, state.events, state.meta?.seeds ?? {}, settings, state.marks) } : {}),
+    ...(prefsChanged ? { lang: langPref(state.lang) } : {}),
+  });
   broadcast('settings');
   if (!fromSync) notifyLocalChange();
 }
 
+/** Meaning language. A shared preference: setPref queues it for settings.json. */
 export function setLang(lang: Lang) {
   setPref('lang', lang);
   set({ lang });
@@ -280,13 +416,24 @@ export function setFolder(folder: Partial<FolderInfo>, replace = false) {
 // Months of this device's review log changed since the last upload: month → stamp of the last change.
 // The stamp never goes backwards (clock changes), and stays close to Date.now() for older app versions in other tabs.
 // Call inside a transaction that covers db.kv.
-async function markDirty(month: string) {
-  const dirty = await kvGet<Record<string, number>>('dirty', {});
+// The status marks use the same scheme with kv.marksDirty, sharing the one dirtyStamp.
+async function bumpDirty(key: 'dirty' | 'marksDirty', month: string) {
+  const dirty = await kvGet<Record<string, number>>(key, {});
   const last = await kvGet<number>('dirtyStamp', 0);
   const stamp = Math.max(Date.now(), last + 1, (dirty[month] ?? 0) + 1);
   dirty[month] = stamp;
-  await kvSet('dirty', dirty);
+  await kvSet(key, dirty);
   await kvSet('dirtyStamp', stamp);
+}
+const markDirty = (month: string) => bumpDirty('dirty', month);
+const markMarksDirty = (month: string) => bumpDirty('marksDirty', month);
+
+async function clearDirtyKey(key: 'dirty' | 'marksDirty', month: string, stamp: number): Promise<void> {
+  await db.transaction('rw', db.kv, async () => {
+    const dirty = await kvGet<Record<string, number>>(key, {});
+    if ((dirty[month] ?? 0) <= stamp) delete dirty[month];
+    await kvSet(key, dirty);
+  });
 }
 
 export async function dirtyMonths(): Promise<Record<string, number>> {
@@ -294,12 +441,17 @@ export async function dirtyMonths(): Promise<Record<string, number>> {
 }
 
 /** Forget a month once uploaded, unless it changed again after `stamp`. */
-export async function clearDirty(month: string, stamp: number): Promise<void> {
-  await db.transaction('rw', db.kv, async () => {
-    const dirty = await kvGet<Record<string, number>>('dirty', {});
-    if ((dirty[month] ?? 0) <= stamp) delete dirty[month];
-    await kvSet('dirty', dirty);
-  });
+export function clearDirty(month: string, stamp: number): Promise<void> {
+  return clearDirtyKey('dirty', month, stamp);
+}
+
+/** Months of this device's status marks changed since the last upload: month → stamp. */
+export async function dirtyMarkMonths(): Promise<Record<string, number>> {
+  return { ...(await kvGet<Record<string, number>>('marksDirty', {})) };
+}
+
+export function clearMarkDirty(month: string, stamp: number): Promise<void> {
+  return clearDirtyKey('marksDirty', month, stamp);
 }
 
 /** Record one review on this device and update the card at once. */
@@ -350,10 +502,163 @@ export async function undoReview(eventId: string): Promise<void> {
   notifyLocalChange();
 }
 
-/** Rebuild the events view and every card from what is in memory (after merges made with `rebuild: false`). */
+/** Rebuild the events and marks views and every card from what is in memory (after merges made with `rebuild: false`). */
 export function rebuildAll(): void {
   const events = eventsView(raw, state.notes, state.meta);
-  set({ events, cards: rebuild(state.notes, events, state.meta?.seeds ?? {}, state.settings) });
+  const marks = marksView(rawMarks, state.notes, state.meta);
+  set({ events, marks, cards: rebuild(state.notes, events, state.meta?.seeds ?? {}, state.settings, marks) });
+}
+
+// ---------- status marks set by Hugo ----------
+
+/** New marks view, and the cards of one note derived again (a mark changes only its own word). */
+function rebuildNote(noteIds: string[]): void {
+  const marks = marksView(rawMarks, state.notes, state.meta);
+  const cards = new Map(state.cards);
+  for (const id of new Set(noteIds)) {
+    const note = state.noteMap.get(id);
+    if (!note) continue;
+    const evs = state.events.filter((e) => noteOfCard(e.card) === id);
+    const ms = marks.filter((m) => m.note === id);
+    for (const c of deriveCards([note], evs, state.meta?.seeds ?? {}, engineSettings(state.settings), ms)) cards.set(c.id, c);
+  }
+  set({ marks, cards });
+}
+
+/** Note ids a raw mark applies to in the current view (it may point at a renamed word). */
+function viewNote(m: StatusMark): string {
+  const aliases = state.meta?.aliases;
+  if (!aliases || !Object.keys(aliases).length) return m.note;
+  return resolveMarkNotes([m], aliases, new Set(state.notes.map((n) => n.id)))[0]?.note ?? m.note;
+}
+
+/** Hugo sets the status of a word (every card of it): saved as a mark on this device, replayed with the reviews. */
+export async function setNoteStatus(noteId: string, a: MarkKind, t = Date.now()): Promise<StatusMark> {
+  const mark: StatusMark = { id: uid(), note: noteId, a, t, dev: state.device, mo: monthKey(t) };
+  // The mark and its dirty month are saved together: a mark is never stored without being queued for upload.
+  await db.transaction('rw', db.kv, async () => {
+    const row = await markRow(mark.dev, mark.mo!);
+    await kvSet(markKey(mark.dev, mark.mo!), [...row, mark]);
+    await markMarksDirty(mark.mo!);
+  });
+  gen++;
+  rawMarks = [...rawMarks, mark];
+  rebuildNote([viewNote(mark)]);
+  broadcast('mark');
+  notifyLocalChange();
+  return mark;
+}
+
+/** Undo a mark set on this device. Marks of other devices are never changed here. */
+export async function undoMark(markId: string): Promise<void> {
+  const me = state.device;
+  const gone = await db.transaction('rw', db.kv, async () => {
+    const rows = await db.kv.where('k').startsWith(`${MARKS_PREFIX}${me}:`).toArray();
+    for (const row of rows) {
+      const key = parseMarkKey(row.k);
+      if (!key || key.device !== me || !Array.isArray(row.v)) continue;
+      const list = row.v as StatusMark[];
+      const found = list.find((m) => m.id === markId);
+      if (!found) continue;
+      await kvSet(row.k, list.filter((m) => m.id !== markId));
+      await markMarksDirty(key.month);
+      return { ...found, dev: me, mo: key.month };
+    }
+    return null;
+  });
+  if (!gone) return;
+  gen++;
+  rawMarks = rawMarks.filter((m) => m.id !== markId);
+  rebuildNote([viewNote(gone)]);
+  broadcast('undo');
+  notifyLocalChange();
+}
+
+const sameMarks = (a: StatusMark[], b: StatusMark[]) => {
+  if (a.length !== b.length) return false;
+  const key = (m: StatusMark) => JSON.stringify([m.id, m.note, m.a, m.t]);
+  const x = a.map(key).sort();
+  const y = b.map(key).sort();
+  return x.every((k, i) => k === y[i]);
+};
+
+/**
+ * Merge one marks file of another device (sync): the file is authoritative for that device and month, so it replaces
+ * that row. Pass `rebuild: false` when merging many files, then call `rebuildAll()` once. Returns whether anything changed.
+ */
+export async function mergeDeviceMarks(device: string, month: string, marks: StatusMark[], opts: { rebuild?: boolean } = {}): Promise<boolean> {
+  if (device === state.device) return false; // this device's marks are written only here
+  const incoming = marks.map((m) => ({ ...m, dev: device, mo: month }));
+  const changed = await db.transaction('rw', db.kv, async () => {
+    const current = await markRow(device, month);
+    if (sameMarks(current, incoming)) return false;
+    await kvSet(markKey(device, month), incoming);
+    return true;
+  });
+  if (!changed) return false;
+  gen++;
+  rawMarks = [...rawMarks.filter((m) => !(m.dev === device && m.mo === month)), ...incoming];
+  if (opts.rebuild !== false) rebuildAll();
+  broadcast('merge');
+  return true;
+}
+
+/** This device's marks of one month, from the database (also those set in another tab), oldest first. */
+export async function ownMonthMarks(month: string): Promise<StatusMark[]> {
+  const me = state.device;
+  const marks = (await markRow(me, month)).map((m) => ({ ...m, dev: me, mo: month }));
+  return marks.sort((a, b) => a.t - b.t || (a.id < b.id ? -1 : 1));
+}
+
+/**
+ * Add reviews and marks from a backup file: only ids not stored yet are added, nothing is overwritten. Rows of this
+ * device have their months queued for upload again; rows of other devices keep their month, and their sync files stay
+ * authoritative when they come in. Returns how many were added.
+ */
+export async function addRestored(events: ReviewEvent[], marks: StatusMark[]): Promise<{ events: number; marks: number }> {
+  const me = state.device;
+  const res = await db.transaction('rw', db.events, db.kv, async () => {
+    const have = await db.events.bulkGet(events.map((e) => e.id));
+    const seen = new Set<string>();
+    const newEvents: ReviewEvent[] = [];
+    events.forEach((e, i) => {
+      if (have[i] || seen.has(e.id)) return;
+      seen.add(e.id);
+      newEvents.push({ ...e, mo: e.mo ?? monthKey(e.t) });
+    });
+    if (newEvents.length) await db.events.bulkAdd(newEvents);
+    for (const mo of new Set(newEvents.filter((e) => e.dev === me).map((e) => e.mo!))) await markDirty(mo);
+
+    const markIds = new Set((await loadMarks()).map((m) => m.id));
+    const groups = new Map<string, StatusMark[]>();
+    for (const m of marks) {
+      if (markIds.has(m.id)) continue;
+      markIds.add(m.id);
+      const mo = m.mo ?? monthKey(m.t);
+      const k = markKey(m.dev, mo);
+      let g = groups.get(k);
+      if (!g) groups.set(k, (g = []));
+      g.push({ ...m, mo });
+    }
+    const newMarks: StatusMark[] = [];
+    for (const [k, g] of groups) {
+      const cur = await kvGet<unknown>(k, []);
+      await kvSet(k, [...(Array.isArray(cur) ? (cur as StatusMark[]) : []), ...g]);
+      newMarks.push(...g);
+    }
+    for (const mo of new Set(newMarks.filter((m) => m.dev === me).map((m) => m.mo!))) await markMarksDirty(mo);
+    return { newEvents, newMarks };
+  });
+  const { newEvents, newMarks } = res;
+  if (newEvents.length || newMarks.length) {
+    gen++;
+    raw = [...raw, ...newEvents];
+    rawMarks = [...rawMarks, ...newMarks];
+    rebuildAll();
+    broadcast('merge');
+    if ([...newEvents, ...newMarks].some((x) => x.dev === me)) notifyLocalChange();
+  }
+  return { events: newEvents.length, marks: newMarks.length };
 }
 
 // Events of month M have their time within M in the time zone of the device that wrote them (UTC−12 to UTC+14):
@@ -416,17 +721,21 @@ export async function ownMonthEvents(month: string): Promise<ReviewEvent[]> {
   return events.sort((a, b) => a.t - b.t || (a.id < b.id ? -1 : 1));
 }
 
+/** Whether this device recorded anything under its id: reviews or status marks. */
 export async function hasOwnEvents(): Promise<boolean> {
-  return (await db.events.where('dev').equals(state.device).count()) > 0;
+  if ((await db.events.where('dev').equals(state.device).count()) > 0) return true;
+  const rows = await db.kv.where('k').startsWith(`${MARKS_PREFIX}${state.device}:`).toArray();
+  return rows.some((r) => Array.isArray(r.v) && r.v.length > 0);
 }
 
-/** Give this device a new id (the id is already used by another device in the repository). Only before any review. */
+/** Give this device a new id (the id is already used by another device in the repository). Only before any review or mark. */
 export async function renewDeviceId(): Promise<string> {
   if (await hasOwnEvents()) throw new Error('This device already has reviews under its id.');
   const id = newDeviceId();
   await db.transaction('rw', db.kv, async () => {
     await kvSet('deviceId', id);
     await kvSet('dirty', {});
+    await kvSet('marksDirty', {});
   });
   gen++;
   set({ device: id });

@@ -118,9 +118,11 @@ export async function checkFolder(force = false): Promise<void> {
 }
 
 function signature(): string {
-  const { events, meta } = getState();
+  const { events, marks, meta } = getState();
   const last = events.reduce((m, e) => Math.max(m, e.t), 0);
-  return `${meta?.hash}|${events.length}|${last}|${dayKey(Date.now())}`;
+  // Marks count too: setting a word's status (or undoing it) rewrites the workbook.
+  const lastMark = marks.reduce((m, x) => Math.max(m, x.t), 0);
+  return `${meta?.hash}|${events.length}|${last}|${marks.length}|${lastMark}|${dayKey(Date.now())}`;
 }
 
 let writing = false;
@@ -135,7 +137,7 @@ export async function writeProgress(force = false): Promise<void> {
   if (!force && sig === (await kvGet<string>('progressSig', ''))) return;
   writing = true;
   try {
-    const bytes = progressWorkbook({ notes: s.notes, cards: s.cards.values(), events: s.events, device: s.device, now: Date.now() });
+    const bytes = progressWorkbook({ notes: s.notes, cards: s.cards.values(), events: s.events, marks: s.marks, device: s.device, now: Date.now() });
     const fh = await dir.getFileHandle(PROGRESS_FILE, { create: true });
     const w = await fh.createWritable();
     try {
@@ -176,12 +178,12 @@ export async function startFolder(): Promise<void> {
   if (dir) setFolder({ state: 'ok', name: dir.name });
   await checkFolder();
   void writeProgress();
-  // New reviews, here or from the other devices: refresh the workbook after a pause.
-  let events = getState().events;
+  // New reviews or status marks, here or from the other devices: refresh the workbook after a pause.
+  let { events, marks } = getState();
   subscribe(() => {
-    const now = getState().events;
-    if (now !== events) {
-      events = now;
+    const now = getState();
+    if (now.events !== events || now.marks !== marks) {
+      ({ events, marks } = now);
       scheduleWrite(30000);
     }
   });

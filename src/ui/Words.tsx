@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import type { Note } from '../lib/types';
-import { meaning, useApp } from '../lib/store';
+import type { MarkKind, Note, StatusMark } from '../lib/types';
+import { meaning, setNoteStatus, undoMark, useApp } from '../lib/store';
 import { cardStatus, formatInterval, noteStatus, type Status } from '../lib/engine/schedule';
 import { groupCards } from '../lib/stats';
 import { speak } from '../lib/speech';
@@ -14,11 +14,16 @@ const MODE_LABEL: Record<string, string> = {
   'write-guided': 'written', 'write-free': 'written, free', choice: 'choice', build: 'sentence builder', quick: 'Quick memory',
 };
 
+const MARK_LABEL: Record<string, string> = { known: 'Known', relearn: 'Relearn', suspend: 'Suspended', unsuspend: 'Unsuspended' };
+const MARK_HISTORY: Record<string, string> = { known: 'Set as known', relearn: 'Set to relearn', suspend: 'Suspended', unsuspend: 'Unsuspended' };
+const fmt = (t: number) => new Date(t).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+
 export function Words({ id, kinds = ['vocab', 'measure', 'synonym'], title = 'Words', base = '#/words' }: { id?: string; kinds?: Note['kind'][]; title?: string; base?: string }) {
-  const { notes, cards, lang } = useApp((s) => s);
+  const { notes, cards, lang, marks } = useApp((s) => s);
+  const marked = useMemo(() => new Set(marks.map((m) => m.note)), [marks]);
   const [q, setQ] = useState('');
   const [tag, setTag] = useState('all');
-  const [status, setStatus] = useState<Status | 'all' | 'studied'>('all');
+  const [status, setStatus] = useState<Status | 'all' | 'studied' | 'marked'>('all');
   const now = Date.now();
   const byNote = useMemo(() => groupCards(cards.values()), [cards]);
   const pool = useMemo(() => notes.filter((n) => kinds.includes(n.kind)), [notes, kinds]);
@@ -30,7 +35,8 @@ export function Words({ id, kinds = ['vocab', 'measure', 'synonym'], title = 'Wo
     return pool.filter((n) => {
       if (tag !== 'all' && !n.tags.includes(tag)) return false;
       if (status === 'studied' && !n.studied) return false;
-      if (status !== 'all' && status !== 'studied' && noteStatus(byNote.get(n.id) ?? [], now) !== status) return false;
+      if (status === 'marked' && !marked.has(n.id)) return false;
+      if (status !== 'all' && status !== 'studied' && status !== 'marked' && noteStatus(byNote.get(n.id) ?? [], now) !== status) return false;
       if (!query) return true;
       if (n.hanzi.includes(query) || n.alts.some((a) => a.includes(query))) return true;
       if (tl && n.pinyinNum.replace(/[\s\d]/g, '').startsWith(tl)) return true;
@@ -38,7 +44,7 @@ export function Words({ id, kinds = ['vocab', 'measure', 'synonym'], title = 'Wo
       return !!nq && m.includes(nq);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pool, q, tag, status, byNote]);
+  }, [pool, q, tag, status, byNote, marked]);
   const [limit, setLimit] = useState(150);
   const selected = id ? notes.find((n) => n.id === id) : undefined;
 
@@ -59,7 +65,7 @@ export function Words({ id, kinds = ['vocab', 'measure', 'synonym'], title = 'Wo
                 ))}
               </select>
             )}
-            <select value={status} onChange={(e) => setStatus(e.target.value as Status)} aria-label="Status" style={{ width: 'auto' }}>
+            <select value={status} onChange={(e) => setStatus(e.target.value as Status | 'all' | 'studied' | 'marked')} aria-label="Status" style={{ width: 'auto' }}>
               <option value="all">Any status</option>
               <option value="studied">Green in Excel</option>
               <option value="new">New</option>
@@ -67,6 +73,8 @@ export function Words({ id, kinds = ['vocab', 'measure', 'synonym'], title = 'Wo
               <option value="review">Review</option>
               <option value="mastered">Mastered</option>
               <option value="leech">Leech</option>
+              <option value="suspended">Suspended</option>
+              <option value="marked">Set by you</option>
             </select>
             <span className="small muted" aria-live="polite">
               {list.length === pool.length ? `${pool.length} ${pool.length === 1 ? 'entry' : 'entries'}` : `${list.length} of ${pool.length}`}
@@ -96,18 +104,37 @@ export function Words({ id, kinds = ['vocab', 'measure', 'synonym'], title = 'Wo
             </button>
           )}
         </div>
-        <div className="detail">{selected ? <NoteDetail note={selected} /> : <p className="muted">Pick a word to see its details and review history.</p>}</div>
+        <div className="detail">{selected ? <NoteDetail key={selected.id} note={selected} /> : <p className="muted">Pick a word to see its details and review history.</p>}</div>
       </div>
     </div>
   );
 }
 
 export function NoteDetail({ note }: { note: Note }) {
-  const { cards, events, device } = useApp((s) => s);
+  const { cards, events, device, marks } = useApp((s) => s);
+  const ownMarks = useMemo(() => marks.filter((m) => m.note === note.id).sort((a, b) => b.t - a.t || (a.id < b.id ? 1 : -1)), [marks, note.id]);
+  const [undoable, setUndoable] = useState<{ id: string; text: string } | null>(null);
+  const [pending, setPending] = useState(false);
   const own = useMemo(() => [...cards.values()].filter((c) => c.note === note.id), [cards, note.id]);
   const history = useMemo(() => events.filter((e) => e.card.startsWith(note.id + '#')).sort((a, b) => b.t - a.t), [events, note.id]);
+  const rows = useMemo(
+    () => [...history.map((ev) => ({ t: ev.t, ev, mark: undefined as StatusMark | undefined })), ...ownMarks.map((mark) => ({ t: mark.t, ev: undefined, mark }))].sort((a, b) => b.t - a.t),
+    [history, ownMarks],
+  );
   const [strokes, setStrokes] = useState(false);
   const now = Date.now();
+  const status = noteStatus(own, now);
+  const setStatus = async (a: MarkKind, text: string) => {
+    if (pending) return;
+    setPending(true);
+    try {
+      const m = await setNoteStatus(note.id, a);
+      setUndoable({ id: m.id, text });
+    } finally {
+      setPending(false);
+    }
+  };
+  const lastSet = ownMarks.find((m) => m.a === 'known' || m.a === 'relearn' || m.a === 'suspend' || m.a === 'unsuspend');
   return (
     <div className="panel stack">
       {note.kind === 'grammar' ? (
@@ -142,6 +169,47 @@ export function NoteDetail({ note }: { note: Note }) {
       {note.kind !== 'grammar' &&
         (strokes ? <StrokeAnimation word={note.hanzi} size={110} /> : <button type="button" className="btn small" onClick={() => setStrokes(true)}>Stroke order</button>)}
       <div className="divider" />
+      <h3>Your status</h3>
+      <div className="row wrap">
+        <button type="button" className="btn small" disabled={pending} onClick={() => setStatus('known', 'Marked as known')}>
+          I know this
+        </button>
+        {status !== 'new' && (
+          <button type="button" className="btn small" disabled={pending} onClick={() => setStatus('relearn', 'Set to relearn')}>
+            Relearn
+          </button>
+        )}
+        {status === 'suspended' ? (
+          <button type="button" className="btn small" disabled={pending} onClick={() => setStatus('unsuspend', 'Unsuspended')}>
+            Unsuspend
+          </button>
+        ) : (
+          <button type="button" className="btn small" disabled={pending} onClick={() => setStatus('suspend', 'Suspended')}>
+            Suspend
+          </button>
+        )}
+      </div>
+      {undoable && (
+        <p className="small inline-undo" role="status">
+          <span>{undoable.text}.</span>
+          <button
+            type="button"
+            className="btn ghost small"
+            onClick={async () => {
+              await undoMark(undoable.id);
+              setUndoable(null);
+            }}
+          >
+            Undo
+          </button>
+        </p>
+      )}
+      {lastSet && (
+        <p className="small muted">
+          Set by you: {MARK_LABEL[lastSet.a] ?? lastSet.a} on {formatDate(lastSet.t)}
+          {lastSet.dev !== device ? ` (${lastSet.dev})` : ''}
+        </p>
+      )}
       <h3>Cards</h3>
       <table className="plain">
         <tbody>
@@ -162,19 +230,29 @@ export function NoteDetail({ note }: { note: Note }) {
           Review now
         </a>
       </div>
-      {history.length > 0 && (
+      {(history.length > 0 || ownMarks.length > 0) && (
         <>
           <h3>History</h3>
           <table className="plain small">
             <tbody>
-              {history.slice(0, 40).map((e) => (
-                <tr key={e.id}>
-                  <td>{new Date(e.t).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}</td>
-                  <td>{CARD_LABEL[e.card.slice(e.card.lastIndexOf('#') + 1)]}</td>
-                  <td>{['', 'Again', 'Hard', 'Good', 'Easy'][e.r]}</td>
-                  <td className="muted">{MODE_LABEL[e.m] ?? e.m}{e.dev !== device ? ` · ${e.dev}` : ''}</td>
-                </tr>
-              ))}
+              {rows.slice(0, 40).map((r) =>
+                r.mark ? (
+                  <tr key={r.mark.id}>
+                    <td>{fmt(r.t)}</td>
+                    <td colSpan={2}>{MARK_HISTORY[r.mark.a] ?? r.mark.a}</td>
+                    <td className="muted">Set by you{r.mark.dev !== device ? ` · ${r.mark.dev}` : ''}</td>
+                  </tr>
+                ) : (
+                  r.ev && (
+                    <tr key={r.ev.id}>
+                      <td>{fmt(r.t)}</td>
+                      <td>{CARD_LABEL[r.ev.card.slice(r.ev.card.lastIndexOf('#') + 1)]}</td>
+                      <td>{['', 'Again', 'Hard', 'Good', 'Easy'][r.ev.r]}</td>
+                      <td className="muted">{MODE_LABEL[r.ev.m] ?? r.ev.m}{r.ev.dev !== device ? ` · ${r.ev.dev}` : ''}</td>
+                    </tr>
+                  )
+                ),
+              )}
             </tbody>
           </table>
         </>

@@ -1,6 +1,8 @@
 // Review session: builds the queue, records answers, progress, undo, end screen.
 import { useEffect, useRef, useState } from 'react';
-import { getState, recordReview, undoReview, useApp } from '../../lib/store';
+import type { StatusMark } from '../../lib/types';
+import { getState, recordReview, undoMark, undoReview, useApp } from '../../lib/store';
+import { ReviewActionsContext } from './GradeBar';
 import { buildQueue, reinsertIndex } from '../../lib/engine/queue';
 import { Icon, LangSwitch, toast } from '../common';
 import { CardView } from './CardView';
@@ -12,7 +14,7 @@ interface Session {
   done: number;
   right: number;
   started: number;
-  last?: { eventId: string; queue: string[]; pos: number; done: number; right: number };
+  last?: { kind: 'review' | 'mark'; id: string; queue: string[]; pos: number; done: number; right: number };
 }
 
 function parseHash(): { cards?: string[]; fresh?: string[] } {
@@ -54,9 +56,21 @@ export function Review() {
   const undo = async () => {
     const last = session.last;
     if (!last) return;
-    await undoReview(last.eventId);
+    if (last.kind === 'mark') await undoMark(last.id);
+    else await undoReview(last.id);
     setSession({ ...session, queue: last.queue, pos: last.pos, done: last.done, right: last.right, last: undefined });
-    toast('Last answer undone');
+    toast(last.kind === 'mark' ? 'Status change undone' : 'Last answer undone');
+  };
+
+  const onMarked = (m: StatusMark) => {
+    busy.current = true;
+    const queue = session.queue.filter((id, i) => i < session.pos || !id.startsWith(m.note + '#'));
+    setSession({
+      ...session,
+      queue,
+      last: { kind: 'mark', id: m.id, queue: session.queue, pos: session.pos, done: session.done, right: session.right },
+    });
+    toast(m.a === 'known' ? 'Marked as known: next check in about 3 months' : 'Suspended');
   };
 
   const total = session.queue.length;
@@ -96,6 +110,7 @@ export function Review() {
         <LangSwitch />
       </header>
       {cardId ? (
+        <ReviewActionsContext.Provider value={{ onMarked }}>
         <CardView
           key={`${cardId}:${session.pos}`}
           cardId={cardId}
@@ -116,7 +131,7 @@ export function Review() {
                 pos: session.pos + 1,
                 done: session.done + 1,
                 right: session.right + (g > 1 ? 1 : 0),
-                last: { eventId: ev.id, queue: session.queue, pos: session.pos, done: session.done, right: session.right },
+                last: { kind: 'review', id: ev.id, queue: session.queue, pos: session.pos, done: session.done, right: session.right },
               });
             } catch (err) {
               busy.current = false;
@@ -124,6 +139,7 @@ export function Review() {
             }
           }}
         />
+        </ReviewActionsContext.Provider>
       ) : (
         <Finished session={session} onMore={() => setSession(null)} />
       )}

@@ -62,6 +62,11 @@ export interface Settings {
   listen: boolean;
   fileName: string;
   updatedAt: number;
+  /**
+   * Preferences shared by every device (meaning language, Quick filters…), see SHARED_PREFS. Additive: older app versions
+   * keep unknown settings fields when they save, so this survives a round trip through them.
+   */
+  prefs?: Record<string, unknown>;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -126,20 +131,102 @@ export function monthOf(e: ReviewEvent): string {
   return e.mo ?? monthKey(e.t);
 }
 
-/** Per-device preferences that are not synced (kept in localStorage). */
+// ---------- preferences (localStorage `hz.<key>`) ----------
+
+/** Preferences that follow Hugo to every device, through `Settings.prefs` in settings.json. */
+export const SHARED_PREFS: readonly string[] = ['lang', 'acceptBoth', 'qm.shown', 'qm.preset', 'qm.tag', 'qm.filter'];
+/** Preferences that stay on one device (voices differ; the iPhone writes, the PC types). Plus every `mode.<cardType>`. */
+export const DEVICE_PREFS: readonly string[] = ['voice', 'rate', 'qm.mode'];
+export const DEVICE_PREF_PREFIX = 'mode.';
+/** When a shared preference last changed on this device (local only, not a preference itself). */
+const PREFS_AT = 'prefsAt';
+
+const isShared = (k: string) => SHARED_PREFS.includes(k);
+const isBackedUp = (k: string) => isShared(k) || DEVICE_PREFS.includes(k) || k.startsWith(DEVICE_PREF_PREFIX);
+
+function storage(): Storage | null {
+  try {
+    return typeof localStorage !== 'undefined' ? localStorage : null;
+  } catch {
+    return null;
+  }
+}
+
+/** A preference of this device (kept in localStorage). */
 export function pref<T>(key: string, fallback: T): T {
   try {
-    const v = localStorage.getItem('hz.' + key);
+    const v = storage()?.getItem('hz.' + key);
     return v == null ? fallback : (JSON.parse(v) as T);
   } catch {
     return fallback;
   }
 }
 
-export function setPref(key: string, v: unknown): void {
+function writePref(key: string, v: unknown): boolean {
   try {
-    localStorage.setItem('hz.' + key, JSON.stringify(v));
+    const s = storage();
+    if (!s || v === undefined) return false;
+    s.setItem('hz.' + key, JSON.stringify(v));
+    return true;
   } catch {
     // storage unavailable (private mode): the preference lasts for this session only
+    return false;
   }
+}
+
+const prefListeners = new Set<(key: string) => void>();
+/** Called when a shared preference is changed on this device (not when sync or a restore writes it). */
+export function onSharedPrefChange(l: (key: string) => void): () => void {
+  prefListeners.add(l);
+  return () => prefListeners.delete(l);
+}
+
+export function setPref(key: string, v: unknown): void {
+  writePref(key, v);
+  if (!isShared(key)) return;
+  writePref(PREFS_AT, Date.now());
+  for (const l of prefListeners) l(key);
+}
+
+/** When a shared preference last changed on this device (0 if never). */
+export function sharedPrefsChangedAt(): number {
+  return pref<number>(PREFS_AT, 0);
+}
+
+/** The stored preferences: `shared` for settings.json, `backup` for a backup file (never cache markers like warm.*). */
+export function collectPrefs(keys: 'shared' | 'backup'): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  const s = storage();
+  if (!s) return out;
+  try {
+    const names: string[] = [];
+    for (let i = 0; i < s.length; i++) {
+      const k = s.key(i);
+      if (k?.startsWith('hz.')) names.push(k.slice(3));
+    }
+    for (const k of names.sort()) {
+      if (!(keys === 'shared' ? isShared(k) : isBackedUp(k))) continue;
+      const v = s.getItem('hz.' + k);
+      if (v == null) continue;
+      try {
+        out[k] = JSON.parse(v);
+      } catch {
+        // not JSON: written by something else, skip
+      }
+    }
+  } catch {
+    // storage unavailable
+  }
+  return out;
+}
+
+/**
+ * Write preferences that came from sync or a backup, without telling the shared-preference listeners (no echo upload).
+ * Only known preference keys are written. Returns how many were written.
+ */
+export function writePrefsSilently(p: Record<string, unknown>): number {
+  let n = 0;
+  if (!p || typeof p !== 'object') return n;
+  for (const [k, v] of Object.entries(p)) if (isBackedUp(k) && writePref(k, v)) n++;
+  return n;
 }

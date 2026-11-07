@@ -1,8 +1,9 @@
 import { strFromU8, unzipSync } from 'fflate';
 import { describe, expect, it } from 'vitest';
-import type { Note, ReviewEvent } from './types';
+import type { Note, ReviewEvent, StatusMark } from './types';
 import { deriveCards } from './engine/schedule';
-import { progressWorkbook } from './progress';
+import { progressSheets, progressWorkbook } from './progress';
+import { markCounts } from './stats';
 import { buildXlsx, colName, excelDate } from './xlsx/write';
 
 function note(i: number, over: Partial<Note> = {}): Note {
@@ -67,5 +68,36 @@ describe('progress workbook', () => {
     const daily = strFromU8(files['xl/worksheets/sheet2.xml']);
     expect(daily).toContain('iphone-1a2b');
     expect(daily.match(/<row /g)).toHaveLength(7);
+  });
+
+  it('shows statuses set by Hugo: Suspended, a last "Set by you" column, summary rows', () => {
+    const T0 = new Date(2026, 10, 1, 12).getTime();
+    const notes = Array.from({ length: 6 }, (_, i) => note(i + 1, { studied: false }));
+    const mk = (id: string, i: number, a: StatusMark['a'], t: number): StatusMark => ({ id, note: notes[i].id, a, t, dev: 'pc' });
+    const marks = [
+      mk('a', 0, 'known', T0),
+      mk('b', 1, 'suspend', T0 + 3600000),
+      mk('c', 2, 'relearn', T0),
+      mk('d', 3, 'known', T0),
+      mk('e', 3, 'suspend', T0 + 86400000),
+      mk('f', 4, 'suspend', T0),
+      mk('g', 4, 'unsuspend', T0 + 60000),
+      { ...mk('h', 0, 'known', T0), note: 'v:gone|gone' },
+    ];
+    const cards = deriveCards(notes, [], {}, { retention: 0.9, spreadDays: 60, recall: true, listen: false }, marks);
+    const [words, , summary] = progressSheets({ notes, cards, events: [], device: 'pc', now: T0 + 2 * 86400000, marks });
+    const last = words.columns.length - 1;
+    expect(words.columns[last].header).toBe('Set by you');
+    expect(words.columns[last - 1].header).toBe('Green in Excel');
+    const status = words.columns.findIndex((c) => c.header === 'Status');
+    expect(words.rows.map((r) => r[status])).toEqual(['Mastered', 'Suspended', 'Learning', 'Suspended', 'New', 'New']);
+    expect(words.rows.map((r) => r[last])).toEqual(['Known 2026-11-01', 'Suspended 2026-11-01', 'Relearn 2026-11-01', 'Suspended 2026-11-02', '', '']);
+    const row = (label: string) => summary.rows.find((r) => r[0] === label)?.[1];
+    expect(row('Suspended')).toBe(2);
+    expect(row('Marked known by you')).toBe(2);
+    expect(markCounts(marks, new Set(notes.map((n) => n.id)))).toEqual({ known: 2, relearn: 1, suspended: 2 });
+    // Without marks the workbook has the column, empty.
+    const plain = progressSheets({ notes, cards: deriveCards(notes, [], {}, { retention: 0.9, spreadDays: 60, recall: true, listen: false }), events: [], device: 'pc', now: T0 });
+    expect(plain[0].rows.every((r) => r[r.length - 1] === '')).toBe(true);
   });
 });

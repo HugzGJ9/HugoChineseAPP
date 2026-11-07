@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../lib/store';
-import { daily, forecast, groupCards, retention30, statusCounts, streak } from '../lib/stats';
+import { daily, forecast, groupCards, markCounts, retention30, statusCounts, streak } from '../lib/stats';
 import { StatusPill, TopBar } from './common';
 
 function Bars({ values, labels, cls, title, extra }: { values: number[]; labels: string[]; cls: string; title: string; extra?: number[] }) {
@@ -54,12 +54,13 @@ function Bars({ values, labels, cls, title, extra }: { values: number[]; labels:
 }
 
 export function Stats() {
-  const { notes, cards, events, device } = useApp((s) => s);
+  const { notes, cards, events, device, marks } = useApp((s) => s);
   const now = Date.now();
   const days = useMemo(() => daily(events, 30, now), [events, now]);
   const fc = useMemo(() => forecast([...cards.values()], 30, now), [cards, now]);
   const ret = useMemo(() => retention30(events, now), [events, now]);
   const counts = useMemo(() => statusCounts(notes.filter((n) => n.kind === 'vocab'), groupCards(cards.values()), now), [notes, cards, now]);
+  const byYou = useMemo(() => markCounts(marks, new Set(notes.map((n) => n.id))), [marks, notes]);
   const st = useMemo(() => streak(events, now), [events, now]);
   const devices = useMemo(() => {
     const m: Record<string, number> = {};
@@ -98,6 +99,9 @@ export function Stats() {
               </span>
             ))}
           </div>
+          {(byYou.known > 0 || byYou.relearn > 0 || byYou.suspended > 0) && (
+            <p className="small">Set by you: {byYou.known} known, {byYou.suspended} suspended{byYou.relearn ? `, ${byYou.relearn} to relearn` : ''}.</p>
+          )}
           <p className="small muted">Mastered = next review 21 days or more away. Leech = forgotten 8 times: try a new mnemonic in Excel.</p>
         </section>
         {Object.keys(devices).length > 0 && (
