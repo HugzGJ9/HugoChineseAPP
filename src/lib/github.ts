@@ -41,6 +41,8 @@ async function call<T>(link: RepoLink, path: string, init: RequestInit = {}): Pr
       ...init,
       cache: 'no-store',
       headers: headers(link, init.headers as Record<string, string> | undefined),
+      // A request that never answers would hold the sync lock shared by every tab: give up after 2 minutes.
+      signal: init.signal ?? (typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal ? AbortSignal.timeout(120000) : undefined),
     });
   } catch {
     throw new GitHubError(0, 'GitHub could not be reached. Check the connection.');

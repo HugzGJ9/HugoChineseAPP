@@ -502,11 +502,11 @@ describe('robustness', () => {
     let raced = false;
     vi.stubGlobal('fetch', async (input: string | URL, init: RequestInit = {}) => {
       if (!raced && init.method === 'PUT' && String(input).endsWith('/contents/settings.json')) {
-        // The computer saves newer settings just before the phone's write lands.
+        // The computer saves newer settings just before the phone's write lands. Written straight into the repository:
+        // running the computer's sync here would wait on the phone's sync lock (navigator.locks exists in Node 24).
         raced = true;
-        await new Promise((r) => setTimeout(r, 2));
-        await pc.store.updateSettings({ maxReviews: 50 });
-        await pc.sync.syncNow();
+        const newer = { ...pc.store.getState().settings, maxReviews: 50, updatedAt: Date.now() + 1000 };
+        putFile('settings.json', JSON.stringify(newer, null, 1) + '\n');
       }
       const res = await gh.fetch(input, init);
       if (res.status === 409) conflicts++;
