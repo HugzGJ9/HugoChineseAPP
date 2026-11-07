@@ -21,29 +21,42 @@ and as an iPhone Home Screen app. No backend: data lives in IndexedDB on each de
 - Browser checks: Python Playwright (`e2e/`). In cloud sessions Chromium + Playwright are preinstalled; never run
   `playwright install`.
 
+## Product (what Hugo wants)
+"My Excel, with a bit more design." Home = **Sheets**: one tab per Excel sheet in workbook order, rows in Excel order,
+hanzi/pinyin/meaning with Quick memory's hide/show. Each word has a status **Hugo sets himself** (Not studied, Studying,
+Not known, Mastered), seeded from his Excel colours (HSK四级 all Mastered; HSK五级 green Mastered, yellow Not known, blank
+Not studied, other colours Studying); the newer of his change and the Excel colour wins. He manages his own review rhythm:
+FSRS review is an optional tool and never sets a status. On the PC the app writes `Hugo_chinese_vocab (app).xlsx` next to
+the original (same bytes, only status fills changed); the original is never written. Nav: Sheets · Quick · Settings
+(Today, Stats, Words under Settings › More). Plans: `.claude/plans/` (latest: 2026-11-07-sheets.md).
+
 ## Map
-- `src/main.tsx` boot: `store.init` → `startFolder` → `startSync`
-- `src/lib/types.ts` Note, VocabFile, ReviewEvent, CardState, Settings
-- `src/lib/db.ts` Dexie DB `hugo-zhongwen` (v1): notes, events, kv (settings, syncLink, syncShas, dirty, vocabDirty,
-  settingsDirty, folderHandle, progressSig…)
-- `src/lib/store.ts` app state + subscribe; init, setVocab, recordReview/undoReview, updateSettings, dirty months, folder state
-- `src/lib/engine/` schedule.ts (FSRS via ts-fsrs, day starts 04:00, seeding of known "green" words, deriveCards, statuses),
-  queue.ts (today's queue and limits), grade.ts (checks typed pinyin/hanzi/meaning → grade)
-- `src/lib/import/` Excel → VocabFile in a worker; build.ts (sheets → notes, green rows = already studied, examples,
-  pinyin checks); `src/lib/xlsx/read.ts` (zip + XML + cell colours); `src/lib/french.ts` (CFDICT French meanings)
-- `src/lib/sources.ts` importBytes (hash compare, sets vocabDirty)
-- `src/lib/folder.ts` File System Access: OneDrive folder, re-import on change, writes `Hugo_chinese_progress.xlsx`
-  (progress.ts + xlsx/write.ts)
-- `src/lib/github.ts` minimal GitHub REST client · `src/lib/sync.ts` repo sync, sync key `hz1.…`, triggers
-- `src/lib/` stats.ts, pinyin.ts, strokes.ts (Hanzi Writer data in public/hw), speech.ts (TTS)
-- `src/ui/` App.tsx (hash routes: today, review, quick, words, grammar, stats, settings, report, link), Today, Review (all
-  answer modes, WritePad), Quick, Words, Stats, Settings, Setup (folder, sync, QR/key, link page), common.tsx; `src/styles.css`
-- `scripts/` copy-hw.mjs, build-cfdict.mjs (downloads CFDICT at build time) · `.github/workflows/deploy.yml` push to main →
-  test → build → Pages
+- `src/main.tsx` boot: `store.init` → folder → sync → PWA update flow (`src/lib/pwa.ts`) → offline warm-up (strokes.ts)
+- `src/lib/types.ts` Note, VocabFile (aliases, colourSince), ReviewEvent (mo), CardState, StatusMark/MarkKind (incl. `st:*`),
+  WordStatus, SheetCols, RowFill, PendingImport
+- `src/lib/db.ts` Dexie DB `hugo-zhongwen` (still v1: no index changes, see roadmap D2): notes, events, kv (settings, sync
+  state, dirty months, marks per device+month, folderHandle, copySig…); device/shared prefs (localStorage, `sh.` prefix)
+- `src/lib/store.ts` state + subscribe; init (one-time migrations), setVocab, recordReview/undoReview, setNoteStatus/undoMark,
+  pending imports, BroadcastChannel `hz` between tabs
+- `src/lib/status.ts` colour → status rules, status labels/fills/marks, sheet rows
+- `src/lib/engine/` schedule.ts (FSRS via ts-fsrs pinned, day starts 04:00, deriveCards replays events + marks), queue.ts,
+  grade.ts
+- `src/lib/import/` Excel → VocabFile in a worker: build.ts, guard.ts (holds suspicious imports), renames.ts (aliases keep
+  history); `src/lib/xlsx/` read.ts, write.ts, patch.ts + patch.worker.ts (in-place fill patch for the copy)
+- `src/lib/sources.ts` importBytes / accept / reject pending import · `src/lib/folder.ts` OneDrive folder, re-import on change,
+  `writeCopy()`
+- `src/lib/github.ts` REST client (2 min timeout) · `src/lib/sync.ts` Web-Lock sync, per-file error isolation, marks, prefs
+- `src/lib/backup.ts` backup file / restore · stats.ts, progress.ts (legacy workbook, no longer written), pinyin.ts, speech.ts
+- `src/ui/` App.tsx (routes; default `sheets`), Sheets.tsx (+ sheets/Practice.tsx, ScratchPad.tsx), qm.tsx (shared hide/show
+  list), StatusPicker.tsx, Quick.tsx, review/* (Session, CardView, GradeBar, VocabBack, OtherCard; Review.tsx re-exports),
+  WritePad.tsx, Words, Today, Stats, Settings (Your data: backup), Setup (folder, sync, QR/key, link page), common.tsx
+- `e2e/` offline.py, sync.py, make_sample.py (synthetic coloured workbook; CI uses it) · `.github/workflows/deploy.yml`
+  push to main → test → build → e2e → Pages (docs/agents/plans don't deploy)
 
 ## Sync repo (private, Hugo's own: HugoChineseData)
-`vocab.json.gz` · `settings.json` (latest `updatedAt` wins) · `events/<device>/<YYYY-MM>.json` (each device writes only its
-own) · `devices/<device>.json`. Write conflicts (409/422) retry once.
+`vocab.json.gz` · `settings.json` (latest `updatedAt` wins; `prefs` field) · `events/<device>/<YYYY-MM>.json` and
+`marks/<device>/<YYYY-MM>.json` (each device writes only its own; month frozen in `mo`) · `devices/<device>.json`.
+Write conflicts (409/422) retry once. Tests: Node 24 has global `navigator.locks` — never run one device's sync inside another's.
 
 ## Cloud session limits
 - The shell's network is allowlisted: github.io and most docs sites are unreachable. Check deploys with `gh run …` and
