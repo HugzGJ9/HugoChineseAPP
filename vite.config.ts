@@ -56,5 +56,21 @@ export default defineConfig({
       },
     }),
   ],
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (!id.includes('node_modules')) return undefined;
+          if (id.includes('hanzi-writer')) return 'hanzi-writer';
+          if (id.includes('ts-fsrs')) return 'fsrs';
+          if (id.includes('pinyin-pro')) return 'pinyin-pro';
+          if (id.includes('dexie')) return 'dexie';
+          if (id.includes('qrcode')) return 'qrcode';
+          if (/node_modules\/(react|react-dom|scheduler)\//.test(id)) return 'react';
+          return undefined;
+        },
+      },
+    },
+  },
   test: { environment: 'node', testTimeout: 30000 },
 });

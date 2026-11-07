@@ -12,6 +12,7 @@ import { formatDate, Icon, LangSwitch, toast, TopBar, useNow } from './common';
 import { HomeNotices, NoWords } from './Today';
 import { LayerBar, QmList, useQmShown } from './qm';
 import { StatusChip, StatusPicker, STATUS_GLYPH } from './StatusPicker';
+import { FilterMenu, MoreMenu } from './sheets/Menus';
 import { PracticePanel, ScratchPanel } from './sheets/Practice';
 
 type Filter = 'all' | WordStatus;
@@ -45,6 +46,7 @@ export function Sheets() {
   const [menu, setMenu] = useState<string | null>(null);
   const [practice, setPractice] = useState<string | null>(null);
   const [scratch, setScratch] = useState(false);
+  const [dlg, setDlg] = useState<'filter' | 'more' | null>(null);
   const [undo, setUndo] = useState<{ id: string; text: string } | null>(null);
   const search = useRef<HTMLInputElement>(null);
 
@@ -108,7 +110,7 @@ export function Sheets() {
     return () => clearTimeout(t);
   }, [undo]);
 
-  const dialogOpen = !!menu || !!practice || scratch;
+  const dialogOpen = !!menu || !!practice || scratch || !!dlg;
 
   // Keys: 1 2 3 layers, L language, / search. Row keys (m k s u w) come through QmList.onKey.
   useEffect(() => {
@@ -164,33 +166,57 @@ export function Sheets() {
 
   return (
     <div className="main sheets">
-      <TopBar title="Sheets">
-        <LangSwitch />
-      </TopBar>
+      <div className="sh-topbar">
+        <TopBar title="Sheets">
+          <LangSwitch />
+        </TopBar>
+      </div>
+      <h1 className="sr sh-h1">Sheets</h1>
       <div className="stack">
         <HomeNotices />
-        {tabs.length > 0 && (
-          <div className="sh-tabs" role="tablist" aria-label="Sheets">
-            {tabs.map((t) => (
-              <button key={t} type="button" role="tab" aria-selected={t === current} className="sh-tab" onClick={() => pickTab(t)}>
-                {t} <span className="faint">{bySheet.get(t)?.length ?? 0}</span>
-              </button>
-            ))}
+        <div className="sh-head">
+          {tabs.length > 0 && (
+            <div className="sh-tabs" role="tablist" aria-label="Sheets">
+              {tabs.map((t) => (
+                <button key={t} type="button" role="tab" aria-selected={t === current} className="sh-tab" onClick={() => pickTab(t)}>
+                  {t} <span className="faint">{bySheet.get(t)?.length ?? 0}</span>
+                </button>
+              ))}
+            </div>
+          )}
+          <input
+            ref={search}
+            type="search"
+            className="sh-search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Search hanzi, pinyin or meaning"
+            aria-label={`Search ${current}`}
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            title="Key /"
+          />
+          <div className="sh-bar">
+            <LayerBar shown={shown} preset={preset} lang={lang} onToggle={toggle} onPreset={setShown} noPinyin={hidePinyin} compact />
+            <button type="button" className="chip sh-filter" aria-haspopup="menu" aria-pressed={filter !== 'all'} onClick={() => setDlg('filter')}>
+              {filter === 'all' ? 'All' : STATUS_LABEL[filter]} <span className="sh-count">{counts[filter]}</span> <span aria-hidden="true">▾</span>
+              <span className="sr">, filter by status</span>
+            </button>
+            <button type="button" className="icon-btn sh-more" aria-haspopup="menu" aria-label="More actions" onClick={() => setDlg('more')}>
+              <span aria-hidden="true" className="sh-dots">⋯</span>
+            </button>
+            <span className="small muted sh-rows" aria-live="polite">
+              {list.length === all.length ? `${all.length} rows` : `${list.length} of ${all.length}`}
+            </span>
           </div>
-        )}
-        <input
-          ref={search}
-          type="search"
-          className="sh-search"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          placeholder="Search hanzi, pinyin or meaning"
-          aria-label={`Search ${current}`}
-          autoCapitalize="off"
-          autoCorrect="off"
-          spellCheck={false}
-          title="Key /"
-        />
+          {paint && (
+            <div className="stack sh-paint" style={{ gap: 4 }}>
+              <StatusPicker value={paint} onChange={setPaint} compact />
+              <p className="small muted">Painting: tap a row's status chip to set it to {STATUS_LABEL[paint]}.</p>
+            </div>
+          )}
+        </div>
         {elsewhere.length > 0 && (
           <div className="row wrap" aria-label="Also found in other sheets">
             {elsewhere.map((x) => (
@@ -198,42 +224,6 @@ export function Sheets() {
                 also in {x.t} ({x.n})
               </button>
             ))}
-          </div>
-        )}
-        <LayerBar shown={shown} preset={preset} lang={lang} onToggle={toggle} onPreset={setShown} noPinyin={hidePinyin} />
-        <div className="sh-filters" role="group" aria-label="Filter by status">
-          {(['all', ...WORD_STATUSES] as Filter[]).map((f) => (
-            <button key={f} type="button" className={`chip sp-${f}`} aria-pressed={filter === f} onClick={() => setFilter(f)}>
-              {f === 'all' ? 'All' : STATUS_LABEL[f]} <span className="sh-count">{counts[f]}</span>
-            </button>
-          ))}
-        </div>
-        <div className="row wrap">
-          <button type="button" className="chip" aria-pressed={!!paint} onClick={() => setPaint(paint ? null : 'mastered')} title="Pick a status, then tap chips to apply it">
-            <Icon name="pen" /> Paint
-          </button>
-          {reviewIds.length > 0 && (
-            <a className="btn small" href={`#/review?cards=${reviewIds.map(encodeURIComponent).join(',')}`}>
-              Review these ({reviewIds.length})
-            </a>
-          )}
-          <button type="button" className="btn small" onClick={() => setScratch(true)}>
-            Scratch pad
-          </button>
-          {due > 0 && (
-            <a className="btn small ghost" href="#/review">
-              Due reviews ({due})
-            </a>
-          )}
-          <span className="grow" />
-          <span className="small muted" aria-live="polite">
-            {list.length === all.length ? `${all.length} rows` : `${list.length} of ${all.length}`}
-          </span>
-        </div>
-        {paint && (
-          <div className="stack" style={{ gap: 6 }}>
-            <StatusPicker value={paint} onChange={setPaint} compact />
-            <p className="small muted">Paint: tap a status chip on a row to set it to {STATUS_LABEL[paint]}.</p>
           </div>
         )}
         {list.length === 0 ? (
@@ -276,6 +266,39 @@ export function Sheets() {
       )}
       {practiceRow && (
         <PracticePanel note={practiceRow.note} status={practiceRow.status} onStatus={(s) => void apply(practiceRow, s)} onClose={() => setPractice(null)} />
+      )}
+      {dlg === 'filter' && (
+        <FilterMenu
+          value={filter}
+          counts={counts}
+          onPick={(f) => {
+            setFilter(f);
+            setDlg(null);
+          }}
+          onClose={() => setDlg(null)}
+        />
+      )}
+      {dlg === 'more' && (
+        <MoreMenu
+          paint={!!paint}
+          reviewHref={reviewIds.length > 0 ? `#/review?cards=${reviewIds.map(encodeURIComponent).join(',')}` : null}
+          reviewCount={reviewIds.length}
+          due={due}
+          preset={preset}
+          onPaint={() => {
+            setPaint(paint ? null : 'mastered');
+            setDlg(null);
+          }}
+          onScratch={() => {
+            setDlg(null);
+            setScratch(true);
+          }}
+          onPreset={(s, name) => {
+            setShown(s, name);
+            setDlg(null);
+          }}
+          onClose={() => setDlg(null)}
+        />
       )}
       {scratch && <ScratchPanel onClose={() => setScratch(false)} />}
       {undo && (

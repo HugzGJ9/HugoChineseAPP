@@ -114,7 +114,7 @@ export function Toaster() {
   }, []);
   useEffect(() => {
     if (!msg) return;
-    const t = setTimeout(() => setMsg(null), 3200);
+    const t = setTimeout(() => setMsg(null), 2400);
     return () => clearTimeout(t);
   }, [msg]);
   return msg ? (

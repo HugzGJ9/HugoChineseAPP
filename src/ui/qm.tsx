@@ -30,31 +30,33 @@ export function useQmShown(prefix: string, def: Shown = { hz: true, py: true, mn
 }
 
 export function LayerBar({
-  shown, preset, lang, onToggle, onPreset, noPinyin = false,
+  shown, preset, lang, onToggle, onPreset, noPinyin = false, compact = false,
 }: {
   shown: Shown; preset: string; lang: string; onToggle: (l: Layer) => void; onPreset: (s: Shown, name: string) => void; noPinyin?: boolean;
+  /** Short chips only; the presets live elsewhere (Sheets "more" menu). */
+  compact?: boolean;
 }) {
   return (
-    <div className="qm-bar" role="group" aria-label="Show or hide">
-      <button type="button" className={`chip ${shown.hz ? '' : 'off'}`} aria-pressed={shown.hz} onClick={() => onToggle('hz')} title="Key 1">
-        汉字
+    <div className={`qm-bar ${compact ? 'compact' : ''}`} role="group" aria-label="Show or hide">
+      <button type="button" className={`chip ${shown.hz ? '' : 'off'}`} aria-pressed={shown.hz} aria-label="Hanzi" onClick={() => onToggle('hz')} title="Key 1">
+        {compact ? '汉' : '汉字'}
       </button>
       {!noPinyin && (
-        <button type="button" className={`chip ${shown.py ? '' : 'off'}`} aria-pressed={shown.py} onClick={() => onToggle('py')} title="Key 2">
-          Pinyin
+        <button type="button" className={`chip ${shown.py ? '' : 'off'}`} aria-pressed={shown.py} aria-label="Pinyin" onClick={() => onToggle('py')} title="Key 2">
+          {compact ? 'Py' : 'Pinyin'}
         </button>
       )}
-      <button type="button" className={`chip ${shown.mn ? '' : 'off'}`} aria-pressed={shown.mn} onClick={() => onToggle('mn')} title="Key 3">
+      <button type="button" className={`chip ${shown.mn ? '' : 'off'}`} aria-pressed={shown.mn} aria-label={`Meaning (${lang.toUpperCase()})`} onClick={() => onToggle('mn')} title="Key 3">
         {lang.toUpperCase()}
       </button>
-      <span className="grow" />
-      <div className="seg" role="group" aria-label="Presets">
+      {!compact && <span className="grow" />}
+      {!compact && <div className="seg" role="group" aria-label="Presets">
         {PRESETS.map((p) => (
           <button key={p.name} type="button" aria-pressed={preset === p.name} onClick={() => onPreset(p.shown, p.name)}>
             {p.name}
           </button>
         ))}
-      </div>
+      </div>}
     </div>
   );
 }

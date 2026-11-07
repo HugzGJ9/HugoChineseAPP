@@ -1,15 +1,19 @@
-import { useEffect, useState } from 'react';
+import { lazy, Suspense, useEffect, useState } from 'react';
 import { applyUpdate, onUpdateReady } from '../lib/pwa';
 import { useApp } from '../lib/store';
 import { Icon, Toaster } from './common';
-import { Today } from './Today';
 import { Sheets } from './Sheets';
-import { Review } from './Review';
-import { Quick } from './Quick';
-import { Grammar, Words } from './Words';
-import { Report, Stats } from './Stats';
-import { Settings } from './Settings';
+import { Today } from './Today';
 import { LinkPage } from './Setup';
+
+// Screens other than the Sheets home load on demand; the service worker precaches every chunk.
+const Review = lazy(() => import('./Review').then((m) => ({ default: m.Review })));
+const Quick = lazy(() => import('./Quick').then((m) => ({ default: m.Quick })));
+const Words = lazy(() => import('./Words').then((m) => ({ default: m.Words })));
+const Grammar = lazy(() => import('./Words').then((m) => ({ default: m.Grammar })));
+const Stats = lazy(() => import('./Stats').then((m) => ({ default: m.Stats })));
+const Report = lazy(() => import('./Stats').then((m) => ({ default: m.Report })));
+const Settings = lazy(() => import('./Settings').then((m) => ({ default: m.Settings })));
 
 function useRoute(): string[] {
   const read = () => (location.hash.replace(/^#\/?/, '').split('?')[0] || 'sheets').split('/').map(decodeURIComponent);
@@ -108,7 +112,7 @@ export function App() {
           ))}
         </nav>
       )}
-      {view}
+      <Suspense fallback={<main className="page" aria-busy="true" />}>{view}</Suspense>
       <UpdateBanner />
       <Toaster />
     </div>
