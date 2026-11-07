@@ -209,7 +209,7 @@ function ClaudeSection({ note, lang, online, lookup, py, setPy }: { note: Note; 
   useEffect(() => setError(null), [note.id, lang]);
 
   const job = explainJob(note, lang);
-  const running = busy || !!job;
+  const running = busy || (!!job && !job.error);
   const shownError = error ?? job?.error ?? null;
 
   const ask = useCallback(

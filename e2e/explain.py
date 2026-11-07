@@ -70,10 +70,10 @@ async def run(p, label, device):
         req = route.request
         if req.method == 'OPTIONS':
             return await route.fulfill(status=204, headers=CORS)
-        if req.url.endswith('/v1/models'):
+        if req.url.split('?')[0].endswith('/v1/models'):
             calls['models'] += 1
             return await route.fulfill(status=200, headers={**CORS, 'content-type': 'application/json'}, body=json.dumps({'data': [{'id': MODEL}]}))
-        if req.url.endswith('/v1/messages'):
+        if req.url.split('?')[0].endswith('/v1/messages'):
             calls['messages'].append({'headers': req.headers, 'body': json.loads(req.post_data or '{}')})
             return await route.fulfill(status=200, headers={**CORS, 'content-type': 'text/event-stream'}, body=sse(EXPLANATION))
         calls['other'].append(req.url)
@@ -138,6 +138,11 @@ async def run(p, label, device):
     d = await open_panel()
     await d.get_by_role('button', name='Explain more').click()
     await d.get_by_role('heading', name="Claude's explanation").wait_for(timeout=10000)
+    for _ in range(50):  # the heading can appear before the request is recorded
+        if calls['messages']:
+            break
+        await pg.wait_for_timeout(100)
+    await pg.wait_for_timeout(300)
     check(len(calls['messages']) == 1, 'one request to /v1/messages')
     if calls['messages']:
         h, body = calls['messages'][0]['headers'], calls['messages'][0]['body']
