@@ -2,7 +2,7 @@
 // and a status per row that Hugo sets himself (menu, or Paint mode for one tap per row).
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import type { Note, WordStatus } from '../lib/types';
-import { setLang, setNoteStatus, undoMark, useApp } from '../lib/store';
+import { clearExcelChanges, setLang, setNoteStatus, undoMark, useApp } from '../lib/store';
 import { pref, setPref } from '../lib/db';
 import { cardId } from '../lib/engine/schedule';
 import { buildQueue } from '../lib/engine/queue';
@@ -33,6 +33,56 @@ function matcher(q: string): ((n: Note) => boolean) | null {
 }
 
 const readStatus = (v: unknown): WordStatus | null => (WORD_STATUSES.includes(v as WordStatus) ? (v as WordStatus) : null);
+
+/** Statuses that an Excel edit changed, with a way back. */
+function ExcelChangesNotice() {
+  const changes = useApp((s) => s.excelChanges);
+  const [all, setAll] = useState(false);
+  const [busy, setBusy] = useState(false);
+  if (!changes?.length) return null;
+  const shown = all ? changes : changes.slice(0, 5);
+  const restore = async () => {
+    setBusy(true);
+    try {
+      for (const c of changes) await setNoteStatus(c.note, STATUS_MARK[c.from]);
+      clearExcelChanges();
+      toast('Statuses restored');
+    } catch (err) {
+      toast(`Couldn't restore: ${(err as Error).message}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="notice stack" role="status" style={{ gap: 8 }}>
+      <span style={{ overflowWrap: 'anywhere' }}>
+        Excel changed {changes.length} {changes.length === 1 ? 'status' : 'statuses'}:{' '}
+        {shown.map((c, i) => (
+          <span key={c.note}>
+            {i > 0 && ', '}
+            <span lang="zh-CN">{c.hanzi}</span> {STATUS_LABEL[c.from]} → {STATUS_LABEL[c.to]}
+          </span>
+        ))}
+        {changes.length > 5 && !all && (
+          <>
+            {', '}
+            <button type="button" className="btn small ghost" onClick={() => setAll(true)}>
+              and {changes.length - 5} more
+            </button>
+          </>
+        )}
+      </span>
+      <div className="row wrap">
+        <button type="button" className="btn small" disabled={busy} onClick={restore}>
+          Restore
+        </button>
+        <button type="button" className="btn small" disabled={busy} onClick={clearExcelChanges}>
+          OK
+        </button>
+      </div>
+    </div>
+  );
+}
 
 export function Sheets() {
   const { notes, cards, events, settings, noteMap, marks, meta, lang } = useApp((s) => s);
@@ -174,6 +224,7 @@ export function Sheets() {
       </div>
       <h1 className="sr sh-h1">Sheets</h1>
       <div className="stack">
+        <ExcelChangesNotice />
         <HomeNotices />
         <div className="sh-head">
           {tabs.length > 0 && (

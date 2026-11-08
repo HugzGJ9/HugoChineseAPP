@@ -11,6 +11,7 @@ import { LEXICON_SHARDS, lexiconCached, lexiconMeta, prefetchLexicon } from '../
 import { formatAgo, LangSwitch, toast, TopBar } from './common';
 import { FileImportButton } from './Today';
 import { SourceSettings, SyncSettings } from './Setup';
+import { MicrosoftDiagnostics } from './Microsoft';
 
 export function Settings() {
   const { settings, meta, notes } = useApp((s) => s);
@@ -26,6 +27,7 @@ export function Settings() {
             <a href="#/words">Words</a>
             <a href="#/report">Import report</a>
           </nav>
+          <MicrosoftDiagnostics />
         </section>
 
         <section className="panel stack">

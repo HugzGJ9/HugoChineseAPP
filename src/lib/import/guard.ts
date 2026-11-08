@@ -1,6 +1,6 @@
 // Bad-import guard: an Excel file saved half-way, a sheet renamed or emptied by mistake must not wipe the word list.
 // A suspicious import is held until Hugo picks the old or the new list (sources.ts). Pure, so it is easy to test.
-import type { VocabFile } from '../types';
+import type { Explained, VocabFile } from '../types';
 import { detectRenames, mergeAliases, migrateSeeds } from './renames';
 import { colourSinceFor } from '../status';
 
@@ -52,14 +52,15 @@ export interface PreparedImport {
 /**
  * Compare a fresh local import with the current list: renames, aliases, seeds, row colour times, and whether to hold it.
  * Run again on a held import once accepted, so everything is computed against the list as it is then.
+ * `explained`: this device's live write intents, so the app's own writes into the workbook don't count as Excel edits.
  */
-export function prepareImport(prev: VocabFile | null, next: VocabFile): PreparedImport {
+export function prepareImport(prev: VocabFile | null, next: VocabFile, explained?: Explained): PreparedImport {
   const renames = prev ? detectRenames(prev.notes, next.notes) : {};
   const aliases = mergeAliases(prev?.aliases, next.aliases, renames);
   const seeds = migrateSeeds(next.seeds, prev?.seeds ?? {}, renames);
   // A colour seen for the first time holds from when the file was saved (never later than the import).
   const t = Math.min(next.source.modified || next.importedAt, next.importedAt);
-  const colourSince = colourSinceFor(next.notes, prev?.colourSince, renames, t);
+  const colourSince = colourSinceFor(next.notes, prev, renames, t, explained);
   const { aliases: _old, colourSince: _since, ...rest } = next;
   const vocab: VocabFile = { ...rest, seeds, colourSince, ...(Object.keys(aliases).length ? { aliases } : {}) };
   return { vocab, renames, check: checkImport(prev, vocab) };

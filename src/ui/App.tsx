@@ -5,6 +5,7 @@ import { Icon, Toaster } from './common';
 import { Sheets } from './Sheets';
 import { Today } from './Today';
 import { LinkPage } from './Setup';
+import { ReconnectBanner } from './Microsoft';
 
 // Screens other than the Sheets home load on demand; the service worker precaches every chunk.
 const Review = lazy(() => import('./Review').then((m) => ({ default: m.Review })));
@@ -113,6 +114,7 @@ export function App() {
         </nav>
       )}
       <Suspense fallback={<main className="page" aria-busy="true" />}>{view}</Suspense>
+      <ReconnectBanner />
       <UpdateBanner />
       <Toaster />
     </div>

@@ -21,8 +21,9 @@ import {
   writePrefsSilently,
   type Settings,
 } from './db';
-import type { CardState, Grade, MarkKind, Note, PendingImport, ReviewEvent, StatusMark, VocabFile } from './types';
+import type { CardState, Grade, MarkKind, Note, PendingImport, ReviewEvent, StatusChange, StatusMark, VocabFile, WordStatus } from './types';
 import { addDays, applyReview, dayStart, deriveCards, noteOfCard, resolveEventCards, resolveMarkNotes } from './engine/schedule';
+import { noteStatuses, sheetRows } from './status';
 
 export type Lang = 'en' | 'fr';
 
@@ -52,6 +53,29 @@ export interface FolderInfo {
   writeError?: string;
 }
 
+/** Microsoft sign-in. */
+export interface MsInfo {
+  state: 'off' | 'ok' | 'reconnect' | 'error';
+  account?: string;
+  message?: string;
+}
+/** The workbook on OneDrive. */
+export interface ExcelInfo {
+  state: 'off' | 'ok' | 'missing' | 'error';
+  name?: string;
+  path?: string;
+  checked?: number;
+  written?: number;
+  pending?: number;
+  waiting?: string;
+  waitUntil?: number;
+  stuck?: number;
+  writeError?: string;
+  message?: string;
+  /** How long the last patch took (ms), to check the iPhone. */
+  patchMs?: number;
+}
+
 export interface AppState {
   ready: boolean;
   device: string;
@@ -66,6 +90,10 @@ export interface AppState {
   lang: Lang;
   sync: SyncInfo;
   folder: FolderInfo;
+  ms: MsInfo;
+  excel: ExcelInfo;
+  /** Statuses an Excel edit changed, for the notice in Sheets. */
+  excelChanges?: StatusChange[];
   /** An import held back because it looks broken; Hugo decides (see sources.ts). */
   pendingImport?: PendingImport;
   /** Another tab opened a newer version of the database: this tab's connection is closed and the app must reload. */
@@ -87,6 +115,8 @@ let state: AppState = {
   lang: pref<Lang>('lang', 'en'),
   sync: { state: 'off' },
   folder: { state: 'off' },
+  ms: { state: 'off' },
+  excel: { state: 'off' },
   rev: 0,
 };
 
@@ -347,8 +377,41 @@ export function reloadPrefs(): void {
   if (lang !== state.lang) set({ lang });
 }
 
-/** Replace the word list with a fresh import (from Excel), or with the shared list from sync (`exactSeeds`). */
-export async function setVocab(vf: VocabFile, exactSeeds = false): Promise<void> {
+/** Effective status per note, from what is in memory. */
+function currentStatuses(notes: Note[], marks: StatusMark[], meta: VocabMeta | null): Map<string, WordStatus> {
+  return noteStatuses(sheetRows(notes, marks, meta?.colourSince));
+}
+
+/**
+ * Notes present before and after a list change whose effective status it changed (an Excel edit, here or on another
+ * device). Added to `excelChanges`: a note already listed keeps its first `from`, and drops out once it is back to it.
+ */
+function statusChanges(before: Map<string, WordStatus>, after: Map<string, WordStatus>, noteMap: Map<string, Note>): StatusChange[] {
+  const out: StatusChange[] = [];
+  for (const [id, to] of after) {
+    const from = before.get(id);
+    if (from != null && from !== to) out.push({ note: id, hanzi: noteMap.get(id)?.hanzi ?? '', from, to });
+  }
+  return out;
+}
+
+function addExcelChanges(changes: StatusChange[]): StatusChange[] | undefined {
+  const list = [...(state.excelChanges ?? [])];
+  for (const c of changes) {
+    const i = list.findIndex((x) => x.note === c.note);
+    if (i < 0) list.push(c);
+    else if (list[i].from === c.to) list.splice(i, 1);
+    else list[i] = { ...list[i], hanzi: c.hanzi, to: c.to };
+  }
+  return list.length ? list : undefined;
+}
+
+/**
+ * Replace the word list with a fresh import (from Excel), or with the shared list from sync (`exactSeeds`).
+ * Returns the effective statuses the new list changed (none for the first list); they are also added to `excelChanges`.
+ */
+export async function setVocab(vf: VocabFile, exactSeeds = false): Promise<StatusChange[]> {
+  const before = state.meta && state.notes.length ? currentStatuses(state.notes, state.marks, state.meta) : null;
   const { notes, ...meta } = vf;
   // Keep the seed times already known on this device; the shared list from sync is taken as is, so every device agrees.
   meta.seeds = exactSeeds ? { ...vf.seeds } : { ...vf.seeds, ...pickOlder(state.meta?.seeds ?? {}, vf.seeds) };
@@ -369,8 +432,11 @@ export async function setVocab(vf: VocabFile, exactSeeds = false): Promise<void>
   const events = eventsView(raw, notes, meta);
   const marks = marksView(rawMarks, notes, meta);
   const cards = rebuild(notes, events, meta.seeds, state.settings, marks);
-  set({ notes, noteMap: new Map(notes.map((n) => [n.id, n])), meta, events, marks, cards });
+  const noteMap = new Map(notes.map((n) => [n.id, n]));
+  const changes = before ? statusChanges(before, currentStatuses(notes, marks, meta), noteMap) : [];
+  set({ notes, noteMap, meta, events, marks, cards, ...(changes.length ? { excelChanges: addExcelChanges(changes) } : {}) });
   broadcast('vocab');
+  return changes;
 }
 
 /** Hold (or drop, with no argument) an import that looks broken, until Hugo decides. Kept across restarts. */
@@ -415,6 +481,18 @@ export function setSync(sync: Partial<SyncInfo>) {
 
 export function setFolder(folder: Partial<FolderInfo>, replace = false) {
   set({ folder: replace ? ({ state: 'off', ...folder } as FolderInfo) : { ...state.folder, ...folder } });
+}
+
+export function setMs(p: Partial<MsInfo>, replace = false) {
+  set({ ms: replace ? ({ state: 'off', ...p } as MsInfo) : { ...state.ms, ...p } });
+}
+
+export function setExcel(p: Partial<ExcelInfo>, replace = false) {
+  set({ excel: replace ? ({ state: 'off', ...p } as ExcelInfo) : { ...state.excel, ...p } });
+}
+
+export function clearExcelChanges() {
+  set({ excelChanges: undefined });
 }
 
 // Months of this device's review log changed since the last upload: month → stamp of the last change.

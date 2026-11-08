@@ -6,6 +6,8 @@ import { decodeKey, encodeKey, getLink, linkRepo, syncNow, unlinkRepo } from '..
 import { parseRepo } from '../lib/github';
 import { formatAgo, toast, TopBar, useNow } from './common';
 import { FileImportButton, PendingImportNotice } from './Today';
+import { msConfigured } from '../lib/ms/auth';
+import { MicrosoftPanel } from './Microsoft';
 
 const DATA_REPO = 'HugoChineseData';
 /** 'X.xlsx' → 'X (app).xlsx': the copy that carries Hugo's statuses as colours. */
@@ -56,6 +58,21 @@ export function SetupSources({ linked = false }: { linked?: boolean }) {
       </div>
     </details>
   );
+  if (msConfigured()) {
+    return (
+      <>
+        <MicrosoftPanel />
+        {fold(
+          'Other ways',
+          <>
+            {computer && folderPanel}
+            {!linked && keyPanel}
+            {filePanel}
+          </>,
+        )}
+      </>
+    );
+  }
   if (computer) {
     return (
       <>
@@ -105,10 +122,21 @@ function LinkFolderButton({ label, primary = false, small = false }: { label: st
 
 /** OneDrive folder link (computer). */
 export function SourceSettings() {
+  const configured = msConfigured();
   return (
     <div className="stack">
       <PendingImportNotice />
-      <SourceBody />
+      <MicrosoftPanel bare explainOff />
+      {configured ? (
+        <details>
+          <summary style={{ minHeight: 44, display: 'flex', alignItems: 'center' }}>Without Microsoft</summary>
+          <div className="stack" style={{ marginTop: 8 }}>
+            <SourceBody />
+          </div>
+        </details>
+      ) : (
+        <SourceBody />
+      )}
     </div>
   );
 }

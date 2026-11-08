@@ -119,6 +119,33 @@ export interface RowFill {
   hanzi: string;
   from: string | null;
   fill: string | null;
+  /** rowKey, status written, and the winning mark's time (write-back). */
+  key?: string;
+  status?: WordStatus;
+  t?: number;
+}
+
+/** Where a word list came from. */
+export interface WorkbookSource {
+  name: string;
+  modified: number;
+  size: number;
+  /** OneDrive quickXorHash of the file bytes (base64). */
+  qxh?: string;
+  /** OneDrive drive and item id of the workbook. */
+  drive?: string;
+  item?: string;
+  /** This content was written by the app (write-back). */
+  app?: boolean;
+}
+/** rowKey → [class before, status the app wrote, time of the mark it came from]. */
+export type Explained = Record<string, [WordStatus, WordStatus, number]>;
+/** An effective status that a new word list changed (an Excel edit), for the notice in Sheets. */
+export interface StatusChange {
+  note: string;
+  hanzi: string;
+  from: WordStatus;
+  to: WordStatus;
 }
 export interface StatusMark {
   id: string;
@@ -160,7 +187,7 @@ export interface VocabFile {
   importedAt: number;
   /** Device that imported the file. */
   device?: string;
-  source: { name: string; modified: number; size: number };
+  source: WorkbookSource;
   /** Hash of the notes, to tell whether anything changed. */
   hash: string;
   notes: Note[];

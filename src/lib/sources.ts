@@ -1,11 +1,14 @@
-// Getting the Excel file into the app: a file picked by hand (iPhone Files app, any computer)
-// or the linked OneDrive folder (folder.ts). Sync then carries the word list to the other devices.
+// Getting the Excel file into the app: a file picked by hand (iPhone Files app, any computer), the linked OneDrive
+// folder (folder.ts) or the workbook in OneDrive through Microsoft Graph (workbook.ts). Sync then carries the word list
+// to the other devices. Every import records the workbook content it came from (source.qxh, OneDrive's quickXorHash),
+// so the readers and the devices can tell a version they already have from a new one.
 // A local import that looks broken (many words gone, a sheet unreadable) is held until Hugo decides (import/guard.ts).
 import { importWorkbook } from './import';
 import { prepareImport } from './import/guard';
 import { kvGet, kvSet } from './db';
+import { quickXorHash } from './ms/qxh';
 import { getState, notifyLocalChange, setPendingImport, setVocab } from './store';
-import type { PendingImport, VocabFile } from './types';
+import type { Explained, PendingImport, StatusChange, VocabFile, WorkbookSource } from './types';
 
 export type ImportOutcome = {
   vocab: VocabFile;
@@ -15,6 +18,8 @@ export type ImportOutcome = {
   reasons?: string[];
   /** Words renamed in Excel whose history was kept (old id → new id). */
   renames?: Record<string, string>;
+  /** Effective statuses the new list changed (Excel edits). */
+  changes?: StatusChange[];
 };
 
 /** Hash of the last held list Hugo turned down: the folder watcher doesn't ask again until the file changes. */
@@ -31,23 +36,47 @@ async function setPending(p: PendingImport | null): Promise<void> {
   await setPendingImport(p ?? undefined);
 }
 
-async function apply(vocab: VocabFile): Promise<void> {
-  const before = getState().meta?.hash;
-  await setVocab(vocab);
+// Imports and accepts run one at a time: each is compared with the list the previous one left.
+let queue: Promise<unknown> = Promise.resolve();
+function serial<T>(fn: () => Promise<T>): Promise<T> {
+  const run = queue.then(fn, fn);
+  queue = run.catch(() => undefined);
+  return run;
+}
+
+async function apply(vocab: VocabFile): Promise<StatusChange[]> {
+  const before = getState().meta;
+  const changes = await setVocab(vocab);
   if (getState().pendingImport) await setPending(null);
-  if (vocab.hash !== before) {
-    // A new word list for the other devices.
+  if (vocab.hash !== before?.hash || vocab.source.qxh !== before?.source.qxh) {
+    // A new word list, or the same words from another workbook version: the other devices need it (the version
+    // tells them they have this content already).
     await kvSet('vocabDirty', true);
     notifyLocalChange();
   }
+  return changes;
 }
 
-export async function importBytes(bytes: ArrayBuffer, source: VocabFile['source']): Promise<ImportOutcome> {
+/** Whether a workbook version is older than the one the current list came from (a cloud copy lagging behind). */
+export function isOlderThanList(source: WorkbookSource): boolean {
+  const cur = getState().meta?.source;
+  if (!cur || !cur.modified || !source.modified) return false;
+  if (cur.qxh && source.qxh && cur.qxh === source.qxh) return false;
+  return source.modified < cur.modified;
+}
+
+export function importBytes(bytes: ArrayBuffer, source: WorkbookSource, opts: { explained?: Explained } = {}): Promise<ImportOutcome> {
+  // The content id is taken before the bytes move to the worker.
+  const src: WorkbookSource = source.qxh ? source : { ...source, qxh: quickXorHash(new Uint8Array(bytes)) };
+  return serial(() => importNow(bytes, src, opts.explained));
+}
+
+async function importNow(bytes: ArrayBuffer, source: WorkbookSource, explained?: Explained): Promise<ImportOutcome> {
   const s = getState();
   const raw = await importWorkbook({ bytes, source, now: Date.now(), device: s.device, prevSeeds: s.meta?.seeds ?? {} });
   // Compare with the list as it is now (sync may have replaced it while the worker ran).
   const prev = currentVocab();
-  const { vocab, renames, check } = prepareImport(prev, raw);
+  const { vocab, renames, check } = prepareImport(prev, raw, explained);
   const r = Object.keys(renames).length ? { renames } : {};
   if (!check.ok) {
     // Nothing applied, nothing marked for sync.
@@ -56,8 +85,8 @@ export async function importBytes(bytes: ArrayBuffer, source: VocabFile['source'
     }
     return { vocab, applied: false, reasons: check.reasons, ...r };
   }
-  await apply(vocab);
-  return { vocab, applied: true, ...r };
+  const changes = await apply(vocab);
+  return { vocab, applied: true, ...r, ...(changes.length ? { changes } : {}) };
 }
 
 export async function importFile(file: File): Promise<ImportOutcome> {
@@ -70,13 +99,15 @@ async function pending(): Promise<PendingImport | null> {
 }
 
 /** "Use the new list": apply the held import. */
-export async function acceptPendingImport(): Promise<void> {
-  const p = await pending();
-  if (!p) return;
-  // Renames and seeds again, against the list as it is now.
-  const { vocab } = prepareImport(currentVocab(), p.vocab);
-  await apply(vocab);
-  await setPending(null);
+export function acceptPendingImport(): Promise<void> {
+  return serial(async () => {
+    const p = await pending();
+    if (!p) return;
+    // Renames and seeds again, against the list as it is now.
+    const { vocab } = prepareImport(currentVocab(), p.vocab);
+    await apply(vocab);
+    await setPending(null);
+  });
 }
 
 /** "Keep the old list": drop the held import and don't ask again for the same file. */
@@ -95,7 +126,12 @@ export function summary(v: VocabFile | ImportOutcome): string {
   if ('applied' in v) {
     if (!v.applied) return `New word list held for review: ${(v.reasons ?? []).join(' ')}`;
     const n = Object.keys(v.renames ?? {}).length;
-    return summary(v.vocab) + (n ? `, ${n} renamed word${n > 1 ? 's' : ''} kept ${n > 1 ? 'their' : 'its'} history` : '');
+    const c = v.changes?.length ?? 0;
+    return (
+      summary(v.vocab) +
+      (n ? `, ${n} renamed word${n > 1 ? 's' : ''} kept ${n > 1 ? 'their' : 'its'} history` : '') +
+      (c ? `, ${c} status${c > 1 ? 'es' : ''} changed` : '')
+    );
   }
   const fixes = v.issues.filter((i) => i.level === 'fix').length;
   const studied = v.notes.filter((n) => n.studied).length;

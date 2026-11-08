@@ -2,12 +2,16 @@
 // The app reads Hugo_chinese_vocab.xlsx whenever it changes, and writes "Hugo_chinese_vocab (app).xlsx" next to it: a
 // copy of his workbook with his statuses as cell fills. The original is only ever read.
 // OneDrive's own client does the uploading, so no Microsoft sign-in is needed.
+// The file's content id (quickXorHash, as OneDrive computes it) tells whether the list already holds this content, so
+// this reader and the Microsoft one (workbook.ts) never re-import each other's results.
 import { kvGet, kvSet } from './db';
 import { fnv1a } from './import/build';
-import { importBytes, summary, wasRejected } from './sources';
+import { quickXorHash } from './ms/qxh';
+import { importBytes, isOlderThanList, summary, wasRejected } from './sources';
 import { copyFills, sheetRows } from './status';
 import { getState, setFolder, subscribe } from './store';
-import type { RowFill, SheetCols } from './types';
+import type { RowFill, SheetCols, WorkbookSource } from './types';
+import type { OdWorkbook } from './workbook';
 import { copyFileName, WorkbookChangedError, type PatchRequest, type PatchResponse, type PatchResult } from './xlsx/patch';
 
 type Mode = { mode: 'read' | 'readwrite' };
@@ -74,6 +78,22 @@ export async function allowFolder(): Promise<void> {
 let checking = false;
 /** name|modified|size of the last Excel file that was held for review, not applied. */
 let heldSig = '';
+/** quickXorHash of the local file, for its last seen name|modified|size (hashed again only when they change). */
+let statCache = { sig: '', qxh: '' };
+
+async function localQxh(file: File, bytes?: ArrayBuffer): Promise<string> {
+  const sig = `${file.name}|${file.lastModified}|${file.size}`;
+  if (statCache.sig !== sig) statCache = { sig, qxh: quickXorHash(new Uint8Array(bytes ?? (await file.arrayBuffer()))) };
+  return statCache.qxh;
+}
+
+/** Source of a local import: the file's content id, and the OneDrive item when the same workbook is linked there. */
+async function localSource(file: File, bytes: ArrayBuffer): Promise<WorkbookSource> {
+  const src: WorkbookSource = { name: file.name, modified: file.lastModified, size: file.size, qxh: await localQxh(file, bytes) };
+  const od = await kvGet<OdWorkbook | null>('odWorkbook', null);
+  if (od && od.name.toLowerCase() === file.name.toLowerCase()) Object.assign(src, { drive: od.drive, item: od.item });
+  return src;
+}
 
 /** Read the Excel file if it changed since the last import. */
 export async function checkFolder(force = false): Promise<void> {
@@ -99,11 +119,18 @@ export async function checkFolder(force = false): Promise<void> {
     }
     const src = getState().meta?.source;
     const sig = `${file.name}|${file.lastModified}|${file.size}`;
-    const changed = !src || src.name !== file.name || src.modified !== file.lastModified || src.size !== file.size;
+    let changed = !src || src.name !== file.name || src.modified !== file.lastModified || src.size !== file.size;
+    // The list may come from the same content read elsewhere (OneDrive through Microsoft, another device's import):
+    // their times differ from this file's, so compare the content.
+    if (changed && src?.qxh && (await localQxh(file)) === src.qxh) changed = false;
+    // While the workbook is also read through Microsoft, a local file older than the list is one OneDrive hasn't
+    // brought down yet: reading it would undo the newer version.
+    if (changed && !force && src?.item && isOlderThanList({ name: file.name, modified: file.lastModified, size: file.size })) changed = false;
     // A held file is not read again until it changes (or Hugo links the folder again).
     if (force || (changed && sig !== heldSig)) {
       const prevHash = getState().meta?.hash;
-      const o = await importBytes(await file.arrayBuffer(), { name: file.name, modified: file.lastModified, size: file.size });
+      const bytes = await file.arrayBuffer();
+      const o = await importBytes(bytes, await localSource(file, bytes));
       if (o.applied) {
         heldSig = '';
         // A forced re-read of the same file (columns for the copy, a failed copy check) stays quiet.
@@ -197,9 +224,12 @@ export async function writeCopy(force = false): Promise<void> {
     fileSig = `${file.name}|${file.lastModified}|${file.size}`;
     const src = s.meta.source;
     if (src.name !== file.name || src.modified !== file.lastModified || src.size !== file.size) {
-      // The rows must match this exact file: read it first, the import schedules the copy again.
-      void checkFolder();
-      return;
+      // Same content read elsewhere (OneDrive through Microsoft, another device): its times differ, its hash doesn't.
+      if (!src.qxh || (await localQxh(file)) !== src.qxh) {
+        // The rows must match this exact file: read it first, the import schedules the copy again.
+        void checkFolder();
+        return;
+      }
     }
     const reread = `${fileSig}|${s.meta.hash}`;
     if (colsMissing() && colsReread !== reread) {
@@ -211,8 +241,8 @@ export async function writeCopy(force = false): Promise<void> {
     const fills: RowFill[] = copyFills(sheetRows(s.notes, s.marks, s.meta.colourSince));
     const sig = `${fileSig}|${fnv1a(JSON.stringify(fills))}`;
     if (!force && sig === (await kvGet<string>(COPY_SIG, '')) && (await exists(dir, copyName))) return;
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    const out = fills.length ? (await patchInWorker({ bytes, rows: fills, cols: sheetCols() })).bytes : bytes;
+    const original = new Uint8Array(await file.arrayBuffer());
+    const out = fills.length ? (await patchInWorker({ bytes: original, rows: fills, cols: sheetCols() })).bytes : original;
     const fh = await dir.getFileHandle(copyName, { create: true });
     const w = await fh.createWritable();
     try {

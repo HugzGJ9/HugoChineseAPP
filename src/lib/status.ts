@@ -1,7 +1,7 @@
 // Word statuses Hugo sets himself (Sheets): Not studied, Studying, Not known, Mastered. Separate from FSRS.
 // A row's status starts from its Excel colour; a status mark (st:* kinds, or the legacy known/relearn) wins when it is
 // newer than the time that colour was first seen (VocabFile.colourSince). Pure, so every device computes the same.
-import type { MarkKind, Note, RowFill, SourceRef, StatusMark, VocabFile, WordStatus } from './types';
+import type { Explained, MarkKind, Note, RowFill, SourceRef, StatusChange, StatusMark, VocabFile, WordStatus } from './types';
 import { rgbToHsl } from './xlsx/read';
 import { isGreen, sheetTag } from './import/build';
 
@@ -63,7 +63,10 @@ export function generalColourStatus(colour?: string | null): WordStatus {
   return 'studying';
 }
 
-/** Status an Excel colour gives on a sheet: every HSK四级 row is Mastered, whatever its colour. */
+/**
+ * Status an Excel colour gives a new row on a sheet: every HSK四级 row starts Mastered, whatever its colour. Later
+ * colour class changes there count as Excel edits (colourSinceFor, rule 3).
+ */
 export function colourStatus(sheet: string, colour?: string | null): WordStatus {
   if (sheetTag(sheet) === 'HSK4') return 'mastered';
   return generalColourStatus(colour);
@@ -91,31 +94,92 @@ function eachRow(note: Note, f: (key: string, ref: SourceRef, i: number, k: numb
 }
 
 type Since = NonNullable<VocabFile['colourSince']>;
+/** The previous word list, as far as colour times need it. */
+export type PrevColours = Pick<VocabFile, 'notes' | 'colourSince'>;
 
 function entry(map: VocabFile['colourSince'], key: string): [WordStatus, number] | undefined {
   const e = map?.[key];
   return Array.isArray(e) && typeof e[0] === 'string' && typeof e[1] === 'number' && Number.isFinite(e[1]) ? e : undefined;
 }
 
+const isHsk4 = (sheet: string) => sheetTag(sheet) === 'HSK4';
+
 /**
- * Per row: the colour status and since when it holds. The same status as before keeps its time; a changed status or a
- * new row gets `t`. With no previous map at all, every row gets 0, so marks set before win.
- * Renamed words (old id → new id) keep the times of their old row keys.
+ * Whether a recorded colour status can stand for a row of this colour: on general sheets only the colour's own status;
+ * on HSK四级 also Mastered (every HSK四级 row is Mastered until Hugo changes its colour class in Excel).
  */
-export function colourSinceFor(notes: Note[], prev: VocabFile['colourSince'], renames: Record<string, string>, t: number): Since {
+function accepts(sheet: string, status: WordStatus, colour: string | undefined): boolean {
+  const cls = generalColourStatus(colour);
+  return status === cls || (isHsk4(sheet) && status === 'mastered');
+}
+
+/** A list written before rows carried their own colour: only the note's colour (its first coloured row) is known. */
+const legacyNote = (n: Note) => !!n.colour && !n.refs.some((r) => r.colour != null);
+
+/** Colour class (generalColourStatus) of every row of a list whose colours are known, by row key. */
+function rowClasses(notes: Note[]): Map<string, WordStatus> {
+  const out = new Map<string, WordStatus>();
+  for (const n of notes) {
+    if (legacyNote(n)) continue;
+    eachRow(n, (key, ref) => out.set(key, generalColourStatus(ref.colour)));
+  }
+  return out;
+}
+
+function explainedEntry(e: unknown): [WordStatus, WordStatus, number] | undefined {
+  return Array.isArray(e) && typeof e[0] === 'string' && typeof e[1] === 'string' && typeof e[2] === 'number' && Number.isFinite(e[2])
+    ? (e as [WordStatus, WordStatus, number])
+    : undefined;
+}
+
+/**
+ * Per row: the status the Excel colour gives and since when it holds, by diffing this workbook version with the previous
+ * list (plan 2026-11-08 D4). A row's previous colour is the previous list's note (through `renames`), same k-th row in
+ * that sheet.
+ * 1. New row: its colour status (HSK四级 → Mastered) at `t`. With no previous list (or one without colour times), every
+ *    row gets 0, so marks set before win.
+ * 2. Same colour class as before (none, green, yellow, other) → the previous entry, status and time.
+ * 3. The class changed → an Excel edit: the new class's status at `t`, on every sheet, HSK四级 included. Unless one of
+ *    this device's write intents (`explained`) shows this exact change on this row: then that mark's time (the app's own
+ *    write is not an Excel edit).
+ * 4. Previous colour unknown (lists from older versions, or a bare colour-time map) → the previous entry when it still
+ *    fits the colour, else the colour status at `t`.
+ */
+export function colourSinceFor(
+  notes: Note[],
+  prev: PrevColours | VocabFile['colourSince'] | null,
+  renames: Record<string, string>,
+  t: number,
+  explained?: Explained,
+): Since {
+  const list = prev && Array.isArray((prev as PrevColours).notes) ? (prev as PrevColours) : null;
+  const map: VocabFile['colourSince'] = list ? list.colourSince : ((prev as VocabFile['colourSince'] | null) ?? undefined);
+  const before = list ? rowClasses(list.notes) : new Map<string, WordStatus>();
   const out: Since = {};
   const back = new Map<string, string>();
   for (const [from, to] of Object.entries(renames)) back.set(to, from);
   for (const note of notes) {
     const old = back.get(note.id);
+    const legacy = legacyNote(note);
     eachRow(note, (key, ref, i, k) => {
-      const st = colourStatus(ref.sheet, refColour(note, i));
-      if (!prev) {
+      const colour = refColour(note, i);
+      const st = colourStatus(ref.sheet, colour);
+      if (!map) {
         out[key] = [st, 0];
         return;
       }
-      const p = (old != null ? entry(prev, rowKey(old, ref.sheet, k)) : undefined) ?? entry(prev, key);
-      out[key] = p && p[0] === st ? [st, p[1]] : [st, t];
+      const oldKey = old != null ? rowKey(old, ref.sheet, k) : undefined;
+      const p = (oldKey != null ? entry(map, oldKey) : undefined) ?? entry(map, key);
+      const was = legacy ? undefined : (oldKey != null ? before.get(oldKey) : undefined) ?? before.get(key);
+      const cls = generalColourStatus(colour);
+      if (was === undefined || was === cls) {
+        // Rules 1, 2 and 4.
+        out[key] = p && accepts(ref.sheet, p[0], colour) ? [p[0], p[1]] : [st, t];
+        return;
+      }
+      // Rule 3: an Excel edit, or the app's own write.
+      const e = explainedEntry(explained?.[key]) ?? (oldKey != null ? explainedEntry(explained?.[oldKey]) : undefined);
+      out[key] = e && e[0] === was && e[1] === cls ? [cls, e[2]] : [cls, t];
     });
   }
   return out;
@@ -141,7 +205,7 @@ export interface SheetRow {
   ref: SourceRef;
   /** Excel fill of the row (RRGGBB). */
   colour?: string;
-  /** Status given by the Excel colour. */
+  /** Status given by the Excel colour (on HSK四级: Mastered, or the colour's class once Hugo changed it in Excel). */
   excel: WordStatus;
   /** Since when the Excel colour has given that status (0 = unknown, any mark wins). */
   since: number;
@@ -154,6 +218,8 @@ export interface SheetRow {
 /**
  * Rows per sheet, in Excel order (sheets in workbook order as far as the notes tell). `marks` are the alias-resolved
  * marks (state.marks). A mark wins when it is newer than the row's colour time; a tie goes to Excel.
+ * An HSK四级 row takes its recorded status when it is Mastered or its colour's class (an Excel recolour, colourSinceFor
+ * rule 3); otherwise Mastered with time 0.
  */
 export function sheetRows(notes: Note[], marks: StatusMark[], since: VocabFile['colourSince']): Map<string, SheetRow[]> {
   const latest = latestStatusMarks(marks);
@@ -168,10 +234,11 @@ export function sheetRows(notes: Note[], marks: StatusMark[], since: VocabFile['
     const m = latest.get(note.id);
     eachRow(note, (key, ref, i) => {
       const colour = refColour(note, i);
-      const excel = colourStatus(ref.sheet, colour);
       const e = entry(since, key);
       // A time recorded for another status (a list re-imported by an older app version) says nothing about this colour.
-      const s = e && e[0] === excel ? e[1] : 0;
+      const ok = !!e && accepts(ref.sheet, e[0], colour);
+      const excel = ok ? e![0] : colourStatus(ref.sheet, colour);
+      const s = ok ? e![1] : 0;
       const wins = !!m && m.t > s;
       const row: SheetRow = {
         key,
@@ -221,16 +288,53 @@ export function noteStatuses(rows: Map<string, SheetRow[]>): Map<string, WordSta
 }
 
 /**
- * Fills for the workbook copy: rows whose effective status differs from their colour status, unless the row's colour
+ * Fills for the workbook: rows whose effective status differs from their colour status, unless the row's colour
  * already expresses that status under the general rules (a pink row stays pink for Studying). In sheet, then row order.
+ * Each fill carries its row key, the status written and the winning mark's time (for write intents, fillsExplained).
  */
 export function copyFills(rows: Map<string, SheetRow[]>): RowFill[] {
   const out: RowFill[] = [];
   for (const [sheet, list] of rows) {
     for (const r of list) {
       if (r.status === r.excel || generalColourStatus(r.colour) === r.status) continue;
-      out.push({ sheet, row: r.ref.row, hanzi: r.note.hanzi, from: r.colour ?? null, fill: STATUS_FILL[r.status] });
+      out.push({
+        sheet,
+        row: r.ref.row,
+        hanzi: r.note.hanzi,
+        from: r.colour ?? null,
+        fill: STATUS_FILL[r.status],
+        key: r.key,
+        status: r.status,
+        t: r.mark?.t ?? 0,
+      });
     }
+  }
+  return out;
+}
+
+/**
+ * Write-intent rows for fills about to be uploaded (plan D6): row key → [class before, status written, mark time].
+ * Fills without a key (built by older code) are left out.
+ */
+export function fillsExplained(fills: RowFill[]): Explained {
+  const out: Explained = {};
+  for (const f of fills) {
+    if (f.key == null || f.status == null || typeof f.t !== 'number') continue;
+    out[f.key] = [generalColourStatus(f.from), f.status, f.t];
+  }
+  return out;
+}
+
+/**
+ * Effective statuses a new word list changed, for the "Excel changed N statuses" notice: notes present in both lists
+ * (same id) whose status differs, in the new list's order. `before`/`after` are noteStatuses of the old and new list.
+ */
+export function statusChanges(before: Map<string, WordStatus>, after: Map<string, WordStatus>, notes: Note[]): StatusChange[] {
+  const out: StatusChange[] = [];
+  for (const n of [...notes].sort((a, b) => a.order - b.order)) {
+    const from = before.get(n.id);
+    const to = after.get(n.id);
+    if (from && to && from !== to) out.push({ note: n.id, hanzi: n.hanzi, from, to });
   }
   return out;
 }

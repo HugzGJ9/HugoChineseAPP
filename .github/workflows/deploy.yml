@@ -95,6 +95,14 @@ jobs:
           HUGO_URL: http://localhost:4175/HugoChineseAPP/
           HUGO_XLSX: ${{ runner.temp }}/sample.xlsx
           E2E_OUT: ${{ runner.temp }}/e2e-out
+      # Fake Microsoft sign-in and Graph (Playwright routes, no credentials). Needs MS_CLIENT_ID set in src/lib/ms/config.ts.
+      - name: OneDrive check
+        run: python e2e/onedrive.py
+        env:
+          HUGO_URL: http://localhost:4175/HugoChineseAPP/
+          HUGO_XLSX: ${{ runner.temp }}/sample.xlsx
+          E2E_OUT: ${{ runner.temp }}/e2e-out
+          # Skips (exit 0) while MS_CLIENT_ID is empty. Set E2E_REQUIRE_MS: '1' once the client id is committed.
       - name: Explain check
         run: python e2e/explain.py
         env:

@@ -22,6 +22,15 @@ HUGO_XLSX=/path/to/Hugo_chinese_vocab.xlsx python3 e2e/sync.py   # or a real fil
 
 It fakes the GitHub API in memory, so nothing is sent anywhere. It exits non-zero when the two devices disagree.
 
+- `onedrive.py` plays a computer and an iPhone 13 against a fake Microsoft (`fake_graph.py`: Playwright routes for
+  login.microsoftonline.com, graph.microsoft.com and a fake `*.microsoftpersonalcontent.com` download host; PKCE checked,
+  tokens and quickXorHash made up in memory). No real credentials or requests; any other Microsoft host is aborted and
+  recorded, and the script fails on an unrouted request, a workbook PUT without `If-Match`, or an `Authorization` header
+  sent to the download host. It checks sign-in with the route restored, linking by search, an "Excel" recolour (notice
+  and Restore), no re-download of unchanged content, the Reconnect banner after the refresh token dies, offline silence,
+  and the service worker answering `/?code=&state=` offline. It needs a build with a non-empty `MS_CLIENT_ID` (any value);
+  otherwise it prints SKIP and exits 0, or fails when `E2E_REQUIRE_MS=1`. `python3 e2e/fake_graph.py` self-checks the
+  hash port. Never run `playwright install` in cloud sessions.
 - `make_sample.py OUT.xlsx` writes a made-up workbook with the colour layout of the real file: HSK四级 (A-B coloured),
   HSK五级 (A-D coloured, blank rows) and a Grammar sheet; needs `openpyxl`. CI uses it, so nothing personal is involved. `sync.py` calls it when `HUGO_XLSX` is unset.
 - `explain.py` needs a build made with `LEXICON_SAMPLE=1 npm run build` (synthetic dictionary and sentences). The Anthropic

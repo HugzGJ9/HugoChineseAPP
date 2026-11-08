@@ -1,7 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import type { Note, NoteKind, SheetReport, VocabFile, WordStatus } from '../types';
+import { pinyin } from 'pinyin-pro';
+import type { Note, NoteKind, RowFill, SheetReport, StatusMark, VocabFile, WordStatus } from '../types';
+import type { XSheet } from '../xlsx/read';
 import { checkImport, prepareImport } from './guard';
-import { rowKey } from '../status';
+import { buildVocab } from './build';
+import { copyFills, fillsExplained, noteStatuses, rowKey, sheetRows, statusChanges } from '../status';
 import { detectRenames, mergeAliases } from './renames';
 import { cardId, deriveCards, resolveEventCards, resolveNoteId } from '../engine/schedule';
 
@@ -217,5 +220,105 @@ describe('aliases', () => {
     const p = prepareImport(prev, vocab([note('v:学习|xuexi', 2), ...words(10, 'HSK四级', 10)]));
     expect(p.check.ok).toBe(false);
     expect(p.renames).toEqual({ 'v:学习|xuexu': 'v:学习|xuexi' });
+  });
+});
+
+// ---- Golden: the e2e sample workbook (e2e/make_sample.py), read as the importer sees it ----
+
+const HSK4 = ['你好', '谢谢', '再见', '请', '对不起', '没关系', '我', '你', '他', '她', '们', '是', '不', '有', '好', '大', '小', '多'];
+const HSK5 = ['少', '人', '水', '茶', '米饭', '吃', '喝', '看', '说', '去', '来', '今天', '明天', '学校', '老师', '朋友', '中国', '大'];
+/** make_sample's fills: HSK四级 A–B cycle green, pink, yellow, none; HSK五级 A–D cycle green, yellow, red, blue, none, none. */
+const FILLS4 = ['C5E0B4', 'EEA6A6', 'FDF95F', null];
+const FILLS5 = ['A9D18E', 'FFFF00', 'FF0000', '8EA9DB', null, null];
+const pinyinOf = (h: string) => pinyin(h, { toneType: 'num', type: 'array', v: true, nonZh: 'removed' }) as string[];
+
+/** The sample as XSheets; `fill(sheet, row)` overrides a row's colour (undefined = the sample's). */
+function sample(fill: (sheet: string, row: number) => string | null | undefined = () => undefined): XSheet[] {
+  const sheet = (name: string, words: string[], fills: (string | null)[], cols: string[]): XSheet => ({
+    name,
+    rows: [
+      { r: 1, cells: Object.fromEntries(['ID', 'Hanzi', 'Pinyin', 'English'].map((v, i) => ['ABCD'[i], { v, fill: null }])) },
+      ...words.map((w, i) => {
+        const r = i + 2;
+        const over = fill(name, r);
+        const f = over !== undefined ? over : fills[i % fills.length];
+        const vals = [String(i + 1), w, pinyin(w), 'meaning'];
+        return { r, cells: Object.fromEntries(vals.map((v, j) => ['ABCD'[j], { v, fill: cols.includes('ABCD'[j]) ? f : null }])) };
+      }),
+    ],
+  });
+  return [
+    sheet('HSK四级', HSK4, FILLS4, ['A', 'B']),
+    sheet('HSK五级', HSK5, FILLS5, ['A', 'B', 'C', 'D']),
+    { name: 'Grammar', rows: [
+      { r: 1, cells: { A: { v: 'Pattern', fill: null }, B: { v: 'English', fill: null }, C: { v: 'Example', fill: null } } },
+      { r: 2, cells: { A: { v: '不 + verb', fill: null }, B: { v: 'negation', fill: null }, C: { v: '我不吃肉。', fill: null } } },
+      { r: 3, cells: { A: { v: '是……的', fill: null }, B: { v: 'emphasis', fill: null }, C: { v: '我是昨天来的。', fill: null } } },
+    ] },
+  ];
+}
+const read = (sheets: XSheet[], at: number) => buildVocab(sheets, { source: { name: 'sample.xlsx', modified: at, size: 1 }, now: at, pinyinOf });
+/** The workbook after the app wrote `fills` into it (the patcher colours the row's status cells). */
+const patched = (fills: RowFill[]) => sample((sheet, row) => {
+  const f = fills.find((x) => x.sheet === sheet && x.row === row);
+  return f ? f.fill : undefined;
+});
+const statuses = (v: VocabFile, marks: StatusMark[]) => noteStatuses(sheetRows(v.notes, marks, v.colourSince));
+const smark = (note: string, a: StatusMark['a'], t: number, id: string): StatusMark => ({ id, note, a, t, dev: 'pc' });
+
+describe('golden: the sample workbook', () => {
+  const v0 = prepareImport(null, read(sample(), 1000)).vocab;
+  const id = (hanzi: string) => v0.notes.find((n) => n.hanzi === hanzi)!.id;
+
+  it('reads the expected statuses: HSK四级 all Mastered, HSK五级 by colour', () => {
+    const st = statuses(v0, []);
+    expect(HSK4.filter((h) => h !== '大').map((h) => st.get(id(h)))).toEqual(HSK4.filter((h) => h !== '大').map(() => 'mastered'));
+    expect(['少', '人', '水', '茶', '米饭', '吃'].map((h) => st.get(id(h)))).toEqual(['mastered', 'notknown', 'studying', 'studying', 'new', 'new']);
+    expect(Object.values(v0.colourSince!).every(([, t]) => t === 0)).toBe(true);
+  });
+
+  it('re-imported over itself keeps every status and colour time', () => {
+    const marks = [smark(id('少'), 'st:notknown', 500, 'a'), smark(id('谢谢'), 'st:new', 500, 'b'), smark(id('米饭'), 'st:mastered', 500, 'c')];
+    const v1 = prepareImport(v0, read(sample(), 2000)).vocab;
+    expect(v1.colourSince).toEqual(v0.colourSince);
+    expect(statuses(v1, marks)).toEqual(statuses(v0, marks));
+    expect(statuses(v1, [])).toEqual(statuses(v0, []));
+    const v2 = prepareImport(v1, read(sample(), 3000)).vocab;
+    expect(v2.colourSince).toEqual(v0.colourSince);
+  });
+
+  it('the app\'s own write, re-imported with its intent, keeps every status and leaves nothing to write', () => {
+    const marks = [
+      smark(id('少'), 'st:notknown', 500, 'a'), // HSK五级 green → yellow
+      smark(id('谢谢'), 'st:new', 500, 'b'), // HSK四级 pink → no fill
+      smark(id('请'), 'st:notknown', 500, 'c'), // HSK四级 blank → yellow
+      smark(id('米饭'), 'st:studying', 500, 'd'), // HSK五级 blank → blue
+      smark(id('你好'), 'st:mastered', 500, 'e'), // already green: nothing to write
+    ];
+    const fills = copyFills(sheetRows(v0.notes, marks, v0.colourSince));
+    expect(fills.map((f) => [f.hanzi, f.fill])).toEqual([['谢谢', null], ['请', 'FFFF00'], ['少', 'FFFF00'], ['米饭', '8FAADC']]);
+    const before = statuses(v0, marks);
+    const v1 = prepareImport(v0, read(patched(fills), 4000), fillsExplained(fills)).vocab;
+    expect(statuses(v1, marks)).toEqual(before);
+    expect(copyFills(sheetRows(v1.notes, marks, v1.colourSince))).toEqual([]);
+    for (const f of fills) expect(v1.colourSince![f.key!]).toEqual([f.status, 500]);
+    // Without the intent the write reads as Excel edits at the upload time: same statuses, but a newer mark from the
+    // other device would lose to it.
+    const naive = prepareImport(v0, read(patched(fills), 4000)).vocab;
+    for (const f of fills) expect(naive.colourSince![f.key!]).toEqual([f.status, 4000]);
+    const later = [...marks, smark(id('少'), 'st:mastered', 600, 'f')];
+    expect(statuses(v1, later).get(id('少'))).toBe('mastered');
+    expect(statuses(naive, later).get(id('少'))).toBe('notknown');
+  });
+
+  it('an HSK四级 recolour in Excel is an edit: it beats an older mark and is reported by the status diff', () => {
+    const marks = [smark(id('再见'), 'st:notknown', 500, 'a')];
+    expect(statuses(v0, marks).get(id('再见'))).toBe('notknown');
+    // Hugo colours 再见 (row 4, yellow) green in Excel at 900.
+    const v1 = prepareImport(v0, read(sample((s, r) => (s === 'HSK四级' && r === 4 ? 'C5E0B4' : undefined)), 900)).vocab;
+    expect(v1.colourSince![rowKey(id('再见'), 'HSK四级', 0)]).toEqual(['mastered', 900]);
+    expect(statuses(v1, marks).get(id('再见'))).toBe('mastered');
+    expect(copyFills(sheetRows(v1.notes, marks, v1.colourSince))).toEqual([]);
+    expect(statusChanges(statuses(v0, marks), statuses(v1, marks), v1.notes)).toEqual([{ note: id('再见'), hanzi: '再见', from: 'notknown', to: 'mastered' }]);
   });
 });
