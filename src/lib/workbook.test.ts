@@ -22,6 +22,9 @@ const h = vi.hoisted(() => {
   return {
     GraphError,
     items: new Map<string, Item>(),
+    /** Ids not yet in OneDrive's search index. */
+    unindexed: new Set<string>(),
+    recent: [] as string[],
     calls: [] as string[],
     /** Runs inside the next syncNow(). */
     onSync: null as null | (() => Promise<void>),
@@ -45,11 +48,25 @@ vi.mock('./ms/graph', () => ({
     }
     return { ...it.meta };
   },
-  findByName: async (name: string) => {
-    h.calls.push(`find ${name}`);
-    // Like Graph search: anything containing the words; the reader filters.
-    const stem = name.replace(/\.xlsx$/i, '').toLowerCase();
-    return [...h.items.values()].filter((i) => String(i.meta.name).toLowerCase().includes(stem)).map((i) => ({ ...i.meta }));
+  getByPath: async (drive: string | undefined, path: string) => {
+    h.calls.push(`path ${drive ?? 'me'} ${path}`);
+    const { folderPath } = await import('./ms/find');
+    const it = [...h.items.values()].find((i) => {
+      const p = i.meta.parentReference as { driveId: string; path: string };
+      return p.driveId === (drive ?? 'd1') && `${folderPath(p.path)}/${String(i.meta.name)}`.toLowerCase() === path.toLowerCase();
+    });
+    if (!it) throw new h.GraphError(404, 'itemNotFound', 'Item not found');
+    return { ...it.meta };
+  },
+  searchFiles: async (q: string) => {
+    h.calls.push(`search ${q}`);
+    // Like consumer OneDrive search: words, not the exact name.
+    const { searchMatches } = await import('./ms/fake');
+    return [...h.items.entries()].filter(([id, i]) => !h.unindexed.has(id) && searchMatches(String(i.meta.name), q)).map(([, i]) => ({ ...i.meta }));
+  },
+  recentFiles: async () => {
+    h.calls.push('recent');
+    return h.recent.filter((id) => h.items.has(id)).map((id) => ({ ...h.items.get(id)!.meta }));
   },
   download: async (item: { id: string }) => {
     h.calls.push(`download ${item.id}`);
@@ -174,6 +191,8 @@ const linkOf = (d: Device) => d.db.kvGet<{ item: string } | null>('odWorkbook', 
 
 beforeEach(() => {
   h.items.clear();
+  h.unindexed.clear();
+  h.recent = [];
   h.calls = [];
   h.onSync = null;
   h.syncs = 0;
@@ -236,6 +255,55 @@ describe('linking the workbook', () => {
     await d.workbook.checkWorkbook();
     expect((await linkOf(d))?.item).toBe('w9');
     expect(d.store.getState().excel.state).toBe('ok');
+  });
+
+  it('a stale link (404) found again by its folder path is never shown as missing', async () => {
+    const d = await device();
+    put('w1', ROWS, T0);
+    await d.workbook.checkWorkbook();
+    // The PC's OneDrive re-uploaded the file: a new item at the same place, not in the search index yet.
+    h.items.delete('w1');
+    put('w2', ROWS, T0 + 5000);
+    h.unindexed.add('w2');
+    h.calls = [];
+    const states: string[] = [];
+    const off = d.store.subscribe(() => states.push(d.store.getState().excel.state));
+    await d.workbook.checkWorkbook();
+    off();
+    expect((await linkOf(d))?.item).toBe('w2');
+    expect(states).not.toContain('missing');
+    expect(d.store.getState().excel.state).toBe('ok');
+    expect(h.calls).toContain(`path d1 /Chinese/${NAME}`);
+    expect(h.calls.some((c) => c.startsWith('search'))).toBe(false);
+  });
+
+  it('finds the workbook in the recent files when search has not indexed it', async () => {
+    const d = await device();
+    put('w1', ROWS, T0);
+    h.unindexed.add('w1');
+    h.recent = ['w1'];
+    await d.workbook.checkWorkbook();
+    expect((await linkOf(d))?.item).toBe('w1');
+    expect(d.workbook.lastLookup().map((s) => `${s.step} ${s.hits}`)).toEqual([
+      'path: root 0',
+      'search: name without extension 0',
+      'search: words 0',
+      'search: full name 0',
+      'recent 1',
+    ]);
+  });
+
+  it('says how to pick it by hand when nothing finds it, and lists the Excel files without the app copy', async () => {
+    const d = await device();
+    put('w1', ROWS, T0, { name: 'Chinese words.xlsx' });
+    put('copy', ROWS, T0, { name: 'Hugo_chinese_vocab (app).xlsx' });
+    put('doc', ROWS, T0, { name: 'notes.docx' });
+    await d.workbook.checkWorkbook();
+    expect(d.store.getState().excel).toMatchObject({ state: 'missing', message: `Couldn't find ${NAME} in your OneDrive — pick it with Change workbook.` });
+    expect((await d.workbook.findExcelFiles()).map((i) => i.id)).toEqual(['w1']);
+    await d.workbook.linkWorkbook((await d.workbook.findExcelFiles())[0]);
+    expect(d.store.getState().excel.state).toBe('ok');
+    expect(d.store.getState().notes.map((n) => n.hanzi)).toEqual(['学习', '朋友', '告诉']);
   });
 });
 

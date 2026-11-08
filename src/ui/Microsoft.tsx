@@ -4,7 +4,7 @@ import { useApp } from '../lib/store';
 import { msConfigured, msSignIn, msSignOut } from '../lib/ms/auth';
 import { runDiagnostics } from '../lib/ms/diagnostics';
 import type { DriveItem } from '../lib/ms/graph';
-import { checkWorkbook, findWorkbooks, linkWorkbook, unlinkWorkbook } from '../lib/workbook';
+import { checkWorkbook, findExcelFiles, findWorkbooks, linkWorkbook, missingText, unlinkWorkbook } from '../lib/workbook';
 import { formatAgo, formatDate, toast, useNow } from './common';
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : 'Something went wrong');
@@ -45,14 +45,38 @@ function SignInButton({ label = 'Sign in with Microsoft', primary = true }: { la
   );
 }
 
-function WorkbookPicker({ items, onDone }: { items: DriveItem[]; onDone: () => void }) {
+function WorkbookPicker({ items, fileName, onDone }: { items: DriveItem[]; fileName: string; onDone: () => void }) {
   const [busy, setBusy] = useState('');
+  const [all, setAll] = useState<DriveItem[] | null>(null);
+  const [listing, setListing] = useState(false);
+  const shown = all ?? items;
+  const showAll = async () => {
+    setListing(true);
+    try {
+      setAll(await findExcelFiles());
+    } catch (e) {
+      toast(errText(e));
+    } finally {
+      setListing(false);
+    }
+  };
   return (
     <div className="stack" style={{ gap: 8 }}>
-      <p className="small">Pick your workbook:</p>
-      {items.map((it) => (
+      {all ? (
+        <p className="small">
+          {all.length ? `Excel files in your OneDrive (${all.length}${all.length >= 200 ? ', the first 200' : ''}). Pick your workbook:` : 'OneDrive listed no Excel files.'}
+        </p>
+      ) : items.length ? (
+        <p className="small">Pick your workbook:</p>
+      ) : (
+        <p className="small">
+          No file named <b style={{ overflowWrap: 'anywhere' }}>{fileName}</b> found. OneDrive can take a while to list a file synced
+          from the PC: show all Excel files and pick yours.
+        </p>
+      )}
+      {shown.map((it) => (
         <button
-          key={it.id}
+          key={`${it.parentReference?.driveId ?? ''}|${it.id}`}
           type="button"
           className="btn block"
           style={{ justifyContent: 'flex-start', textAlign: 'left', height: 'auto', padding: '8px 14px', minHeight: 44, whiteSpace: 'normal' }}
@@ -76,7 +100,12 @@ function WorkbookPicker({ items, onDone }: { items: DriveItem[]; onDone: () => v
           </span>
         </button>
       ))}
-      <div>
+      <div className="row wrap">
+        {!all && (
+          <button type="button" className="btn small" disabled={listing || !!busy} onClick={showAll}>
+            {listing ? 'Listing…' : 'Show all Excel files'}
+          </button>
+        )}
         <button type="button" className="btn small ghost" onClick={onDone}>
           Cancel
         </button>
@@ -89,15 +118,15 @@ function WorkbookPicker({ items, onDone }: { items: DriveItem[]; onDone: () => v
 function SignedIn() {
   const ms = useApp((s) => s.ms);
   const excel = useApp((s) => s.excel);
+  const fileName = useApp((s) => s.settings.fileName);
   const now = useNow(30000);
   const [choices, setChoices] = useState<DriveItem[] | null>(null);
   const [busy, setBusy] = useState(false);
   const find = async () => {
     setBusy(true);
     try {
-      const found = await findWorkbooks();
-      if (!found.length) toast('No matching workbook found in your OneDrive');
-      else if (found.length === 1 && excel.state === 'off') await linkWorkbook(found[0]);
+      const found = await findWorkbooks({ all: true });
+      if (found.length === 1 && excel.state === 'off') await linkWorkbook(found[0]);
       else setChoices(found);
     } catch (e) {
       toast(errText(e));
@@ -112,17 +141,17 @@ function SignedIn() {
         Signed in{ms.account ? <> as <b style={{ overflowWrap: 'anywhere' }}>{ms.account}</b></> : ''}.
       </p>
       {ms.state === 'error' && ms.message && <p className="notice bad">{ms.message}</p>}
-      {linked && (
+      {linked && excel.state !== 'missing' && (
         <p className="small" style={{ overflowWrap: 'anywhere' }}>
           {excel.name ?? 'Workbook'}
           {excel.checked ? `, read ${formatAgo(excel.checked, now)}` : ''}.
         </p>
       )}
-      {excel.state === 'missing' && <p className="notice bad">The workbook is not in your OneDrive any more. Change workbook to pick it again.</p>}
+      {excel.state === 'missing' && <p className="notice bad">{missingText(excel.name ?? fileName)}</p>}
       {excel.state === 'error' && excel.message && <p className="notice bad">{excel.message}</p>}
       {!linked && !choices && <p className="small muted">No workbook linked yet.</p>}
       {choices ? (
-        <WorkbookPicker items={choices} onDone={() => setChoices(null)} />
+        <WorkbookPicker items={choices} fileName={fileName} onDone={() => setChoices(null)} />
       ) : (
         <div className="row wrap">
           {linked && (

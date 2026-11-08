@@ -172,9 +172,40 @@ async def main():
         check('offline: sheets still usable', await pp.locator('.sheets [role=tab]').count() >= 3)
         await pp.context.set_offline(False)
 
-        # 6. The fake saw a clean client.
+        # 6. The fake saw a clean client. Consumer search finds nothing for the exact name: the workbook was linked by path.
+        check('exact-name search finds nothing in the fake (tokenised like consumer OneDrive)', all(n == 0 for q, n in ms.searches if q == NAME), str(ms.searches[:6]))
+        check('workbook linked by its path', any(f'root:/{NAME}' in l for l in ms.log))
         check('no unrouted Microsoft request', not ms.unrouted, '; '.join(ms.unrouted[:5]))
         check('no protocol violation (If-Match, download host without Authorization, PKCE)', not ms.violations, '; '.join(ms.violations[:5]))
+
+        # 6b. Nothing named like the workbook: the panel says how to pick it, and "Show all Excel files" lists it.
+        ms2 = FakeMicrosoft()
+        ms2.add_workbook('Chinese words.xlsx', data, folder='Documents', item_id='FAKEITEM2')
+        ms2.add_workbook('notes.docx', b'x', folder='Documents', item_id='FAKEDOC')
+        c3 = await b.new_context(viewport={'width': 1280, 'height': 860}, service_workers='block')
+        await ms2.install(c3)
+        p3 = await c3.new_page(); listeners(p3, 'PC2')
+        await sign_in(p3, '#/settings')
+        try:
+            await p3.wait_for_selector(f"text=Couldn't find {NAME} in your OneDrive", timeout=20000); missing = True
+        except Exception:
+            missing = False
+        check('missing workbook: "Couldn\'t find … pick it with Change workbook" shown', missing)
+        if missing:
+            await p3.click('button:has-text("Change workbook")')
+            await p3.wait_for_selector('button:has-text("Show all Excel files")', timeout=20000)
+            await p3.click('button:has-text("Show all Excel files")')
+            await p3.wait_for_selector('button:has-text("Chinese words.xlsx")', timeout=20000)
+            check('Excel list has no other file types', await p3.locator('button:has-text("notes.docx")').count() == 0)
+            await p3.screenshot(path=S + 'od-pc-all-excel.png')
+            await p3.click('button:has-text("Chinese words.xlsx")')
+            await p3.goto(U + '#/sheets')
+            try:
+                await p3.wait_for_selector('.sheets [role=tab]', timeout=20000); picked = True
+            except Exception:
+                picked = False
+            check('picked Excel file is read', picked)
+        check('second drive: no unrouted Microsoft request', not ms2.unrouted, '; '.join(ms2.unrouted[:5]))
         await b.close()
 
         # 7. Service worker answers the sign-in return navigation with the app shell (needs the SW on, so a fresh context).

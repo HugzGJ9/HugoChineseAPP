@@ -4,7 +4,8 @@
 // content id (quickXorHash) is not the one the word list came from, and imported as a picked file would be.
 import { kvGet, kvSet } from './db';
 import { msConfigured } from './ms/auth';
-import { download, findByName, getItem, GraphError, type DriveItem } from './ms/graph';
+import { locateFile, listExcelFiles, type LookupStep } from './ms/find';
+import { download, getItem, GraphError, type DriveItem } from './ms/graph';
 import { quickXorHash } from './ms/qxh';
 import { importBytes, isOlderThanList, summary, wasRejected } from './sources';
 import { getState, setExcel, subscribe } from './store';
@@ -49,11 +50,25 @@ function candidate(item: DriveItem, fileName: string): boolean {
   return name !== copyFileName(fileName).toLowerCase() && !/ \(app\)\.xlsx$/i.test(item.name);
 }
 
-/** Files in OneDrive named like the workbook, newest first (several → Hugo picks one). */
-export async function findWorkbooks(): Promise<DriveItem[]> {
+/** Files in OneDrive named like the workbook, newest first (several → Hugo picks one). Path lookups, then searches, then
+ * recent files (ms/find.ts); `all` runs every lookup instead of stopping at the first that finds it (the picker). */
+export async function findWorkbooks(opts: { all?: boolean } = {}): Promise<DriveItem[]> {
   const fileName = getState().settings.fileName;
-  const found = (await findByName(fileName)).filter((i) => candidate(i, fileName));
-  return found.sort((a, b) => Date.parse(b.lastModifiedDateTime) - Date.parse(a.lastModifiedDateTime));
+  const link = await linked();
+  const r = await locateFile(fileName, { drive: link?.drive, folder: link?.path, all: opts.all });
+  lastSteps = r.steps;
+  const items = r.items.filter((i) => candidate(i, fileName));
+  return items.sort((a, b) => Date.parse(b.lastModifiedDateTime) - Date.parse(a.lastModifiedDateTime));
+}
+
+let lastSteps: LookupStep[] = [];
+/** What each lookup of the last findWorkbooks gave (tests, diagnostics). */
+export const lastLookup = (): LookupStep[] => lastSteps;
+
+/** Every Excel file OneDrive lists (up to 200, newest first), except the app's copy: when the name finds nothing. */
+export async function findExcelFiles(): Promise<DriveItem[]> {
+  const copy = copyFileName(getState().settings.fileName).toLowerCase();
+  return (await listExcelFiles(200)).items.filter((i) => i.name.toLowerCase() !== copy && !/ \(app\)\.xlsx$/i.test(i.name));
 }
 
 async function saveLink(item: DriveItem): Promise<OdWorkbook> {
@@ -101,6 +116,8 @@ async function autoLink(): Promise<DriveItem | null> {
   return linkByName();
 }
 
+export const missingText = (fileName: string) => `Couldn't find ${fileName} in your OneDrive — pick it with Change workbook.`;
+
 async function linkByName(): Promise<DriveItem | null> {
   const fileName = getState().settings.fileName;
   const found = await findWorkbooks();
@@ -111,7 +128,7 @@ async function linkByName(): Promise<DriveItem | null> {
   if (found.length) {
     setExcel({ state: 'off', name: fileName, message: `${found.length} files in OneDrive are named ${fileName}. Pick the one to read.` });
   } else {
-    setExcel({ state: 'missing', name: fileName, message: `${fileName} was not found in your OneDrive.` });
+    setExcel({ state: 'missing', name: fileName, message: missingText(fileName) });
   }
   return null;
 }
@@ -162,8 +179,7 @@ async function checkOnce(force: boolean): Promise<void> {
         item = await getItem(link.drive, link.item);
       } catch (e) {
         if (!isGraph404(e)) throw e;
-        // Deleted or moved to another drive: look for it by name again.
-        setExcel({ state: 'missing', name: link.name, message: `${link.name} is no longer in your OneDrive.` });
+        // Deleted, or moved to another drive: look for it again (by path, search, recent). 'missing' only if none finds it.
         item = await linkByName();
         if (!item) return;
         link = (await linked())!;

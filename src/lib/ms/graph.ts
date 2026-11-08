@@ -137,23 +137,70 @@ function itemPath(drive: string | undefined, id: string): string {
   return drive ? `/drives/${enc(drive)}/items/${enc(id)}` : `/me/drive/items/${enc(id)}`;
 }
 
-/** Item metadata, including a short-lived download URL. */
-export function getItem(drive: string, id: string): Promise<DriveItem> {
-  return graphJson<DriveItem>(itemPath(drive, id));
+/** An item as Graph returns it: in a consumer OneDrive, files shared with Hugo (and every `recent` entry) come as a
+ * local entry whose real item, on its own drive, is in `remoteItem`. */
+type RawItem = DriveItem & { folder?: unknown; remoteItem?: Partial<DriveItem> & { folder?: unknown } };
+
+/** The real item: `remoteItem` (with its own drive id) when present, else the item itself. */
+export function realItem(raw: RawItem): DriveItem & { folder?: unknown } {
+  const r = raw.remoteItem;
+  if (!r?.id) {
+    const { remoteItem: _, ...rest } = raw;
+    return rest;
+  }
+  const { remoteItem: _, ...outer } = raw;
+  return {
+    ...outer,
+    ...r,
+    id: r.id,
+    name: r.name ?? outer.name,
+    parentReference: r.parentReference ?? outer.parentReference,
+    ...(r.file || outer.file ? { file: r.file ?? outer.file } : {}),
+    ...(r.folder || outer.folder ? { folder: r.folder ?? outer.folder } : {}),
+  } as DriveItem & { folder?: unknown };
 }
 
-/** Files in the whole OneDrive named exactly `name` (case-insensitive). */
-export async function findByName(name: string): Promise<DriveItem[]> {
-  const want = name.trim().toLowerCase();
-  if (!want) return [];
+const isFile = (it: DriveItem & { folder?: unknown }) => !!it.file && !it.folder;
+
+/** Item metadata, including a short-lived download URL. */
+export async function getItem(drive: string, id: string): Promise<DriveItem> {
+  return realItem(await graphJson<RawItem>(itemPath(drive, id)));
+}
+
+/** The item at `path` from the root of a drive (`/Documents/x.xlsx`; Hugo's own drive when `drive` is empty). 404 → GraphError. */
+export async function getByPath(drive: string | undefined, path: string): Promise<DriveItem & { folder?: unknown }> {
+  const segs = path.split('/').filter(Boolean).map(enc).join('/');
+  return realItem(await graphJson<RawItem>(`${drive ? `/drives/${enc(drive)}` : '/me/drive'}/root:/${segs}`));
+}
+
+/** Files from a paged Graph collection, real items (remoteItem resolved), at most `limit`. */
+async function collectFiles(first: string, limit: number): Promise<DriveItem[]> {
   const out: DriveItem[] = [];
-  let next: string | undefined = `/me/drive/root/search(q='${enc(name.trim().replace(/'/g, "''"))}')`;
-  for (let page = 0; next && page < 10; page++) {
-    const r: { value?: (DriveItem & { folder?: unknown })[]; '@odata.nextLink'?: string } = await graphJson(next);
-    for (const it of r.value ?? []) if (it.file && !it.folder && it.name.toLowerCase() === want) out.push(it);
+  let next: string | undefined = first;
+  for (let page = 0; next && page < 10 && out.length < limit; page++) {
+    const r: { value?: RawItem[]; '@odata.nextLink'?: string } = await graphJson(next);
+    for (const raw of r.value ?? []) {
+      const it = realItem(raw);
+      if (isFile(it) && out.length < limit) out.push(it);
+    }
     next = r['@odata.nextLink'];
   }
   return out;
+}
+
+/**
+ * Files OneDrive's search returns for `q` (at most `limit`). Consumer search matches words, not names: an exact name with
+ * underscores and an extension may find nothing, so callers filter the results by name themselves.
+ */
+export function searchFiles(q: string, limit = 200): Promise<DriveItem[]> {
+  const term = q.trim();
+  if (!term) return Promise.resolve([]);
+  return collectFiles(`/me/drive/root/search(q='${enc(term.replace(/'/g, "''"))}')`, limit);
+}
+
+/** Files Hugo opened recently (`/me/drive/recent`), real items. */
+export function recentFiles(limit = 200): Promise<DriveItem[]> {
+  return collectFiles('/me/drive/recent', limit);
 }
 
 /** The current content of a file: fresh metadata for its download URL, then that URL without credentials. */

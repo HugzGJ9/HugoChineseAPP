@@ -2,10 +2,11 @@
 // facts), and reports in plain text he can copy. No names, emails, file names or paths in the report.
 // Touches only OneDrive › Apps › Hugo Chinese › diag, and deletes its test file.
 
-import { kvGet } from '../db';
+import { getSettings, kvGet } from '../db';
 import { MS_CLIENT_ID } from './config';
 import type { MsAuth } from './auth';
 import { msConfigured, msToken } from './auth';
+import { formatSteps, listExcelFiles, locateFile } from './find';
 import { GraphError, getItem, graphFetch, graphJson, type DriveItem } from './graph';
 import { quickXorHash } from './qxh';
 
@@ -168,16 +169,32 @@ export async function runDiagnostics(): Promise<string> {
     }
   }
 
-  const wb = await kvGet<{ drive?: string; item?: string } | null>('odWorkbook', null);
+  const wb = await kvGet<{ drive?: string; item?: string; path?: string } | null>('odWorkbook', null);
   if (!wb?.item) line('Linked workbook', 'none');
   else {
     try {
       const meta = await getItem(wb.drive ?? '', wb.item);
       const hashes = Object.keys((meta.file as { hashes?: Record<string, unknown> } | undefined)?.hashes ?? {});
-      line('Linked workbook', `found, ${Math.round(meta.size / 1024)} KB, hashes: ${hashes.length ? hashes.join(', ') : 'none'}`);
+      line('Linked workbook', `found, ${Math.round(meta.size / 1024)} KB, hashes: ${hashes.length ? hashes.join(', ') : 'none'}${meta.parentReference?.driveId && meta.parentReference.driveId !== wb.drive ? ', on another drive' : ''}`);
     } catch (e) {
       line('Linked workbook', describe(e));
     }
+  }
+
+  // Every lookup the app uses to find the workbook by name, with its exact-name hit count (no names or paths).
+  try {
+    const r = await locateFile((await getSettings()).fileName, { drive: wb?.drive, folder: wb?.path, all: true });
+    line('Workbook lookups', formatSteps(r.steps));
+    const shared = r.items.filter((i) => wb?.drive && i.parentReference?.driveId && i.parentReference.driveId !== wb.drive).length;
+    line('Workbook files found', `${r.items.length}${shared ? ` (${shared} on another drive)` : ''}`);
+  } catch (e) {
+    line('Workbook lookups', describe(e));
+  }
+  try {
+    const x = await listExcelFiles(200);
+    line('Excel files listed', `${x.items.length} (${formatSteps(x.steps)})`);
+  } catch (e) {
+    line('Excel files listed', describe(e));
   }
   return out.join('\n');
 }

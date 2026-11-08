@@ -46,6 +46,20 @@ def recolour(xlsx: bytes, sheet: str, row: int, rgb: str, cols=(1, 2, 3, 4)) -> 
     return out.getvalue()
 
 
+def name_words(name):
+    """OneDrive search splits a name into words: 'Hugo_chinese_vocab.xlsx' -> hugo, chinese, vocab, xlsx."""
+    return [w for w in re.split(r'[\W_]+', name.lower()) if w]
+
+
+def search_matches(name, q):
+    """Like consumer OneDrive search (and src/lib/ms/fake.ts): the query splits on spaces and underscores, each term (dots
+    trimmed) must start a word of the name. The exact name 'Hugo_chinese_vocab.xlsx' finds nothing; its words do."""
+    terms = [t.strip('.') for t in re.split(r'[\s_]+', q.lower())]
+    terms = [t for t in terms if t]
+    words = name_words(name)
+    return bool(terms) and all(any(w.startswith(t) for w in words) for t in terms)
+
+
 def _iso(t):
     return time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime(t))
 
@@ -66,11 +80,15 @@ class FakeMicrosoft:
         self.unrouted = []       # Microsoft requests nobody handled (aborted or 404)
         self.violations = []     # protocol problems: workbook PUT without If-Match, Authorization sent to download host
         self.puts = []           # (item id, if-match, status)
+        self.recent = []         # item ids served by /me/drive/recent (as remoteItem entries, like a consumer drive)
+        self.searches = []       # (query, hits)
         self._n = 0
 
     # ----- controls -----
-    def add_workbook(self, name, data, at=None, item_id='FAKEITEM1'):
-        self.items[item_id] = dict(name=name, bytes=data, n=1, modified=at or time.time() - 3600)
+    def add_workbook(self, name, data, at=None, item_id='FAKEITEM1', folder='', indexed=True):
+        """A file at `folder` ('' = the drive root, 'Documents/Chinese'); indexed=False: search does not see it yet."""
+        self.items[item_id] = dict(name=name, bytes=data, n=1, modified=at or time.time() - 3600, folder=folder.strip('/'),
+                                   indexed=indexed)
         return item_id
 
     def excel_save(self, item_id, data, at=None):
@@ -171,7 +189,7 @@ class FakeMicrosoft:
             'id': item_id, 'name': it['name'], 'size': len(it['bytes']),
             'eTag': f'"{{FAKE-{item_id}}},{it["n"]}"', 'cTag': f'"c:{{FAKE-{item_id}}},{it["n"]}"',
             'lastModifiedDateTime': _iso(it['modified']),
-            'parentReference': {'driveId': DRIVE, 'id': 'FAKEROOT', 'path': '/drive/root:'},
+            'parentReference': {'driveId': DRIVE, 'id': 'FAKEROOT', 'path': '/drive/root:' + (f"/{quote(it['folder'])}" if it.get('folder') else '')},
             'file': {'hashes': {'quickXorHash': quick_xor_hash(it['bytes'])}},
             '@microsoft.graph.downloadUrl': f'https://fake-{secrets.token_hex(3)}.microsoftpersonalcontent.com/dl/{item_id}/{it["n"]}',
         }
@@ -196,9 +214,22 @@ class FakeMicrosoft:
             return await reply(200, {'id': DRIVE, 'driveType': 'personal'})
         m = re.match(r"^(/me/drive|/drives/[^/]+)/root/search\(q='(.*)'\)$", path)
         if m:
-            q = m.group(2).lower()
-            hits = [self._item_json(i) for i, it in self.items.items() if q and q in it['name'].lower()]
+            q = m.group(2).replace("''", "'")
+            hits = [self._item_json(i) for i, it in self.items.items() if it.get('indexed', True) and search_matches(it['name'], q)]
+            self.searches.append((q, len(hits)))
             return await reply(200, {'value': hits})
+        if path == '/me/drive/recent':
+            hits = [dict(id='REF-' + i, name=self.items[i]['name'], remoteItem=self._item_json(i)) for i in self.recent if i in self.items]
+            return await reply(200, {'value': hits})
+        m = re.match(r'^(?:/me/drive|/drives/([^/]+))/root:/(.+?):?$', path)
+        if m:
+            want = m.group(2).strip('/').lower()
+            if m.group(1) in (None, DRIVE):
+                for iid, it in self.items.items():
+                    full = (it.get('folder') + '/' if it.get('folder') else '') + it['name']
+                    if full.lower() == want:
+                        return await reply(200, self._item_json(iid))
+            return await gerr(404, 'itemNotFound')
         m = re.match(r'^(?:/me/drive|/drives/[^/]+)/items/([^/]+)(/content)?$', path)
         if m and m.group(1) in self.items:
             iid = m.group(1)

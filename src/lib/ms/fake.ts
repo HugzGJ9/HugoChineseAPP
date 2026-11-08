@@ -18,6 +18,27 @@ export interface FakeItem {
   ver: number;
   cver: number;
   modified: number;
+  /** Another drive (a file in a folder shared with Hugo): reached as /drives/{drive}/items/{id}, listed as a remoteItem. */
+  drive?: string;
+  /** False while OneDrive's search index has not caught up with the file (a fresh sync from the PC). */
+  indexed?: boolean;
+}
+
+/** OneDrive search splits a name into words: "Hugo_chinese_vocab.xlsx" → hugo, chinese, vocab, xlsx. */
+export function nameWords(name: string): string[] {
+  return name.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+}
+
+/**
+ * Like consumer OneDrive search: the query splits on spaces and underscores, each term (dots trimmed) must start a word of
+ * the name. So the exact name "Hugo_chinese_vocab.xlsx" finds nothing (the term "vocab.xlsx" is no word), while
+ * "Hugo_chinese_vocab", "Hugo chinese vocab" and ".xlsx" do.
+ */
+export function searchMatches(name: string, q: string): boolean {
+  const terms = q.toLowerCase().split(/[\s_]+/).map((t) => t.replace(/^\.+|\.+$/g, '')).filter(Boolean);
+  if (!terms.length) return false;
+  const words = nameWords(name);
+  return terms.every((t) => words.some((w) => w.startsWith(t)));
 }
 
 export interface FakeRequest {
@@ -125,6 +146,8 @@ export class FakeMicrosoft {
   reachable = true;
 
   items = new Map<string, FakeItem>();
+  /** Ids served by /me/drive/recent, most recent first (consumer style: each entry wraps a remoteItem). */
+  recent: string[] = [];
   private codes = new Map<string, { challenge: string; scope: string; redirect: string }>();
   private access = new Set<string>();
   private refresh = new Set<string>();
@@ -150,6 +173,16 @@ export class FakeMicrosoft {
     const folder = parts.join('/');
     this.ensureFolder(folder);
     const it = this.put(folder, name, false, bytes);
+    it.modified = at;
+    return it;
+  }
+
+  /** A file in a folder another account shared with Hugo: lives on `drive`, shows in his search as a remoteItem. */
+  addShared(path: string, bytes: Uint8Array, drive = 'drv2', at = this.now()): FakeItem {
+    const parts = path.split('/');
+    const name = parts.pop()!;
+    const it = this.put(parts.join('/'), name, false, bytes);
+    it.drive = drive;
     it.modified = at;
     return it;
   }
@@ -190,7 +223,7 @@ export class FakeMicrosoft {
 
   /** The item at a path from the root. */
   byPath(path: string): FakeItem | undefined {
-    for (const it of this.items.values()) if (this.pathOf(it) === path) return it;
+    for (const it of this.items.values()) if (!it.drive && this.pathOf(it) === path) return it;
     return undefined;
   }
 
@@ -298,6 +331,11 @@ export class FakeMicrosoft {
     };
   }
 
+  /** How a consumer drive lists a shared file (search) or any recent file: a local entry wrapping the real item. */
+  private remoteJson(it: FakeItem): Record<string, unknown> {
+    return { id: `ref-${it.id}`, name: it.name, lastModifiedDateTime: new Date(it.modified).toISOString(), remoteItem: this.itemJson(it) };
+  }
+
   private async graph(url: URL, method: string, h: Record<string, string>, init: RequestInit): Promise<Response> {
     const auth = h.authorization ?? '';
     if (!auth.startsWith('Bearer ') || !this.access.has(auth.slice(7))) {
@@ -312,8 +350,21 @@ export class FakeMicrosoft {
 
     const search = /^\/me\/drive\/root\/search\(q='(.*)'\)$/.exec(path);
     if (search && method === 'GET') {
-      const q = search[1].replace(/''/g, "'").toLowerCase();
-      return json(200, { value: [...this.items.values()].filter((x) => x.id !== 'root' && x.name.toLowerCase().includes(q)).map((x) => this.itemJson(x)) });
+      const q = search[1].replace(/''/g, "'");
+      const hits = [...this.items.values()].filter((x) => x.id !== 'root' && x.indexed !== false && searchMatches(x.name, q));
+      return json(200, { value: hits.map((x) => (x.drive ? this.remoteJson(x) : this.itemJson(x))) });
+    }
+
+    if (path === '/me/drive/recent' && method === 'GET') {
+      const hits = this.recent.map((id) => this.items.get(id)).filter((x): x is FakeItem => !!x);
+      return json(200, { value: hits.map((x) => this.remoteJson(x)) });
+    }
+
+    // By path from a drive root: /me/drive/root:/Documents/x.xlsx (own drive only).
+    const byPath = /^(?:\/drives\/([^/]+)|\/me\/drive)\/root:\/(.+?):?$/.exec(path);
+    if (byPath && method === 'GET') {
+      const it = !byPath[1] || byPath[1] === this.driveId ? this.byPath(byPath[2].replace(/\/+$/, '')) : undefined;
+      return it ? json(200, this.itemJson(it)) : graphError(404, 'itemNotFound', 'The resource could not be found.');
     }
 
     // special/approot, by itself or by path: special/approot:/diag/x.bin[:/content]
@@ -339,8 +390,9 @@ export class FakeMicrosoft {
 
     const item = /^(?:\/drives\/([^/]+)|\/me\/drive)\/items\/([^/]+)(\/content)?$/.exec(path);
     if (item) {
-      if (item[1] && item[1] !== this.driveId) return graphError(404, 'itemNotFound');
       const it = this.items.get(item[2]);
+      // A shared file only by its own drive; Hugo's files by his drive id or /me/drive.
+      if (it && (item[1] ?? this.driveId) !== (it.drive ?? this.driveId)) return graphError(404, 'itemNotFound');
       if (!it) return graphError(404, 'itemNotFound', 'The resource could not be found.');
       if (item[3] && method === 'PUT') return this.replace(it, h, init);
       if (item[3] && method === 'GET') return this.redirectToDownload(it);
@@ -390,6 +442,7 @@ export class FakeMicrosoft {
 
   private parentRef(it: FakeItem): { driveId: string; id?: string; path: string } {
     const parent = it.id === 'root' ? undefined : it.folder === '' ? this.items.get('root') : this.byPath(it.folder);
+    if (it.drive) return { driveId: it.drive, id: `${it.drive}-parent`, path: `/drives/${it.drive}/root:${it.folder ? `/${it.folder}` : ''}` };
     return { driveId: this.driveId, id: parent?.id, path: `/drive/root:${it.folder ? `/${it.folder}` : ''}` };
   }
 

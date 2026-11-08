@@ -19,10 +19,11 @@ async function device(clientId = 'test-client', signIn = true) {
   const auth = await import('./auth');
   const graph = await import('./graph');
   const diagnostics = await import('./diagnostics');
+  const find = await import('./find');
   const store = await import('../store');
   const db = await import('../db');
   if (signIn && clientId) await fakeSignIn(ms, loc, auth);
-  return { auth, graph, diagnostics, store, db };
+  return { auth, graph, diagnostics, find, store, db };
 }
 
 const bytes = (n: number, seed = 7) => Uint8Array.from({ length: n }, (_, i) => (i * 31 + seed) & 0xff);
@@ -133,7 +134,7 @@ describe('graph', () => {
   it('download fetches the download URL without Authorization or credentials', async () => {
     const it0 = ms.addFile(WB, bytes(4000));
     const { graph } = await device();
-    const [found] = await graph.findByName('Hugo_chinese_vocab.xlsx');
+    const [found] = await graph.searchFiles('Hugo chinese vocab');
     ms.excelSave(it0.id, bytes(4100, 3)); // a newer version than the search result: download gets the current one
     const got = await graph.download(found);
     expect(got).toEqual(bytes(4100, 3));
@@ -144,17 +145,109 @@ describe('graph', () => {
     for (const r of ms.requests) if (r.headers.authorization) expect(new URL(r.url).host).toBe('graph.microsoft.com');
   });
 
-  it('findByName: exact name, case-insensitive, files only', async () => {
+  it('searchFiles: files only, words matched like consumer OneDrive (the exact name finds nothing)', async () => {
     ms.addFile(WB, bytes(10));
-    ms.addFile('Old/hugo_chinese_vocab.XLSX', bytes(11));
-    ms.addFile('Documents/Hugo_chinese_vocab (app).xlsx', bytes(12));
-    ms.addFile('Documents/Hugo_chinese_vocab.xlsx.bak', bytes(13));
     ms.addFile('Hugo_chinese_vocab.xlsx/readme.txt', bytes(14)); // a folder with the name
     const { graph } = await device();
-    const found = await graph.findByName("Hugo_chinese_vocab.xlsx");
-    expect(found.map((x) => x.parentReference?.path).sort()).toEqual(['/drive/root:/Documents', '/drive/root:/Old']);
-    expect(await graph.findByName("it's.xlsx")).toEqual([]);
+    expect(await graph.searchFiles('Hugo_chinese_vocab.xlsx')).toEqual([]);
+    expect((await graph.searchFiles('Hugo_chinese_vocab')).map((x) => x.name)).toEqual(['Hugo_chinese_vocab.xlsx']);
+    expect((await graph.searchFiles('Hugo chinese vocab')).map((x) => x.name)).toEqual(['Hugo_chinese_vocab.xlsx']);
+    expect(await graph.searchFiles("it's.xlsx")).toEqual([]);
     expect(ms.requests.at(-1)!.url).toContain("search(q='it''s.xlsx')");
+  });
+
+  it('getByPath, and remoteItem entries resolve to the real item on its own drive', async () => {
+    const own = ms.addFile('Documents/Hugo chinese.xlsx', bytes(10));
+    const shared = ms.addShared('Shared/Hugo_chinese_vocab.xlsx', bytes(20), 'drv2');
+    ms.recent = [own.id];
+    const { graph } = await device();
+    expect((await graph.getByPath(undefined, '/Documents/Hugo chinese.xlsx')).id).toBe(own.id);
+    expect(ms.requests.at(-1)!.url).toContain('/me/drive/root:/Documents/Hugo%20chinese.xlsx');
+    await expect(graph.getByPath(undefined, '/Hugo chinese.xlsx')).rejects.toMatchObject({ status: 404 });
+    const [s] = await graph.searchFiles('Hugo_chinese_vocab');
+    expect(s).toMatchObject({ id: shared.id, name: 'Hugo_chinese_vocab.xlsx', parentReference: { driveId: 'drv2' } });
+    expect(s).not.toHaveProperty('remoteItem');
+    expect(await graph.download(s)).toEqual(bytes(20));
+    const [r] = await graph.recentFiles();
+    expect(r).toMatchObject({ id: own.id, parentReference: { driveId: ms.driveId } });
+  });
+});
+
+describe('finding the workbook (find.ts)', () => {
+  const NAME = 'Hugo_chinese_vocab.xlsx';
+  const steps = (r: { steps: { step: string; hits: number | string }[] }) => Object.fromEntries(r.steps.map((x) => [x.step, x.hits]));
+
+  it('at the root: one path lookup, no search', async () => {
+    const wb = ms.addFile(NAME, bytes(10));
+    const { find } = await device();
+    const r = await find.locateFile(NAME);
+    expect(r.items.map((i) => i.id)).toEqual([wb.id]);
+    expect(r.steps).toEqual([{ step: 'path: root', hits: 1 }]);
+    expect(ms.requests.some((x) => x.url.includes('/search('))).toBe(false);
+  });
+
+  it('in a folder: the exact-name search finds nothing, the words do', async () => {
+    const wb = ms.addFile(WB, bytes(10));
+    ms.addFile('Documents/Hugo_chinese_vocab (app).xlsx', bytes(11));
+    ms.addFile('Old/hugo_chinese_vocab.XLSX', bytes(12));
+    const { find } = await device();
+    const r = await find.locateFile(NAME);
+    expect(r.items.map((i) => i.parentReference?.path).sort()).toEqual(['/drive/root:/Documents', '/drive/root:/Old']);
+    expect(steps(r)).toEqual({ 'path: root': 0, 'search: name without extension': 2, 'search: words': 2, 'search: full name': 0 });
+    expect(r.items.filter((i) => i.id === wb.id)).toHaveLength(1); // deduplicated
+  });
+
+  it('the last folder by path, when search has not indexed the file yet', async () => {
+    const wb = ms.addFile('Chinese/Notes 2026/Hugo_chinese_vocab.xlsx', bytes(10));
+    wb.indexed = false;
+    const { find } = await device();
+    const r = await find.locateFile(NAME, { drive: ms.driveId, folder: '/drive/root:/Chinese/Notes%202026' });
+    expect(r.items.map((i) => i.id)).toEqual([wb.id]);
+    expect(r.steps).toEqual([{ step: 'path: root', hits: 0 }, { step: 'path: last folder', hits: 1 }]);
+    expect(find.folderPath('/drive/root:')).toBe('');
+    expect(find.folderPath('/drives/abc/root:/A%20B/')).toBe('/A B');
+  });
+
+  it('not indexed, not at a known path: the recent list finds it', async () => {
+    const wb = ms.addFile(WB, bytes(10));
+    wb.indexed = false;
+    ms.recent = [ms.addFile('Other.xlsx', bytes(3)).id, wb.id];
+    const { find } = await device();
+    const r = await find.locateFile(NAME);
+    expect(r.items.map((i) => i.id)).toEqual([wb.id]);
+    expect(steps(r)).toMatchObject({ 'search: words': 0, recent: 1 });
+  });
+
+  it('a file in a folder shared with Hugo: its own drive id', async () => {
+    const wb = ms.addShared('Shared/Hugo_chinese_vocab.xlsx', bytes(10), 'drv2');
+    const { find, graph } = await device();
+    const [it0] = (await find.locateFile(NAME)).items;
+    expect(it0).toMatchObject({ id: wb.id, parentReference: { driveId: 'drv2' } });
+    expect((await graph.getItem('drv2', wb.id)).id).toBe(wb.id);
+  });
+
+  it('a failing lookup is reported and the others still run; all failing is an error', async () => {
+    ms.addFile(WB, bytes(10));
+    const { find } = await device();
+    ms.failNext(503); // the root path lookup
+    const r = await find.locateFile(NAME);
+    expect(r.items).toHaveLength(1);
+    expect(steps(r)['path: root']).toBe('failed: 503 serviceNotAvailable');
+    for (let i = 0; i < 5; i++) ms.failNext(503);
+    await expect(find.locateFile(NAME)).rejects.toMatchObject({ status: 503 });
+  });
+
+  it('nothing found: every lookup ran, zero hits; the Excel list shows xlsx files only', async () => {
+    const a = ms.addFile('Documents/Chinese list.xlsx', bytes(10), 1000);
+    const b = ms.addFile('Other/vocab v2.XLSX', bytes(11), 2000);
+    ms.addFile('Documents/notes.docx', bytes(12));
+    const { find } = await device();
+    const r = await find.locateFile(NAME, { all: true });
+    expect(r.items).toEqual([]);
+    expect(r.steps.map((x) => x.hits)).toEqual([0, 0, 0, 0, 0]);
+    const x = await find.listExcelFiles(200);
+    expect(x.items.map((i) => i.id)).toEqual([b.id, a.id]);
+    expect((await find.listExcelFiles(1)).items).toHaveLength(1);
   });
 });
 
@@ -169,7 +262,7 @@ describe('diagnostics', () => {
   it('checks drive type, hash, If-Match, download host and the linked workbook, then deletes its file', async () => {
     const wb = ms.addFile(WB, bytes(2000));
     const { diagnostics, db } = await device();
-    await db.kvSet('odWorkbook', { drive: ms.driveId, item: wb.id, name: 'Hugo_chinese_vocab.xlsx', linkedAt: 1 });
+    await db.kvSet('odWorkbook', { drive: ms.driveId, item: wb.id, name: 'Hugo_chinese_vocab.xlsx', path: '/drive/root:/Documents', linkedAt: 1 });
     const itemsBefore = ms.items.size;
     const report = await diagnostics.runDiagnostics();
     expect(report).toContain('Drive type: personal');
@@ -182,6 +275,9 @@ describe('diagnostics', () => {
     expect(report).toContain('Download: ok (same bytes)');
     expect(report).toContain('Delete the test file: ok');
     expect(report).toMatch(/Linked workbook: found, 2 KB, hashes: quickXorHash/);
+    expect(report).toContain('Workbook lookups: path: root 0, path: last folder 1, search: name without extension 1, search: words 1, search: full name 0, recent 0');
+    expect(report).toContain('Workbook files found: 1');
+    expect(report).toMatch(/Excel files listed: 1 \(search: \.xlsx 1, search: xlsx 1, recent 0\)/);
     // No names, emails, file names or paths.
     for (const secret of ['test@example.com', 'Test User', 'Hugo_chinese_vocab', 'Documents', 'oid-1', 'at-', 'rt-']) expect(report).not.toContain(secret);
     // Only approot/diag was touched, and the test file is gone (the diag folder stays).
