@@ -117,7 +117,8 @@ async def main():
         check('phone: sheet tabs shown', await pp.locator('.sheets [role=tab]').count() >= 3)
         check('no folder picker needed on the phone', await pp.evaluate("() => !('showDirectoryPicker' in window)"))
         await pg.screenshot(path=S + 'od-pc-sheets.png'); await pp.screenshot(path=S + 'od-phone-sheets.png')
-        base_status = await status_of(pg, target[1])
+        # The chip's text differs by layout (the phone shows only the symbol), so each device is compared with itself.
+        base_phone = await status_of(pp, target[1])
 
         # 2. "Excel" recolours the blank row yellow (Not known): both devices notice it, with the notice, and Restore works.
         ms.excel_save(item, recolour(data, SHEET, target[0], 'FFFF00'))
@@ -130,13 +131,14 @@ async def main():
             except Exception:
                 seen = False
             check(f'{who}: Excel change notice shown', seen)
-            print('ST',who,await status_of(page,target[1])); check(f'{who}: status follows Excel', 'Not known' in await status_of(page, target[1]) if seen else False)
+            now = await status_of(page, target[1]) if seen else ''
+            check(f'{who}: status follows Excel', 'Not known' in now, now)
         await pp.goto(U + '#/sheets'); await pp.wait_for_selector('.sheets')
         if await pp.locator(SEL['restore']).count():
             await pp.screenshot(path=S + 'od-phone-notice.png')
             await pp.click(SEL['restore']); await pp.wait_for_timeout(500)
-            check('phone: Restore puts the previous status back', (await status_of(pp, target[1])) == base_status or print('RESTORE', await status_of(pp, target[1])),
-                  f'{base_status!r} expected')
+            got = await status_of(pp, target[1])
+            check('phone: Restore puts the previous status back', got == base_phone, f'{got!r}, {base_phone!r} expected')
         else:
             check('phone: Restore button present', False)
 
@@ -166,7 +168,7 @@ async def main():
         await pg.wait_for_timeout(4000); before = len(ms.log)
         await pp.context.set_offline(True)
         await pp.evaluate("() => { window.dispatchEvent(new Event('focus')); document.dispatchEvent(new Event('visibilitychange')); }"); await pp.wait_for_timeout(1500)
-        print('OFFLINE LOG', ms.log[before:]); await pp.screenshot(path=S+'offline-phone.png'); check('offline: no Microsoft request attempted', len(ms.log) == before, f'{len(ms.log) - before} new')
+        await pp.screenshot(path=S+'offline-phone.png'); check('offline: no Microsoft request attempted', len(ms.log) == before, f'{len(ms.log) - before} new')
         check('offline: sheets still usable', await pp.locator('.sheets [role=tab]').count() >= 3)
         await pp.context.set_offline(False)
 
@@ -188,7 +190,8 @@ async def main():
         await b2.close()
 
     sys.stdout.flush()
-    print('\n'.join(console[:20]) or 'no console errors')
+    # Step 4 logs a 401 (Graph, dead token) and a 400 (token endpoint, invalid_grant) on purpose: shown, not failed.
+    print('console errors:\n' + '\n'.join(console[:20]) if console else 'no console errors')
     print('PASS' if not errs else 'FAIL')
     sys.exit(0 if not errs else 1)
 

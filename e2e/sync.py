@@ -131,6 +131,17 @@ Object.defineProperty(IDBRequest.prototype, 'result', { get() {
 } });
 """
 
+# This script checks the path without Microsoft (folder + GitHub). When the build has a Microsoft client id, Setup and
+# Settings fold those panels under "Other ways" / "Without Microsoft": open those folds as soon as they appear.
+UNFOLD = """
+new MutationObserver(() => {
+  for (const d of document.querySelectorAll('details:not([open])')) {
+    const t = d.querySelector(':scope > summary')?.textContent?.trim();
+    if (t === 'Other ways' || t === 'Without Microsoft') d.open = true;
+  }
+}).observe(document, { childList: true, subtree: true });
+"""
+
 async def main():
     if not os.path.isfile(XLSX):
         sys.exit(f'HUGO_XLSX is not a file: {XLSX}')
@@ -141,6 +152,7 @@ async def main():
         # ---------- computer ----------
         pc = await b.new_context(viewport={'width': 1280, 'height': 860}, service_workers='block')
         await pc.add_init_script(PICKER)
+        await pc.add_init_script(UNFOLD)
         await pc.route('https://api.github.com/**', github)
         await pc.grant_permissions(['clipboard-read', 'clipboard-write'], origin=ORIGIN)
         pg = await pc.new_page()
@@ -210,6 +222,7 @@ async def main():
         await ph.route('https://api.github.com/**', github)
         # Safari on iPhone has no folder picker.
         await ph.add_init_script("delete Window.prototype.showDirectoryPicker; delete window.showDirectoryPicker;")
+        await ph.add_init_script(UNFOLD)
         pp = await ph.new_page()
         pp.on('pageerror', lambda e: errs.append('PHONE PAGEERROR ' + str(e)))
         pp.on('console', lambda m: errs.append('PHONE ' + m.text) if m.type == 'error' else None)

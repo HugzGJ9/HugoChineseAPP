@@ -99,6 +99,7 @@ jobs:
       - name: OneDrive check
         run: python e2e/onedrive.py
         env:
+          E2E_REQUIRE_MS: '1'
           HUGO_URL: http://localhost:4175/HugoChineseAPP/
           HUGO_XLSX: ${{ runner.temp }}/sample.xlsx
           E2E_OUT: ${{ runner.temp }}/e2e-out
