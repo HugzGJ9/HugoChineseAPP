@@ -133,7 +133,6 @@ export function summary(v: VocabFile | ImportOutcome): string {
       (c ? `, ${c} status${c > 1 ? 'es' : ''} changed` : '')
     );
   }
-  const fixes = v.issues.filter((i) => i.level === 'fix').length;
   const studied = v.notes.filter((n) => n.studied).length;
-  return `${v.notes.length} notes imported, ${studied} already studied${fixes ? `, ${fixes} cells to fix` : ''}`;
+  return `${v.notes.length} notes imported, ${studied} already studied`;
 }

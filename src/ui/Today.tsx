@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { getState, useApp } from '../lib/store';
 import { buildQueue, moreNew, reviewAhead } from '../lib/engine/queue';
 import { streak } from '../lib/stats';
@@ -6,7 +6,6 @@ import { acceptPendingImport, importFile, rejectPendingImport, summary, type Imp
 import { formatAgo, Icon, LangSwitch, toast, TopBar, useNow } from './common';
 import { SetupSources } from './Setup';
 import { allowFolder } from '../lib/folder';
-import { lastBackup, saveBackupFile } from '../lib/backup';
 
 export function Today() {
   const now = useNow();
@@ -122,20 +121,13 @@ export function NoWords() {
   );
 }
 
-/** Notices for the home screens: reload, held import, import fixes, sync error, folder access, backup. */
+/** Notices for the home screens: reload, held import, sync error, folder access. Backup lives in Settings › Your data. */
 export function HomeNotices() {
-  const fixes = useApp((s) => s.meta?.issues.filter((i) => i.level === 'fix').length ?? 0);
   const sync = useApp((s) => s.sync);
   const folder = useApp((s) => s.folder);
   return (
     <>
       <AppNotices />
-      <BackupNudge />
-      {fixes > 0 && (
-        <a className="notice" href="#/report" style={{ textDecoration: 'none', display: 'block' }}>
-          {fixes} cell{fixes > 1 ? 's' : ''} in your Excel file need a fix. See the import report.
-        </a>
-      )}
       {sync.state === 'error' && sync.message && (
         <a className="notice bad" href="#/settings" style={{ textDecoration: 'none', display: 'block' }}>
           Sync: {sync.message}
@@ -158,41 +150,6 @@ export function HomeNotices() {
   );
 }
 
-/** Sync off, reviews exist, and no recent backup file: one line with a button. */
-function BackupNudge() {
-  const syncOff = useApp((s) => s.sync.state === 'off');
-  const hasReviews = useApp((s) => s.events.length > 0);
-  const [last, setLast] = useState<number | null | undefined>(undefined);
-  const [busy, setBusy] = useState(false);
-  useEffect(() => {
-    if (syncOff && hasReviews) lastBackup().then(setLast, () => setLast(undefined));
-  }, [syncOff, hasReviews]);
-  if (!syncOff || !hasReviews || last === undefined) return null;
-  if (last != null && Date.now() - last < 7 * 86400000) return null;
-  return (
-    <div className="notice row wrap">
-      <span className="grow">{last == null ? 'No backup yet. Sync is off, so your reviews live only on this device.' : `Last backup ${formatAgo(last)}. Sync is off.`}</span>
-      <button
-        type="button"
-        className="btn small"
-        disabled={busy}
-        onClick={async () => {
-          setBusy(true);
-          try {
-            await saveBackupFile();
-            setLast(await lastBackup());
-          } catch (err) {
-            toast(`Couldn't back up: ${(err as Error).message}`);
-          } finally {
-            setBusy(false);
-          }
-        }}
-      >
-        Back up now
-      </button>
-    </div>
-  );
-}
 
 /** Review link for a custom list of cards; `fresh` marks the ones that are new words (for the intro screen). */
 function cardsHref(ids: string[], fresh: string[] = []): string {
