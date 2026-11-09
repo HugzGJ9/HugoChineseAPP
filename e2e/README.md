@@ -31,6 +31,22 @@ It fakes the GitHub API in memory, so nothing is sent anywhere. It exits non-zer
   and the service worker answering `/?code=&state=` offline. It needs a build with a non-empty `MS_CLIENT_ID` (any value);
   otherwise it prints SKIP and exits 0, or fails when `E2E_REQUIRE_MS=1`. `python3 e2e/fake_graph.py` self-checks the
   hash port. Never run `playwright install` in cloud sessions.
+- `onedrive_sync.py` (plan WP8) plays the same two devices against the fake Microsoft's **app folder**
+  (`special/approot`, flat files under `data/`, listed in pages of 2 to exercise `@odata.nextLink`; `PUT` with `If-Match` or
+  `conflictBehavior=fail`, `DELETE`). Both sign in (sync turns on by itself), the computer and the phone study, the phone sets
+  a status, the computer sees the reviews and the status (same event counts), and a language change reaches the phone
+  (`settings.json` prefs). It fails on an unconditional app `PUT`, an unrouted Microsoft request, or any request to
+  `api.github.com`.
+- `onedrive_writeback.py` (plan WP11) plays an iPhone 13 writing statuses into the fake workbook while "Excel" (the script)
+  edits it: first-write confirmation (screenshot, no sideways scroll), the green fill read back with openpyxl, only
+  `styles.xml` and the sheet changed, the backup in the app folder, no echo notice; Excel saving during the upload (412, both
+  edits present); a lock (423, waiting text, written after the unlock); Excel reverting an app-written row (notice, Restore
+  writes it again); offline (waiting count, no request) then online. Every workbook `PUT` must carry `If-Match`.
+- Both new scripts need app-folder sync / write-back in the build (WP6/WP7, WP9/WP10); without them they print SKIP and exit
+  0, or fail when `E2E_REQUIRE_MS=1` (CI). Selectors for the new UI live in one place, `SEL` in `od_common.py` (shared
+  helpers: sign-in, status chips, event counts); `fake_graph.py` gained `excel_saves_during_next_put`, `app_files`,
+  `app_json`, `lock`, `fill_of`, `recolour_none` and `zip_changed`. They take ~2 minutes each (waits for "Write now" and
+  the 423 back-off).
 - `make_sample.py OUT.xlsx` writes a made-up workbook with the colour layout of the real file: HSK四级 (A-B coloured),
   HSK五级 (A-D coloured, blank rows) and a Grammar sheet; needs `openpyxl`. CI uses it, so nothing personal is involved. `sync.py` calls it when `HUGO_XLSX` is unset.
 - `explain.py` needs a build made with `LEXICON_SAMPLE=1 npm run build` (synthetic dictionary and sentences). The Anthropic
