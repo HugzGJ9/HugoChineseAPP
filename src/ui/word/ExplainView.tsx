@@ -9,7 +9,8 @@ import {
   ClaudeError, explainJob, getExplanation, onExplainChange, requestExplanation,
   type ExplainEntry, type Explanation,
 } from '../../lib/explain';
-import { formatDate, Meaning, Pinyin } from '../common';
+import { formatDate, Icon, Meaning, Pinyin } from '../common';
+import './word.css';
 
 const FIRST = 6;
 const PY_PREF = 'ex.py';
@@ -71,10 +72,10 @@ export function ExplainView({ note, inline = false }: { note: Note; inline?: boo
   return (
     <div className={`wx ${inline ? 'inline' : ''}`}>
       <section className="wx-sec" aria-label="Your list">
-        <h3>Your list</h3>
-        <p>
+        <h3 className="wx-h">Your list</h3>
+        <div className="wx-card wx-pad wx-mine">
           <Meaning note={note} />
-        </p>
+        </div>
       </section>
       <DictionarySection lookup={lookup} lang={lang} />
       <ClaudeSection note={note} lang={lang} online={online} lookup={lookup} py={py} setPy={setPy} />
@@ -89,11 +90,11 @@ function DictionarySection({ lookup, lang }: { lookup: Lookup | null; lang: Lang
   const [all, setAll] = useState(false);
   return (
     <section className="wx-sec" aria-label="Dictionary">
-      <h3>Dictionary</h3>
+      <h3 className="wx-h">Dictionary</h3>
       {!lookup ? (
-        <p className="muted" aria-busy="true">Loading…</p>
+        <p className="wx-card wx-pad wx-dim" aria-busy="true">Loading…</p>
       ) : !lookup.ok ? (
-        <p className="muted">
+        <p className="wx-card wx-pad wx-dim">
           {lookup.reason === 'nodata'
             ? "The dictionary isn't included in this version."
             : lookup.reason === 'offline'
@@ -118,16 +119,16 @@ function DictBody({ info, lang, all, onAll }: { info: { en: DictSense[]; fr: Dic
   const total = primary.reduce((n, d) => n + d.senses.length, 0);
   let budget = all ? Infinity : FIRST;
 
-  if (list.length === 0) return <p className="muted">No dictionary entry for this word.</p>;
+  if (list.length === 0) return <p className="wx-card wx-pad wx-dim">No dictionary entry for this word.</p>;
   return (
-    <>
-      {lang === 'fr' && !useFr && <p className="small muted"><span className="tag">EN</span> No French entry in CFDICT.</p>}
+    <div className="wx-card">
+      {lang === 'fr' && !useFr && <p className="wx-row wx-note"><span className="tag">EN</span> No French entry in CFDICT.</p>}
       {primary.map((d, i) => {
         const take = Math.max(0, Math.min(d.senses.length, budget));
         budget -= take;
         if (take === 0) return null;
         return (
-          <div key={i} className="wx-reading">
+          <div key={i} className="wx-row wx-reading">
             {primary.length > 1 && <Pinyin text={d.pinyin} className="wx-rpy" />}
             <ol className="wx-senses" lang={useFr ? 'fr' : 'en'}>
               {d.senses.slice(0, take).map((s, k) => (
@@ -138,13 +139,14 @@ function DictBody({ info, lang, all, onAll }: { info: { en: DictSense[]; fr: Dic
         );
       })}
       {!all && total > FIRST && (
-        <button type="button" className="btn small" onClick={onAll}>
-          Show all {total}
+        <button type="button" className="wx-row wx-action" onClick={onAll}>
+          Show all {total} senses
+          <Icon name="chevron-down" />
         </button>
       )}
       {measureUniq.length > 0 && (
-        <div className="wx-measure">
-          <span className="small muted">Measure words</span>
+        <div className="wx-row wx-measure">
+          <span className="wx-label">Measure words</span>
           <div className="wx-chips">
             {measureUniq.map((m) => (
               <span key={m.hanzi} className="wx-chip">
@@ -155,8 +157,11 @@ function DictBody({ info, lang, all, onAll }: { info: { en: DictSense[]; fr: Dic
         </div>
       )}
       {other.length > 0 && (
-        <details className="wx-other">
-          <summary>Other readings ({other.length})</summary>
+        <details className="wx-row wx-other">
+          <summary>
+            <span className="grow">Other readings ({other.length})</span>
+            <Icon name="chevron" className="wx-chev" />
+          </summary>
           {other.map((d, i) => (
             <div key={i} className="wx-reading">
               <Pinyin text={d.pinyin} className="wx-rpy" />
@@ -169,7 +174,7 @@ function DictBody({ info, lang, all, onAll }: { info: { en: DictSense[]; fr: Dic
           ))}
         </details>
       )}
-    </>
+    </div>
   );
 }
 
@@ -236,13 +241,13 @@ function ClaudeSection({ note, lang, online, lookup, py, setPy }: { note: Note; 
   return (
     <section className="wx-sec" aria-label="Claude's explanation">
       <div className="wx-sech">
-        <h3>Claude's explanation</h3>
+        <h3 className="wx-h">Claude's explanation</h3>
         {shown && <PyChip on={py} set={setPy} />}
       </div>
       {shown && (
         <>
           {!entry && fallback && (
-            <p className="small muted">
+            <p className="wx-foot">
               In {fallback.lang === 'fr' ? 'French' : 'English'} ·{' '}
               <button type="button" className="wx-link" onClick={() => void ask(false)} disabled={running || !online}>
                 Explain in {lang === 'fr' ? 'French' : 'English'}
@@ -250,7 +255,7 @@ function ClaudeSection({ note, lang, online, lookup, py, setPy }: { note: Note; 
             </p>
           )}
           <ExplanationBody x={shown.x} lang={shown.lang} py={py} />
-          <p className="small faint wx-foot">
+          <p className="wx-foot">
             Claude · {formatDate(shown.at)}
             {dev ? ` · ${dev}` : ''}
           </p>
@@ -261,7 +266,7 @@ function ClaudeSection({ note, lang, online, lookup, py, setPy }: { note: Note; 
           <div className="progress" aria-hidden="true">
             <i style={{ width: `${Math.round(Math.max(0.04, progress) * 100)}%` }} />
           </div>
-          <span className="small muted">Asking Claude…</span>
+          <span className="wx-foot">Asking Claude…</span>
         </div>
       )}
       {shownError != null && !running && (
@@ -275,19 +280,21 @@ function ClaudeSection({ note, lang, online, lookup, py, setPy }: { note: Note; 
         </div>
       )}
       {!entry && !fallback && !running && (
-        <div className="wx-ask">
-          <button type="button" className="btn primary" onClick={() => void ask(false)} disabled={!online}>
+        <div className="wx-ask wx-ask-first">
+          <button type="button" className="btn tinted block" onClick={() => void ask(false)} disabled={!online}>
+            <Icon name="sparkles" />
             Explain more
           </button>
-          <span className="small muted">{online ? 'About 20 s' : 'Needs a connection'}</span>
+          <span className="wx-foot">{online ? `Claude explains in ${lang === 'fr' ? 'French' : 'English'}, in about 20 s.` : 'Needs a connection.'}</span>
         </div>
       )}
       {entry && !running && (
         <div className="wx-ask">
-          <button type="button" className="btn small" onClick={() => void ask(true)} disabled={!online}>
+          <button type="button" className="btn small plain" onClick={() => void ask(true)} disabled={!online}>
+            <Icon name="sync" />
             Ask again
           </button>
-          {!online && <span className="small muted">Needs a connection</span>}
+          {!online && <span className="wx-foot">Needs a connection</span>}
         </div>
       )}
     </section>
@@ -300,7 +307,7 @@ function ZhLine({ zh, pinyin, tr, show }: { zh: string; pinyin?: string; tr?: Re
       <button type="button" className="wx-zh zh" lang="zh-CN" onClick={() => speak(zh)} aria-label={`${zh}, play audio`}>
         {zh}
       </button>
-      {show && pinyin && <div className="wx-py small muted">{pinyin}</div>}
+      {show && pinyin && <div className="wx-py">{pinyin}</div>}
       {tr != null && <div className="wx-tr">{tr}</div>}
     </>
   );
@@ -411,7 +418,7 @@ function SentencePinyin({ zh }: { zh: string }) {
       live = false;
     };
   }, [zh]);
-  return <div className="wx-py small muted">{text}</div>;
+  return <div className="wx-py">{text}</div>;
 }
 
 function ExamplesSection({ lookup, lang, py, setPy }: { lookup: Lookup | null; lang: Lang; py: boolean; setPy: (v: boolean) => void }) {
@@ -420,16 +427,16 @@ function ExamplesSection({ lookup, lang, py, setPy }: { lookup: Lookup | null; l
   return (
     <section className="wx-sec" aria-label="Examples">
       <div className="wx-sech">
-        <h3>Examples</h3>
+        <h3 className="wx-h">Examples</h3>
         <PyChip on={py} set={setPy} />
       </div>
-      <ul className="wx-list">
+      <ul className="wx-card wx-ex">
         {list.map((s) => {
           const own = lang === 'fr' ? s.fr : s.en;
           const text = own ?? (lang === 'fr' ? s.en : s.fr);
           const tag = !own && text ? (lang === 'fr' ? 'EN' : 'FR') : null;
           return (
-            <li key={s.id}>
+            <li key={s.id} className="wx-row">
               <button type="button" className="wx-zh zh" lang="zh-CN" onClick={() => speak(s.zh)} aria-label={`${s.zh}, play audio`}>
                 {s.zh}
               </button>
@@ -439,8 +446,9 @@ function ExamplesSection({ lookup, lang, py, setPy }: { lookup: Lookup | null; l
                   {tag && <span className="tag">{tag}</span>} {text}
                 </div>
               )}
-              <a className="wx-src small" href={`https://tatoeba.org/en/sentences/show/${s.id}`} target="_blank" rel="noopener">
+              <a className="wx-src" href={`https://tatoeba.org/en/sentences/show/${s.id}`} target="_blank" rel="noopener">
                 Tatoeba
+                <Icon name="external" />
               </a>
             </li>
           );

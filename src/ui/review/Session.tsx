@@ -6,6 +6,7 @@ import { ReviewActionsContext } from './GradeBar';
 import { buildQueue, reinsertIndex } from '../../lib/engine/queue';
 import { Icon, LangSwitch, toast } from '../common';
 import { CardView } from './CardView';
+import './review.css';
 
 interface Session {
   queue: string[];
@@ -50,7 +51,7 @@ export function Review() {
     shownAt.current = performance.now();
   }, [session?.pos, session?.queue]);
 
-  if (!session) return <div className="main" />;
+  if (!session) return <div className="main rv" />;
   const cardId = session.queue[session.pos];
 
   const undo = async () => {
@@ -76,7 +77,7 @@ export function Review() {
   const total = session.queue.length;
 
   return (
-    <div className="main">
+    <div className="main rv">
       <header className="topbar">
         <a
           className="icon-btn"
@@ -101,7 +102,7 @@ export function Review() {
             <i style={{ width: `${(session.pos / Math.max(1, total)) * 100}%` }} />
           </div>
         </div>
-        <span className="small muted" style={{ fontVariantNumeric: 'tabular-nums' }}>
+        <span className="rv-count">
           {Math.max(0, total - session.pos)}
         </span>
         <button type="button" className="icon-btn" onClick={undo} disabled={!session.last} aria-label="Undo last answer" title="Undo last answer">
@@ -150,18 +151,21 @@ export function Review() {
 function Finished({ session, onMore }: { session: Session; onMore: () => void }) {
   const mins = Math.max(1, Math.round((Date.now() - session.started) / 60000));
   return (
-    <div className="card">
+    <div className="card rv-done">
+      <span className="rv-done-icon" aria-hidden="true">
+        <Icon name="check-circle" />
+      </span>
       <h2>{session.done ? 'Session done' : 'Nothing due right now'}</h2>
       {session.done > 0 && (
         <p className="muted">
           {session.done} answers, {Math.round((session.right / session.done) * 100)}% remembered, {mins} min.
         </p>
       )}
-      <div className="row">
-        <a className="btn primary" href="#/today">
+      <div className="rv-done-actions">
+        <a className="btn primary block" href="#/today">
           Back to Today
         </a>
-        <button type="button" className="btn" onClick={onMore}>
+        <button type="button" className="btn block" onClick={onMore}>
           Check for more
         </button>
       </div>

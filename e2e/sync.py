@@ -137,7 +137,7 @@ UNFOLD = """
 new MutationObserver(() => {
   for (const d of document.querySelectorAll('details:not([open])')) {
     const t = d.querySelector(':scope > summary')?.textContent?.trim();
-    if (t === 'Other ways' || t === 'Without Microsoft') d.open = true;
+    if (['Other ways', 'Without Microsoft', 'Other ways (without Microsoft)', 'Link your OneDrive folder', 'Get your words from your computer', 'Join with a sync key'].includes(t)) d.open = true;
   }
 }).observe(document, { childList: true, subtree: true });
 """
@@ -211,7 +211,7 @@ async def main():
         key = await pg.input_value('.share-key textarea')
         sync_panel = pg.locator('#sync')
         await sync_panel.screenshot(path=S + 's-pc-sync.png')
-        await pg.locator('section.panel').first.screenshot(path=S + 's-pc-words.png')
+        await pg.locator('.main').first.screenshot(path=S + 's-pc-words.png')
         ev_pc = [p for p in files if p.startswith('events/')]
         print('Repo after reviews:', sorted(files))
         print('key length', len(key))

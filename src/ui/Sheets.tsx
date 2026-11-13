@@ -8,13 +8,15 @@ import { cardId } from '../lib/engine/schedule';
 import { buildQueue } from '../lib/engine/queue';
 import { normMeaning } from '../lib/engine/grade';
 import { sheetRows, STATUS_LABEL, STATUS_MARK, WORD_STATUSES, type SheetRow } from '../lib/status';
-import { formatDate, Icon, LangSwitch, toast, TopBar, useNow } from './common';
+import { formatDate, Icon, LangSwitch, Pinyin, toast, TopBar, useNow } from './common';
+import { WriteLine } from './Microsoft';
 import { HomeNotices, NoWords } from './Today';
 import { LayerBar, QmList, useQmShown } from './qm';
-import { StatusChip, StatusPicker, STATUS_GLYPH } from './StatusPicker';
+import { StatusChip, StatusIcon, StatusPicker } from './StatusPicker';
 import { FilterMenu, MoreMenu } from './sheets/Menus';
 import { ScratchPanel } from './sheets/Practice';
 import { WordPanel, type PanelTab } from './word/WordPanel';
+import './sheets/sheets.css';
 
 type Filter = 'all' | WordStatus;
 const PAGE = 150;
@@ -54,8 +56,8 @@ function ExcelChangesNotice() {
     }
   };
   return (
-    <div className="notice stack" role="status" style={{ gap: 8 }}>
-      <span style={{ overflowWrap: 'anywhere' }}>
+    <div className="notice hs-excel" role="status">
+      <span className="hs-excel-t">
         Excel changed {changes.length} {changes.length === 1 ? 'status' : 'statuses'}:{' '}
         {shown.map((c, i) => (
           <span key={c.note}>
@@ -72,7 +74,7 @@ function ExcelChangesNotice() {
           </>
         )}
       </span>
-      <div className="row wrap">
+      <div className="hs-excel-actions">
         <button type="button" className="btn small" disabled={busy} onClick={restore}>
           Restore
         </button>
@@ -82,6 +84,42 @@ function ExcelChangesNotice() {
       </div>
     </div>
   );
+}
+
+/**
+ * True once the sticky part of the header (the whole head on wide screens, the toolbar on phones) is pinned under the
+ * navigation bar: it then takes the bar material and the nav bar drops its own hairline, so the two read as one bar.
+ */
+function useStuck(...refs: React.RefObject<HTMLElement | null>[]): boolean {
+  const [stuck, setStuck] = useState(false);
+  useEffect(() => {
+    let raf = 0;
+    const check = () => {
+      raf = 0;
+      let on = false;
+      for (const r of refs) {
+        const el = r.current;
+        if (!el) continue;
+        const cs = getComputedStyle(el);
+        if (cs.position !== 'sticky') continue;
+        on = window.scrollY > 0 && el.getBoundingClientRect().top <= parseFloat(cs.top) + 0.5;
+      }
+      setStuck(on);
+    };
+    const on = () => {
+      if (!raf) raf = requestAnimationFrame(check);
+    };
+    check();
+    window.addEventListener('scroll', on, { passive: true });
+    window.addEventListener('resize', on);
+    return () => {
+      window.removeEventListener('scroll', on);
+      window.removeEventListener('resize', on);
+      if (raf) cancelAnimationFrame(raf);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  return stuck;
 }
 
 export function Sheets() {
@@ -100,6 +138,10 @@ export function Sheets() {
   const [dlg, setDlg] = useState<'filter' | 'more' | null>(null);
   const [undo, setUndo] = useState<{ id: string; text: string } | null>(null);
   const search = useRef<HTMLInputElement>(null);
+  const head = useRef<HTMLDivElement>(null);
+  const bar = useRef<HTMLDivElement>(null);
+  const tabBox = useRef<HTMLDivElement>(null);
+  const stuck = useStuck(head, bar);
 
   const bySheet = useMemo(() => sheetRows(notes, marks, meta?.colourSince), [notes, marks, meta]);
   const tabs = useMemo(() => {
@@ -131,6 +173,16 @@ export function Sheets() {
   }, [notes.length, cards, noteMap, events, settings, now]);
 
   useEffect(() => setLimit(PAGE), [current, filter, dq]);
+
+  // Keep the selected sheet tab in view inside the scrolling tab strip (without scrolling the page).
+  useEffect(() => {
+    const box = tabBox.current;
+    const el = box?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (!box || !el) return;
+    const left = el.offsetLeft - box.offsetLeft;
+    if (left < box.scrollLeft + 16 || left + el.offsetWidth > box.scrollLeft + box.clientWidth - 16)
+      box.scrollTo({ left: Math.max(0, left - 16), behavior: 'smooth' });
+  }, [current, tabs.length]);
 
   const pickTab = (t: string) => {
     setTab(t);
@@ -216,96 +268,134 @@ export function Sheets() {
     .filter((id) => cards.has(id));
 
   return (
-    <div className="main sheets">
-      <div className="sh-topbar">
-        <TopBar title="Sheets">
+    <div className={`main sheets${stuck ? ' stuck' : ''}`}>
+      <TopBar title="Sheets">
+        <span className="hs-lang">
           <LangSwitch />
-        </TopBar>
-      </div>
-      <h1 className="sr sh-h1">Sheets</h1>
-      <div className="stack">
+        </span>
+        <button type="button" className="icon-btn hs-morebtn" aria-haspopup="menu" aria-label="More actions" title="More actions" onClick={() => setDlg('more')}>
+          <span className="hs-morecircle" aria-hidden="true">
+            <Icon name="more" />
+          </span>
+        </button>
+      </TopBar>
+      <div className="hs-notices">
         <ExcelChangesNotice />
         <HomeNotices />
-        <div className="sh-head">
-          {tabs.length > 0 && (
-            <div className="sh-tabs" role="tablist" aria-label="Sheets">
-              {tabs.map((t) => (
-                <button key={t} type="button" role="tab" aria-selected={t === current} className="sh-tab" onClick={() => pickTab(t)}>
-                  {t} <span className="faint">{bySheet.get(t)?.length ?? 0}</span>
-                </button>
-              ))}
-            </div>
-          )}
-          <input
-            ref={search}
-            type="search"
-            className="sh-search"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="Search hanzi, pinyin or meaning"
-            aria-label={`Search ${current}`}
-            autoCapitalize="off"
-            autoCorrect="off"
-            spellCheck={false}
-            title="Key /"
-          />
-          <div className="sh-bar">
-            <LayerBar shown={shown} preset={preset} lang={lang} onToggle={toggle} onPreset={setShown} noPinyin={hidePinyin} compact />
-            <button type="button" className="chip sh-filter" aria-haspopup="menu" aria-pressed={filter !== 'all'} onClick={() => setDlg('filter')}>
-              {filter === 'all' ? 'All' : STATUS_LABEL[filter]} <span className="sh-count">{counts[filter]}</span> <span aria-hidden="true">▾</span>
-              <span className="sr">, filter by status</span>
-            </button>
-            <button type="button" className="icon-btn sh-more" aria-haspopup="menu" aria-label="More actions" onClick={() => setDlg('more')}>
-              <span aria-hidden="true" className="sh-dots">⋯</span>
-            </button>
-            <span className="small muted sh-rows" aria-live="polite">
-              {list.length === all.length ? `${all.length} rows` : `${list.length} of ${all.length}`}
-            </span>
-          </div>
-          {paint && (
-            <div className="stack sh-paint" style={{ gap: 4 }}>
-              <StatusPicker value={paint} onChange={setPaint} compact />
-              <p className="small muted">Painting: tap a row's status chip to set it to {STATUS_LABEL[paint]}.</p>
-            </div>
-          )}
-        </div>
-        {elsewhere.length > 0 && (
-          <div className="row wrap" aria-label="Also found in other sheets">
-            {elsewhere.map((x) => (
-              <button key={x.t} type="button" className="chip" onClick={() => pickTab(x.t)}>
-                also in {x.t} ({x.n})
+        <WriteLine />
+      </div>
+      <div className="hs-head" ref={head}>
+        {tabs.length > 0 && (
+          <div className="hs-tabs" role="tablist" aria-label="Sheets" ref={tabBox}>
+            {tabs.map((t) => (
+              <button key={t} type="button" role="tab" aria-selected={t === current} className="hs-tab" onClick={() => pickTab(t)}>
+                {t} <span className="hs-tab-n">{bySheet.get(t)?.length ?? 0}</span>
               </button>
             ))}
           </div>
         )}
-        {list.length === 0 ? (
-          <p className="muted">{all.length === 0 ? 'No rows on this sheet.' : 'No rows match.'}</p>
-        ) : (
-          <QmList
-            items={list.slice(0, limit)}
-            shown={shown}
-            listen={listen}
-            hidePinyin={hidePinyin}
-            rowClass={(r) => `st-${r.status}`}
-            lead={(r) => <span className="sh-id">{r.ref.id ?? r.ref.row}</span>}
-            trail={(r) => (
-              <>
-                <StatusChip status={r.status} onClick={() => (paint ? void apply(r, paint) : setMenu(r.key))} />
-                <button type="button" className="icon-btn" onClick={() => setPanel({ key: r.key, tab: 'practise' })} aria-label={`Practise ${r.note.hanzi}`} title="Practise (W)">
-                  <Icon name="pen" />
-                </button>
-              </>
-            )}
-            onKey={onRowKey}
-            onOpen={(r) => setPanel({ key: r.key, tab: 'explain' })}
+        <div className="hs-search">
+          <input
+            ref={search}
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' && q) {
+                e.preventDefault();
+                setQ('');
+              }
+            }}
+            placeholder={`Search ${current}`}
+            aria-label={`Search ${current}`}
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
+            enterKeyHint="search"
+            title="Hanzi, pinyin or meaning (key /)"
           />
-        )}
-        {list.length > limit && (
-          <button type="button" className="btn" onClick={() => setLimit(limit + 200)}>
-            Show more
-          </button>
-        )}
+          {q && (
+            <button
+              type="button"
+              className="hs-clear"
+              aria-label="Clear search"
+              onClick={() => {
+                setQ('');
+                search.current?.focus();
+              }}
+            >
+              <span aria-hidden="true" />
+            </button>
+          )}
+        </div>
+        <div className="hs-sticky" ref={bar}>
+          <div className="hs-bar">
+            <LayerBar shown={shown} lang={lang} onToggle={toggle} noPinyin={hidePinyin} compact />
+            <button type="button" className={`hs-filter${filter !== 'all' ? ` st-${filter}` : ''}`} aria-haspopup="menu" aria-pressed={filter !== 'all'} onClick={() => setDlg('filter')}>
+              {filter === 'all' ? <Icon name="filter" /> : <StatusIcon status={filter} />}
+              <span className="hs-filter-l">{filter === 'all' ? 'All' : STATUS_LABEL[filter]}</span>
+              <span className="hs-count">{counts[filter]}</span>
+              <Icon name="chevron-down" className="hs-filter-chev" />
+              <span className="sr">, filter by status</span>
+            </button>
+          </div>
+          {paint && (
+            <div className="hs-paint">
+              <div className="hs-paint-h">
+                <span>
+                  Painting <b>{STATUS_LABEL[paint]}</b>: tap a row's status.
+                </span>
+                <button type="button" className="btn small plain" onClick={() => setPaint(null)}>
+                  Done
+                </button>
+              </div>
+              <StatusPicker value={paint} onChange={setPaint} compact />
+            </div>
+          )}
+        </div>
       </div>
+      {elsewhere.length > 0 && (
+        <div className="hs-elsewhere" aria-label="Also found in other sheets">
+          {elsewhere.map((x) => (
+            <button key={x.t} type="button" className="chip" onClick={() => pickTab(x.t)}>
+              Also in {x.t} <span className="hs-count">{x.n}</span>
+            </button>
+          ))}
+        </div>
+      )}
+      {list.length === 0 ? (
+        <div className="hs-empty">
+          <Icon name={all.length === 0 ? 'sheets' : 'search'} />
+          <p>{all.length === 0 ? 'No rows on this sheet.' : 'No rows match.'}</p>
+        </div>
+      ) : (
+        <QmList
+          items={list.slice(0, limit)}
+          shown={shown}
+          listen={listen}
+          hidePinyin={hidePinyin}
+          rowClass={(r) => `st-${r.status}`}
+          lead={(r) => <span className="hs-id">{r.ref.id ?? r.ref.row}</span>}
+          trail={(r) => (
+            <>
+              <StatusChip status={r.status} onClick={() => (paint ? void apply(r, paint) : setMenu(r.key))} />
+              <button type="button" className="icon-btn" onClick={() => setPanel({ key: r.key, tab: 'practise' })} aria-label={`Practise ${r.note.hanzi}`} title="Practise (W)">
+                <Icon name="pen" />
+              </button>
+            </>
+          )}
+          onKey={onRowKey}
+          onOpen={(r) => setPanel({ key: r.key, tab: 'explain' })}
+        />
+      )}
+      {list.length > limit && (
+        <button type="button" className="btn tinted block hs-showmore" onClick={() => setLimit(limit + 200)}>
+          Show more
+        </button>
+      )}
+      <p className="hs-foot" aria-live="polite">
+        {list.length === all.length ? `${all.length} rows` : `${list.length} of ${all.length} rows`}
+      </p>
 
       {menuRow && (
         <StatusMenu
@@ -405,25 +495,27 @@ function StatusMenu({ row, onPick, onClose }: { row: SheetRow; onPick: (s: WordS
   const own = row.mark && row.mark.t > row.since;
   return (
     <div className="pop-backdrop" onClick={onClose}>
-      <div ref={ref} className="pop" role="dialog" aria-modal="true" aria-label={`Status of ${row.note.hanzi}`} onClick={(e) => e.stopPropagation()} onKeyDown={onKeyDown}>
-        <div className="pop-head">
-          <span className="zh pop-hz">{row.note.hanzi}</span>
-          <div className="small muted">
-            Excel colour: {STATUS_LABEL[row.excel]}
-            <br />
-            {own ? `You set ${STATUS_LABEL[row.status]} on ${formatDate(row.mark!.t)}.` : 'Following the Excel colour.'}
-          </div>
+      <div ref={ref} className="pop hs-pop" role="dialog" aria-modal="true" aria-label={`Status of ${row.note.hanzi}`} onClick={(e) => e.stopPropagation()} onKeyDown={onKeyDown}>
+        <div className="hs-pop-head">
+          <span className="zh hs-pop-hz" lang="zh-CN">
+            {row.note.hanzi}
+          </span>
+          {row.note.pinyin && <Pinyin text={row.note.pinyin} className="hs-pop-py" />}
         </div>
-        <div role="menu" aria-label="Set status" className="pop-menu">
-          {WORD_STATUSES.map((s) => (
-            <button key={s} type="button" role="menuitemradio" aria-checked={row.status === s} className={`pop-item sp-${s}`} onClick={() => onPick(s)}>
-              <span aria-hidden="true" className="pop-glyph">
-                {STATUS_GLYPH[s]}
-              </span>
-              {STATUS_LABEL[s]}
-              {row.status === s && <Icon name="check" />}
-            </button>
-          ))}
+        <div className="hs-pop-group">
+          <div role="menu" aria-label="Set status" className="pop-menu">
+            {WORD_STATUSES.map((s) => (
+              <button key={s} type="button" role="menuitemradio" aria-checked={row.status === s} className={`pop-item st-${s}`} onClick={() => onPick(s)}>
+                <StatusIcon status={s} className="pop-st" />
+                <span className="grow">{STATUS_LABEL[s]}</span>
+                {row.status === s && <Icon name="check" />}
+              </button>
+            ))}
+          </div>
+          <p className="hs-pop-foot">
+            Excel colour: {STATUS_LABEL[row.excel]}.{' '}
+            {own ? `You set ${STATUS_LABEL[row.status]} on ${formatDate(row.mark!.t)}.` : 'Following the Excel colour.'}
+          </p>
         </div>
         <button type="button" className="btn block" onClick={onClose}>
           Cancel

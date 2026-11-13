@@ -41,8 +41,8 @@ export function VocabBack({ note, type, onExplain }: { note: Note; type?: CardTy
         </div>
       )}
       {onExplain && (
-        <button type="button" className="btn small" onClick={onExplain} title="Explain (E)">
-          Explain <span className="faint small">E</span>
+        <button type="button" className="btn small tinted" onClick={onExplain} title="Explain (E)">
+          <Icon name="sparkles" /> Explain <span className="faint small">E</span>
         </button>
       )}
       {strokes ? (

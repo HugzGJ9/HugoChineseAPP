@@ -57,7 +57,11 @@ the original (same bytes, only status fills changed); the original is never writ
 - `e2e/` offline.py, sync.py, make_sample.py (synthetic coloured workbook; CI uses it) · `.github/workflows/deploy.yml`
   push to main → test → build → e2e → Pages (docs/agents/plans don't deploy)
 
-## Sync repo (private, Hugo's own: HugoChineseData)
+## Sync (default: OneDrive app folder `Apps/Hugo Chinese`, via Microsoft sign-in; legacy: private GitHub repo HugoChineseData)
+Same file layout in both stores (`src/lib/syncstore.ts`, `src/lib/ms/appfolder.ts`). Statuses are also written back into Hugo's real
+workbook on OneDrive (`src/lib/workbook.ts` write-back: If-Match, never overwrite Excel edits, backups in the app folder).
+Design: native iOS, spec in `.claude/plans/2026-11-09-ios-design.md`; screen CSS lives next to each screen.
+
 `vocab.json.gz` · `settings.json` (latest `updatedAt` wins; `prefs` field) · `events/<device>/<YYYY-MM>.json` and
 `marks/<device>/<YYYY-MM>.json`, `explain/<device>/<YYYY-MM>.json.gz` (each device writes only its own; month frozen in `mo`) · `devices/<device>.json`.
 Write conflicts (409/422) retry once. Tests: Node 24 has global `navigator.locks` — never run one device's sync inside another's.

@@ -104,6 +104,20 @@ jobs:
           HUGO_XLSX: ${{ runner.temp }}/sample.xlsx
           E2E_OUT: ${{ runner.temp }}/e2e-out
           # Skips (exit 0) while MS_CLIENT_ID is empty. Set E2E_REQUIRE_MS: '1' once the client id is committed.
+      - name: OneDrive sync check
+        run: python e2e/onedrive_sync.py
+        env:
+          E2E_REQUIRE_MS: '1'
+          HUGO_URL: http://localhost:4175/HugoChineseAPP/
+          HUGO_XLSX: ${{ runner.temp }}/sample.xlsx
+          E2E_OUT: ${{ runner.temp }}/e2e-out
+      - name: OneDrive write-back check
+        run: python e2e/onedrive_writeback.py
+        env:
+          E2E_REQUIRE_MS: '1'
+          HUGO_URL: http://localhost:4175/HugoChineseAPP/
+          HUGO_XLSX: ${{ runner.temp }}/sample.xlsx
+          E2E_OUT: ${{ runner.temp }}/e2e-out
       - name: Explain check
         run: python e2e/explain.py
         env:

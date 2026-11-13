@@ -8,83 +8,69 @@ import { CFDICT_CREDIT } from '../lib/french';
 import { dictUrl } from '../lib/import';
 import { claudeKeyHint, ClaudeError, explainUsage, EXPLAIN_MODEL, onExplainChange, removeClaudeKey, setClaudeKey, testClaudeKey } from '../lib/explain';
 import { LEXICON_SHARDS, lexiconCached, lexiconMeta, prefetchLexicon } from '../lib/lexicon';
-import { formatAgo, LangSwitch, toast, TopBar } from './common';
+import { Cell, formatAgo, Icon, LangSwitch, Row, Section, SwitchRow, toast, TopBar } from './common';
 import { FileImportButton } from './Today';
 import { SourceSettings, SyncSettings } from './Setup';
 import { MicrosoftDiagnostics } from './Microsoft';
 
+// Settings follows the iOS Settings app: inset grouped lists, grey section headers, footers for the fine print.
 export function Settings() {
   const { settings, meta, notes } = useApp((s) => s);
   return (
     <div className="main">
       <TopBar title="Settings" />
-      <div className="stack-l">
-        <section className="panel stack">
-          <h2>More</h2>
-          <nav className="more-links" aria-label="More screens">
-            <a href="#/today">Today's reviews</a>
-            <a href="#/stats">Stats</a>
-            <a href="#/words">Words</a>
-            <a href="#/report">Import report</a>
-          </nav>
-          <MicrosoftDiagnostics />
-        </section>
+      <div className="groups">
+        <Section>
+          <Row href="#/today" icon="today" iconBg="var(--badge-red)" label="Today's reviews" />
+          <Row href="#/stats" icon="stats" iconBg="var(--badge-blue)" label="Stats" />
+          <Row href="#/words" icon="words" iconBg="var(--badge-orange)" label="Words" />
+          <Row href="#/report" icon="doc" iconBg="var(--badge-gray)" label="Import report" />
+        </Section>
 
-        <section className="panel stack">
-          <h2>Your words</h2>
+        <Section title="Your words" id="words-src">
           {meta ? (
-            <p className="small muted">
-              {notes.length} notes from {meta.source.name}, imported {formatAgo(meta.importedAt)}
-              {meta.device ? ` on ${meta.device}` : ''}. <a href="#/report">Import report</a>
-            </p>
+            <Row
+              label={`${notes.length} notes`}
+              detail={`From ${meta.source.name}, imported ${formatAgo(meta.importedAt)}${meta.device ? ` on ${meta.device}` : ''}`}
+            />
           ) : (
-            <p className="small muted">No words yet.</p>
+            <Row label="No words yet" />
           )}
-          <SourceSettings />
-          <div>
+          <Cell>
+            <SourceSettings />
+          </Cell>
+          <Cell className="cell-actions">
             <FileImportButton label="Import a file instead" />
-          </div>
-        </section>
+          </Cell>
+        </Section>
 
         <SyncSettings />
 
-        <section className="panel stack">
-          <h2>Study</h2>
-          <div className="row wrap" style={{ alignItems: 'flex-end' }}>
-            <NumberField label="New words a day" value={settings.newVocab} min={0} max={100} onChange={(v) => updateSettings({ newVocab: v })} />
-            <NumberField label="New grammar a day" value={settings.newOther} min={0} max={20} onChange={(v) => updateSettings({ newOther: v })} />
-            <NumberField label="Most reviews a day" value={settings.maxReviews} min={10} max={1000} onChange={(v) => updateSettings({ maxReviews: v })} />
-          </div>
-          <div className="row wrap" style={{ alignItems: 'flex-end' }}>
-            <NumberField label="Target retention (%)" value={Math.round(settings.retention * 100)} min={70} max={97} onChange={(v) => updateSettings({ retention: v / 100 })} />
-            <NumberField label="Spread green words over (days)" value={settings.spreadDays} min={1} max={365} onChange={(v) => updateSettings({ spreadDays: v })} />
-          </div>
-          <label className="check">
-            <input type="checkbox" checked={settings.recall} onChange={(e) => updateSettings({ recall: e.target.checked })} />
-            Recall cards (meaning → write or type the hanzi)
-          </label>
-          <label className="check">
-            <input type="checkbox" checked={settings.listen} onChange={(e) => updateSettings({ listen: e.target.checked })} />
-            Listening cards (audio → hanzi or meaning)
-          </label>
-          <p className="small muted">These settings are shared by all your devices.</p>
-        </section>
+        <Section title="Study" footer="These settings are shared by all your devices.">
+          <NumberRow label="New words a day" value={settings.newVocab} min={0} max={100} onChange={(v) => updateSettings({ newVocab: v })} />
+          <NumberRow label="New grammar a day" value={settings.newOther} min={0} max={20} onChange={(v) => updateSettings({ newOther: v })} />
+          <NumberRow label="Most reviews a day" value={settings.maxReviews} min={10} max={1000} onChange={(v) => updateSettings({ maxReviews: v })} />
+          <NumberRow label="Target retention" unit="%" value={Math.round(settings.retention * 100)} min={70} max={97} onChange={(v) => updateSettings({ retention: v / 100 })} />
+          <NumberRow label="Spread green words over" unit="days" value={settings.spreadDays} min={1} max={365} onChange={(v) => updateSettings({ spreadDays: v })} />
+          <SwitchRow label="Recall cards" detail="Meaning → write or type the hanzi" checked={settings.recall} onChange={(v) => updateSettings({ recall: v })} />
+          <SwitchRow label="Listening cards" detail="Audio → hanzi or meaning" checked={settings.listen} onChange={(v) => updateSettings({ listen: v })} />
+        </Section>
 
-        <section className="panel stack">
-          <h2>Meanings and answers</h2>
-          <div className="row">
-            <span className="grow">Show meanings in</span>
-            <LangSwitch />
-          </div>
-          <PrefCheck k="acceptBoth" def={true} label="Accept typed meanings in either English or French" />
-          <p className="small muted">{CFDICT_CREDIT}.</p>
-        </section>
+        <Section title="Meanings and answers" footer={`${CFDICT_CREDIT}.`}>
+          <Row label="Show meanings in" trailing={<LangSwitch />} />
+          <PrefSwitch k="acceptBoth" def={true} label="Accept English or French" detail="For typed meanings" />
+        </Section>
 
         <ClaudeSettings />
         <AudioSettings />
         <OfflineSettings />
 
         <DataSettings />
+        <Section title="Troubleshooting">
+          <Cell>
+            <MicrosoftDiagnostics />
+          </Cell>
+        </Section>
         <AboutSection />
       </div>
     </div>
@@ -128,102 +114,107 @@ function DataSettings() {
     }
   };
   return (
-    <section className="panel stack">
-      <h2>Your data</h2>
-      <p className="small muted">{events.length} reviews stored on this device.</p>
-      {syncOff && isIosSafariTab() && (
-        <p className="notice bad">
-          Safari clears data from websites you haven't opened for 7 days. Add this app to your Home Screen, or turn on sync, so your progress is kept.
-        </p>
-      )}
-      <p className="small muted">
-        Storage: {store.persisted === true ? 'protected from automatic clearing.' : store.persisted === false ? 'may be cleared by the browser.' : 'status unknown.'}
-        {syncOff ? ` ${last ? `Last backup ${formatAgo(last)}.` : 'No backup yet.'}` : ''}
-      </p>
-      <input
-        ref={input}
-        type="file"
-        className="sr"
-        aria-label="Backup file to restore"
-        onChange={(e) => {
-          const f = e.target.files?.[0];
-          e.target.value = '';
-          if (!f) return;
-          run(async () => {
-            const r = await restoreBackup(new Uint8Array(await f.arrayBuffer()));
-            toast(`Restored ${r.events} reviews and ${r.marks} status changes${r.vocab === 'applied' ? ', and your word list' : ''}`);
-          });
-        }}
-      />
-      <div className="row wrap">
-        <button type="button" className="btn" disabled={busy} onClick={() => run(saveBackupFile)}>
-          Back up to a file
-        </button>
-        <button type="button" className="btn" disabled={busy} onClick={() => input.current?.click()}>
-          Restore from a file
-        </button>
+    <>
+      <Section
+        title="Your data"
+        id="data"
+        footer="The backup file holds words, reviews, status changes and settings, but never the sync link. Restoring adds what is missing and removes nothing."
+      >
+        {syncOff && isIosSafariTab() && (
+          <Cell>
+            <p className="notice bad">
+              Safari clears data from websites you haven't opened for 7 days. Add this app to your Home Screen, or turn on sync, so your progress is kept.
+            </p>
+          </Cell>
+        )}
+        <Row label="Reviews on this device" value={events.length.toLocaleString()} />
+        <Row
+          label="Storage"
+          value={store.persisted === true ? 'Protected' : store.persisted === false ? 'May be cleared' : 'Unknown'}
+          detail={store.persisted === false ? 'The browser may clear it to free space.' : undefined}
+        />
+        {syncOff && <Row label="Last backup" value={last ? formatAgo(last) : 'Never'} />}
+        <input
+          ref={input}
+          type="file"
+          className="sr"
+          aria-label="Backup file to restore"
+          onChange={(e) => {
+            const f = e.target.files?.[0];
+            e.target.value = '';
+            if (!f) return;
+            run(async () => {
+              const r = await restoreBackup(new Uint8Array(await f.arrayBuffer()));
+              toast(`Restored ${r.events} reviews and ${r.marks} status changes${r.vocab === 'applied' ? ', and your word list' : ''}`);
+            });
+          }}
+        />
+        <Row tone="action" glyph="upload" label="Back up to a file" disabled={busy} onClick={() => run(saveBackupFile)} chevron={false} />
+        <Row tone="action" glyph="download" label="Restore from a file" disabled={busy} onClick={() => input.current?.click()} chevron={false} />
         {store.persisted === false && (
-          <button
-            type="button"
-            className="btn"
+          <Row
+            tone="action"
+            glyph="lock"
+            label="Protect storage"
             disabled={busy}
+            chevron={false}
             onClick={() =>
               run(async () => {
                 toast((await requestPersist()) ? 'Storage protected' : 'The browser did not allow it');
               })
             }
-          >
-            Protect storage
-          </button>
+          />
         )}
-        <button
-          type="button"
-          className="btn danger"
+      </Section>
+      <Section footer="Clearing removes words, reviews and the sync link from this device only. Reviews already synced come back when you link it again.">
+        <Row
+          tone="destructive"
+          center
+          label="Clear this device"
           onClick={() => {
             if (confirmWipe(syncOff)) wipeAll();
           }}
-        >
-          Clear this device
-        </button>
-      </div>
-      <p className="small muted">
-        The backup file holds words, reviews, status changes and settings, but never the sync link. Restoring adds what is missing and removes nothing. Clearing removes words, reviews and the sync link from this device only. Reviews already synced come back when you link it again.
-      </p>
-    </section>
+        />
+      </Section>
+    </>
   );
 }
 
-function NumberField({ label, value, min, max, onChange }: { label: string; value: number; min: number; max: number; onChange: (v: number) => void }) {
+function NumberRow({ label, unit, value, min, max, onChange }: { label: string; unit?: string; value: number; min: number; max: number; onChange: (v: number) => void }) {
   const [v, setV] = useState(String(value));
   useEffect(() => setV(String(value)), [value]);
   return (
-    <label className="field" style={{ flex: '1 1 160px' }}>
-      <span className="small">{label}</span>
-      <input
-        type="number"
-        inputMode="numeric"
-        value={v}
-        min={min}
-        max={max}
-        onChange={(e) => setV(e.target.value)}
-        onBlur={() => {
-          const n = Math.max(min, Math.min(max, Math.round(Number(v))));
-          if (Number.isFinite(n) && n !== value) onChange(n);
-          else setV(String(value));
-        }}
-      />
+    <label className="cell">
+      <span className="cell-body">
+        <span className="cell-label">{label}</span>
+      </span>
+      <span className="cell-num">
+        <input
+          type="number"
+          inputMode="numeric"
+          className="cell-input"
+          aria-label={unit ? `${label} (${unit})` : label}
+          value={v}
+          min={min}
+          max={max}
+          onChange={(e) => setV(e.target.value)}
+          onFocus={(e) => e.currentTarget.select()}
+          onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.blur()}
+          onBlur={() => {
+            const n = Math.max(min, Math.min(max, Math.round(Number(v))));
+            if (Number.isFinite(n) && n !== value) onChange(n);
+            else setV(String(value));
+          }}
+        />
+        {unit && <span className="cell-unit">{unit}</span>}
+      </span>
     </label>
   );
 }
 
-function PrefCheck({ k, def, label }: { k: string; def: boolean; label: string }) {
+function PrefSwitch({ k, def, label, detail }: { k: string; def: boolean; label: string; detail?: string }) {
   const [on, setOn] = useState(() => pref(k, def));
-  return (
-    <label className="check">
-      <input type="checkbox" checked={on} onChange={(e) => (setOn(e.target.checked), setPref(k, e.target.checked))} />
-      {label}
-    </label>
-  );
+  return <SwitchRow label={label} detail={detail} checked={on} onChange={(v) => (setOn(v), setPref(k, v))} />;
 }
 
 function AudioSettings() {
@@ -235,36 +226,62 @@ function AudioSettings() {
     return () => clearTimeout(t);
   }, []);
   if (!speechAvailable()) return null;
+  const pct = ((rate - 0.5) / 0.7) * 100;
   return (
-    <section className="panel stack">
-      <h2>Audio</h2>
-      {voices.length ? (
-        <label className="field">
-          Voice
-          <select value={voice} onChange={(e) => (setV(e.target.value), setVoice(e.target.value))}>
-            <option value="">Automatic (on-device first)</option>
-            {voices.map((v) => (
-              <option key={v.voiceURI} value={v.voiceURI}>
-                {v.name} {v.localService ? '(offline)' : '(online)'}
-              </option>
-            ))}
-          </select>
+    <Section
+      title="Audio"
+      footer={
+        voices.length
+          ? undefined
+          : 'No Chinese voice found. On Windows: Settings › Time & language › Speech › Add voices › Chinese (Simplified, China). On iPhone: Settings › Accessibility › Spoken Content › Voices › Chinese.'
+      }
+    >
+      {voices.length > 0 && (
+        <label className="cell">
+          <span className="cell-body">
+            <span className="cell-label">Voice</span>
+          </span>
+          <span className="cell-select">
+            <select value={voice} aria-label="Voice" onChange={(e) => (setV(e.target.value), setVoice(e.target.value))}>
+              <option value="">Automatic</option>
+              {voices.map((v) => (
+                <option key={v.voiceURI} value={v.voiceURI}>
+                  {v.name} {v.localService ? '(offline)' : '(online)'}
+                </option>
+              ))}
+            </select>
+            <Icon name="updown" />
+          </span>
         </label>
-      ) : (
-        <p className="notice">
-          No Chinese voice found. On Windows: Settings › Time & language › Speech › Add voices › Chinese (Simplified, China). On iPhone: Settings › Accessibility › Spoken Content › Voices › Chinese.
-        </p>
       )}
-      <label className="field">
-        Speed {rate.toFixed(2)}
-        <input type="range" min={0.5} max={1.2} step={0.05} value={rate} onChange={(e) => (setRate(Number(e.target.value)), setPref('rate', Number(e.target.value)))} />
-      </label>
-      <div>
-        <button type="button" className="btn small" onClick={() => speak('你好，我们开始学习吧。')}>
-          Test
-        </button>
+      <div className="cell cell-col">
+        <div className="cell-line">
+          <span className="cell-label" id="rate-l">
+            Speed
+          </span>
+          <span className="cell-value">{rate.toFixed(2)}×</span>
+        </div>
+        <div className="cell-slider">
+          <span className="tiny faint" aria-hidden="true">
+            Slow
+          </span>
+          <input
+            type="range"
+            aria-labelledby="rate-l"
+            min={0.5}
+            max={1.2}
+            step={0.05}
+            value={rate}
+            style={{ ['--p' as string]: `${pct}%` }}
+            onChange={(e) => (setRate(Number(e.target.value)), setPref('rate', Number(e.target.value)))}
+          />
+          <span className="tiny faint" aria-hidden="true">
+            Fast
+          </span>
+        </div>
       </div>
-    </section>
+      <Row tone="action" glyph="sound" label="Test voice" chevron={false} onClick={() => speak('你好，我们开始学习吧。')} />
+    </Section>
   );
 }
 
@@ -281,39 +298,48 @@ function OfflineSettings() {
   }, [chars, warm.phase, warm.done]);
   const ready = cached != null && cached >= chars.length;
   return (
-    <section className="panel stack">
-      <h2>Offline</h2>
-      <div className={`notice ${ready ? 'ok' : ''}`}>
-        {ready ? 'Ready for offline: stroke data for all your characters is on this device.' : `Stroke data: ${cached ?? '…'} of ${chars.length} characters on this device.`}
-      </div>
-      {warm.phase === 'dict' && <p className="small muted">Saving the French dictionary for offline use…</p>}
-      {warm.phase === 'strokes' && (
-        <p className="small muted">
-          Saving stroke data in the background: {warm.done} of {warm.total} new characters. You can keep using the app.
-        </p>
-      )}
+    <Section title="Offline">
+      <Row
+        label="Stroke data"
+        value={ready ? <Ready text="Ready" /> : `${cached ?? '…'} of ${chars.length}`}
+        detail={
+          warm.phase === 'strokes'
+            ? `Saving in the background: ${warm.done} of ${warm.total} new characters.`
+            : ready
+              ? 'All your characters are on this device.'
+              : undefined
+        }
+      />
       {!ready && (
-        <div>
-          <button
-            type="button"
-            className="btn"
-            disabled={!!progress}
-            onClick={async () => {
-              const missing = await prefetchStrokes(chars, (d, t) => setProgress(`${d} / ${t}`));
-              setProgress(null);
-              setCached(await countCached(chars));
-              toast(missing ? `${missing} characters have no stroke data` : 'Stroke data saved for offline use');
-            }}
-          >
-            {progress ? `Downloading ${progress}` : 'Download stroke data'}
-          </button>
-        </div>
+        <Row
+          tone="action"
+          glyph="download"
+          chevron={false}
+          disabled={!!progress}
+          label={progress ? `Downloading ${progress}` : 'Download stroke data'}
+          onClick={async () => {
+            const missing = await prefetchStrokes(chars, (d, t) => setProgress(`${d} / ${t}`));
+            setProgress(null);
+            setCached(await countCached(chars));
+            toast(missing ? `${missing} characters have no stroke data` : 'Stroke data saved for offline use');
+          }}
+        />
       )}
-      <p className="small muted">
-        French dictionary {dict ? 'saved on this device' : 'downloads on the first import'}.
-      </p>
+      <Row
+        label="French dictionary"
+        value={dict ? <Ready text="Saved" /> : 'On first import'}
+        detail={warm.phase === 'dict' ? 'Saving for offline use…' : undefined}
+      />
       <LexiconOffline />
-    </section>
+    </Section>
+  );
+}
+
+function Ready({ text }: { text: string }) {
+  return (
+    <span className="ok-value">
+      <Icon name="check-circle" /> {text}
+    </span>
   );
 }
 
@@ -327,26 +353,25 @@ function LexiconOffline() {
   const done = c?.cached ?? 0;
   return (
     <>
-      <p className="small muted">
-        Dictionary and examples: {c ? done : '…'} of {total} parts on this device.
-        {warm.phase === 'lexicon' ? ' Saving in the background…' : ''}
-      </p>
+      <Row
+        label="Dictionary and examples"
+        value={c && done >= total ? <Ready text="Ready" /> : `${c ? done : '…'} of ${total}`}
+        detail={warm.phase === 'lexicon' ? 'Saving in the background…' : undefined}
+      />
       {c && done < total && (
-        <div>
-          <button
-            type="button"
-            className="btn"
-            disabled={!!progress}
-            onClick={async () => {
-              const failed = await prefetchLexicon((d, t) => setProgress(`${d} / ${t}`));
-              setProgress(null);
-              await refresh();
-              toast(failed ? `${failed} parts could not be downloaded` : 'Dictionary saved for offline use');
-            }}
-          >
-            {progress ? `Downloading ${progress}` : 'Download dictionary and examples'}
-          </button>
-        </div>
+        <Row
+          tone="action"
+          glyph="download"
+          chevron={false}
+          disabled={!!progress}
+          label={progress ? `Downloading ${progress}` : 'Download dictionary and examples'}
+          onClick={async () => {
+            const failed = await prefetchLexicon((d, t) => setProgress(`${d} / ${t}`));
+            setProgress(null);
+            await refresh();
+            toast(failed ? `${failed} parts could not be downloaded` : 'Dictionary saved for offline use');
+          }}
+        />
       )}
     </>
   );
@@ -414,30 +439,44 @@ function ClaudeSettings() {
     }
   };
   return (
-    <section className="panel stack" aria-labelledby="claude-h">
-      <h2 id="claude-h">Explanations by Claude</h2>
-      <p className="small muted">
-        Tap Explain more on a word to get a precise meaning, nuances, collocations and example sentences from Claude (Anthropic). It needs your own API key.
-      </p>
-      <ol className="small muted" style={{ paddingLeft: '1.2em', margin: 0 }}>
-        <li>
-          Go to console.anthropic.com › API keys › Create key. Name it "Hugo 中文" and the device, for example "Hugo 中文 iPhone".
-        </li>
-        <li>Add a little credit, then set a monthly spend limit (Settings › Limits).</li>
-        <li>Use one key per device, and paste it here. On iPhone, do this in the Home Screen app.</li>
-      </ol>
-      <p className="small muted">
-        Cost: about 2 to 3 cents per word, paid once, because each explanation is saved and shared between your devices. 300 words come to about $8.
-      </p>
-      {hint && (
-        <p className="small">
-          Saved on this device: <code>{hint.hint}</code>, {formatAgo(hint.savedAt)}.
+    <Section
+      title="Explanations by Claude"
+      id="claude"
+      footer={
+        <>
+          The key stays on this device (it is not synced or backed up) and is only sent to api.anthropic.com. The words you explain are sent to Anthropic.
+        </>
+      }
+    >
+      <Cell>
+        <p className="small muted">
+          Tap Explain more on a word to get a precise meaning, nuances, collocations and example sentences from Claude (Anthropic). It needs your own API key.
         </p>
-      )}
-      <label className="field">
-        <span className="small">{hint ? 'Replace the key' : 'Claude API key'}</span>
+      </Cell>
+      <details className="cell-details">
+        <summary className="cell tap">
+          <span className="cell-body">
+            <span className="cell-label">How to get a key</span>
+          </span>
+          <Icon name="chevron" className="cell-chev" />
+        </summary>
+        <div className="cell cell-pad">
+          <ol className="small muted steps">
+            <li>Go to console.anthropic.com › API keys › Create key. Name it "Hugo 中文" and the device, for example "Hugo 中文 iPhone".</li>
+            <li>Add a little credit, then set a monthly spend limit (Settings › Limits).</li>
+            <li>Use one key per device, and paste it here. On iPhone, do this in the Home Screen app.</li>
+          </ol>
+          <p className="small muted">
+            Cost: about 2 to 3 cents per word, paid once, because each explanation is saved and shared between your devices. 300 words come to about $8.
+          </p>
+        </div>
+      </details>
+      {hint && <Row label="Saved on this device" value={<code>{hint.hint}</code>} detail={formatAgo(hint.savedAt)} />}
+      <label className="cell">
+        <span className="cell-label cell-fixed">{hint ? 'New key' : 'API key'}</span>
         <input
           type="password"
+          className="cell-input left"
           aria-label="Claude API key"
           autoComplete="off"
           autoCapitalize="off"
@@ -448,43 +487,42 @@ function ClaudeSettings() {
           onChange={(e) => setValue(e.target.value)}
         />
       </label>
-      <div className="row wrap">
+      <Cell className="cell-actions">
         <button type="button" className="btn primary" disabled={busy || !value.trim()} onClick={save}>
           Save key
         </button>
         <button type="button" className="btn" disabled={busy || !value.trim()} onClick={test}>
           Test key
         </button>
-        {hint && (
-          <button
-            type="button"
-            className="btn danger"
-            disabled={busy}
-            onClick={async () => {
-              if (!window.confirm('Remove the Claude key from this device?')) return;
-              await removeClaudeKey();
-              setNote({ text: 'Key removed from this device.' });
-              refresh();
-            }}
-          >
-            Remove key
-          </button>
-        )}
-      </div>
+      </Cell>
       {note && (
-        <p className={`notice ${note.bad ? 'bad' : 'ok'}`} role="status">
-          {note.text}
-        </p>
+        <Cell>
+          <p className={`notice ${note.bad ? 'bad' : 'ok'}`} role="status">
+            {note.text}
+          </p>
+        </Cell>
       )}
-      <p className="small muted">
-        The key stays on this device (it is not synced or backed up) and is only sent to api.anthropic.com. The words you explain are sent to Anthropic.
-      </p>
       {usage && (
-        <p className="small muted">
-          This device this month: {usage.mineThisMonth} explanations, about {money(usage.costThisMonth)}. Saved explanations: {usage.saved}.
-        </p>
+        <Row
+          label="This month"
+          value={money(usage.costThisMonth)}
+          detail={`${usage.mineThisMonth} explanations on this device. Saved in all: ${usage.saved}.`}
+        />
       )}
-    </section>
+      {hint && (
+        <Row
+          tone="destructive"
+          label="Remove key"
+          disabled={busy}
+          onClick={async () => {
+            if (!window.confirm('Remove the Claude key from this device?')) return;
+            await removeClaudeKey();
+            setNote({ text: 'Key removed from this device.' });
+            refresh();
+          }}
+        />
+      )}
+    </Section>
   );
 }
 
@@ -505,23 +543,24 @@ function AboutSection() {
     lexiconMeta().then(setMeta, () => setMeta(null));
   }, []);
   return (
-    <section className="panel stack" aria-labelledby="about-h">
-      <h2 id="about-h">About</h2>
-      <p className="small muted">Hugo 中文, version {typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : 'dev'}.</p>
-      <ul className="small" style={{ paddingLeft: '1.2em', margin: 0 }}>
+    <>
+      <Section title="About">
+        <Row label="Hugo 中文" value={typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : 'dev'} />
+      </Section>
+      <Section
+        title="Sources"
+        id="about"
+        footer={
+          <>
+            {meta && !meta.sample && <>Dictionary and examples built on {meta.built}, adapted: filtered and reformatted. </>}
+            Explanations: Claude (Anthropic), with your own key.
+          </>
+        }
+      >
         {SOURCES.map((s) => (
-          <li key={s.name}>
-            {s.name}: {s.use}.{' '}
-            <a href={s.url} target="_blank" rel="noopener noreferrer">
-              {s.licence}
-            </a>
-          </li>
+          <Row key={s.name} href={s.url} external label={s.name} detail={`${s.use[0].toUpperCase()}${s.use.slice(1)} · ${s.licence}`} />
         ))}
-      </ul>
-      {meta && !meta.sample && (
-        <p className="small muted">Dictionary and examples built on {meta.built}, adapted: filtered and reformatted.</p>
-      )}
-      <p className="small muted">Explanations: Claude (Anthropic), with your own key.</p>
-    </section>
+      </Section>
+    </>
   );
 }

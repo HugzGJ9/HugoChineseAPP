@@ -1,5 +1,7 @@
 // Free scratch pad: a canvas to write on, no grading, optional 田字格 grid.
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Icon } from '../common';
+import './practice.css';
 
 type Pt = [number, number]; // x, y as fractions of the canvas, so a resize keeps the drawing
 
@@ -28,8 +30,6 @@ export function ScratchPad({ grid = true, height = 280 }: { grid?: boolean; heig
     if (showGrid) {
       ctx.strokeStyle = cssVar('--grid', '#e1aaa3');
       ctx.lineWidth = 1;
-      ctx.setLineDash([]);
-      ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
       ctx.setLineDash([5, 5]);
       ctx.beginPath();
       ctx.moveTo(w / 2, 0);
@@ -127,15 +127,18 @@ export function ScratchPad({ grid = true, height = 280 }: { grid?: boolean; heig
           onPointerCancel={up}
         />
       </div>
-      <div className="row sp-tools">
-        <button type="button" className="btn grow" onClick={undo} disabled={!count}>
-          Undo stroke
+      <div className="sp-tools">
+        <button type="button" className="sp-tool" onClick={undo} disabled={!count}>
+          <Icon name="undo" />
+          <span>Undo stroke</span>
         </button>
-        <button type="button" className="btn grow" onClick={clear} disabled={!count}>
-          Clear
+        <button type="button" className="sp-tool" onClick={clear} disabled={!count}>
+          <Icon name="trash" />
+          <span>Clear</span>
         </button>
-        <button type="button" className="btn grow" aria-pressed={showGrid} onClick={() => setShowGrid((g) => !g)}>
-          Grid {showGrid ? 'on' : 'off'}
+        <button type="button" className="sp-tool" aria-pressed={showGrid} onClick={() => setShowGrid((g) => !g)}>
+          <Icon name="sheets" />
+          <span>Grid {showGrid ? 'on' : 'off'}</span>
         </button>
       </div>
     </div>

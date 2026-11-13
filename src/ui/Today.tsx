@@ -3,7 +3,8 @@ import { getState, useApp } from '../lib/store';
 import { buildQueue, moreNew, reviewAhead } from '../lib/engine/queue';
 import { streak } from '../lib/stats';
 import { acceptPendingImport, importFile, rejectPendingImport, summary, type ImportOutcome } from '../lib/sources';
-import { formatAgo, Icon, LangSwitch, toast, TopBar, useNow } from './common';
+import { formatAgo, LangSwitch, Row, Section, toast, TopBar, useNow } from './common';
+import './screens.css';
 import { SetupSources } from './Setup';
 import { allowFolder } from '../lib/folder';
 
@@ -37,9 +38,9 @@ export function Today() {
       <TopBar title="Today" back="#/settings">
         <LangSwitch />
       </TopBar>
-      <div className="stack-l">
+      <div className="stack-l td">
         <HomeNotices />
-        <section className="stack">
+        <section className="stack td-main">
           <div className="today-figure">
             <span className="n">{total}</span>
             <span className="muted">{total === 1 ? 'card to study' : 'cards to study'}</span>
@@ -59,7 +60,7 @@ export function Today() {
             </div>
           </div>
           {total ? (
-            <a className="btn primary block" href="#/review" style={{ minHeight: 56, fontSize: '1.05rem' }}>
+            <a className="btn primary block td-start" href="#/review">
               Start
             </a>
           ) : (
@@ -81,23 +82,17 @@ export function Today() {
               )}
             </>
           )}
-          <p className="small muted">
+          <p className="td-note">
             {days > 0 ? `${days}-day streak. ` : ''}
             {q.counts.newVocabLeft === 0 && q.counts.introducedToday > 0 ? 'Daily new words reached. ' : ''}
             {sync.state !== 'off' ? `Synced ${formatAgo(sync.last, now)}.` : ''}
           </p>
         </section>
-        <section className="row wrap">
-          <a className="btn" href="#/quick">
-            <Icon name="quick" /> Quick memory
-          </a>
-          <a className="btn" href="#/sheets">
-            <Icon name="sheets" /> Sheets
-          </a>
-          <a className="btn" href="#/stats">
-            <Icon name="stats" /> Stats
-          </a>
-        </section>
+        <Section>
+          <Row href="#/quick" icon="quick" iconBg="var(--badge-orange)" label="Quick memory" />
+          <Row href="#/sheets" icon="sheets" iconBg="var(--badge-blue)" label="Sheets" />
+          <Row href="#/stats" icon="stats" iconBg="var(--badge-green)" label="Stats" />
+        </Section>
       </div>
     </div>
   );

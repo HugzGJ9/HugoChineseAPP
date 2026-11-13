@@ -144,6 +144,8 @@ export class FakeMicrosoft {
   account = { name: 'Test User', preferred_username: 'test@example.com', oid: 'oid-1' };
   /** Set false to make the openid-configuration (reachability) request fail. */
   reachable = true;
+  /** Items per page of a children listing (@odata.nextLink beyond). */
+  pageSize = 200;
 
   items = new Map<string, FakeItem>();
   /** Ids served by /me/drive/recent, most recent first (consumer style: each entry wraps a remoteItem). */
@@ -367,6 +369,19 @@ export class FakeMicrosoft {
       return it ? json(200, this.itemJson(it)) : graphError(404, 'itemNotFound', 'The resource could not be found.');
     }
 
+    // Children of the app folder or of a folder in it, paged: special/approot[:/data:]/children[?$skiptoken=n]
+    const kids = /^\/me\/drive\/special\/approot(?::\/(.+?):)?\/children$/.exec(path);
+    if (kids && method === 'GET') {
+      const root = this.items.get('approot')!;
+      const dir = kids[1] ? this.byPath(`${this.pathOf(root)}/${kids[1]}`) : root;
+      if (!dir || !dir.isFolder) return graphError(404, 'itemNotFound', 'The resource could not be found.');
+      const all = [...this.items.values()].filter((x) => x.folder === this.pathOf(dir) && x.id !== dir.id && !x.drive);
+      const from = Number(url.searchParams.get('$skiptoken') ?? 0);
+      const page = all.slice(from, from + this.pageSize);
+      const next = from + this.pageSize < all.length ? `https://${GRAPH_HOST}/v1.0${url.pathname.replace(/^\/v1\.0/, '')}?$skiptoken=${from + this.pageSize}` : undefined;
+      return json(200, { value: page.map((x) => this.itemJson(x)), ...(next ? { '@odata.nextLink': next } : {}) });
+    }
+
     // special/approot, by itself or by path: special/approot:/diag/x.bin[:/content]
     const app = /^\/me\/drive\/special\/approot(?::\/(.+?))?(:\/content|:)?$/.exec(path);
     if (app) {
@@ -375,6 +390,10 @@ export class FakeMicrosoft {
       const full = `${this.pathOf(root)}/${app[1]}`;
       const it = this.byPath(full);
       if (app[2] === ':/content' && method === 'PUT') {
+        // "Must not exist": conflictBehavior=fail refuses an existing name.
+        if (it && !h['if-match'] && url.searchParams.get('@microsoft.graph.conflictBehavior') === 'fail') {
+          return graphError(409, 'nameAlreadyExists', 'The specified item name already exists.');
+        }
         if (it) return this.replace(it, h, init);
         if (h['if-match']) return graphError(412, 'preconditionFailed');
         const parts = full.split('/');

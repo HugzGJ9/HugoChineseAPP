@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { Note } from '../../lib/types';
 import { checkHanzi, checkPinyin, type Check } from '../../lib/engine/grade';
-import { AudioButton, Meaning, Pinyin } from '../common';
+import { AudioButton, Meaning, Pinyin, Segmented } from '../common';
 import { StrokeAnimation, WritePad, type WriteResult } from '../WritePad';
 import { Shell } from '../panel';
 import { ScratchPad } from './ScratchPad';
@@ -18,7 +18,7 @@ function verdictText(c: Check): string {
 
 export function ScratchPanel({ onClose }: { onClose: () => void }) {
   return (
-    <Shell title="Scratch pad" label="Scratch pad" onClose={onClose}>
+    <Shell title="Scratch pad" label="Scratch pad" onClose={onClose} className="pp-scratch">
       <ScratchPad height={320} />
     </Shell>
   );
@@ -32,13 +32,7 @@ export function PracticeBody({ note }: { note: Note }) {
   return (
     <>
       {modes.length > 1 && (
-        <div className="modes" role="group" aria-label="Practice mode">
-          {modes.map((m) => (
-            <button key={m} type="button" className="chip" aria-pressed={mode === m} onClick={() => setMode(m)}>
-              {MODE_LABEL[m]}
-            </button>
-          ))}
-        </div>
+        <Segmented label="Practice mode" className="pp-modes" value={mode} onChange={setMode} options={modes.map((m) => ({ value: m, label: MODE_LABEL[m] }))} />
       )}
       {mode === 'pinyin' && <TypeMode key={`p${note.id}`} kind="pinyin" note={note} />}
       {mode === 'hanzi' && <TypeMode key={`h${note.id}`} kind="hanzi" note={note} />}
@@ -66,16 +60,16 @@ function TypeMode({ kind, note }: { kind: 'pinyin' | 'hanzi'; note: Note }) {
 
   return (
     <form
-      className="stack"
+      className="pp-type"
       onSubmit={(e) => {
         e.preventDefault();
         if (check) again();
         else submit();
       }}
     >
-      <div className="pp-prompt">
-        {kind === 'pinyin' ? <span className="pp-hanzi">{note.hanzi}</span> : <Pinyin text={note.pinyin} />}
-        <Meaning note={note} className="muted" />
+      <div className="pp-card pp-prompt">
+        {kind === 'pinyin' ? <span className="pp-hanzi" lang="zh-CN">{note.hanzi}</span> : <Pinyin text={note.pinyin} className="pp-bigpy" />}
+        <Meaning note={note} className="pp-mn" />
       </div>
       <input
         ref={input}
@@ -97,17 +91,17 @@ function TypeMode({ kind, note }: { kind: 'pinyin' | 'hanzi'; note: Note }) {
       />
       {check && (
         <>
-          <div className={`verdict ${check.verdict}`} role="status">
+          <div className={`pp-verdict verdict ${check.verdict}`} role="status">
             {verdictText(check)}
           </div>
-          <div className="pp-answer">
-            <span className="pp-hanzi">{note.hanzi}</span>
+          <div className="pp-card pp-answer">
+            <span className="pp-hanzi" lang="zh-CN">{note.hanzi}</span>
             <Pinyin text={note.pinyin} />
             <AudioButton text={note.hanzi} />
           </div>
         </>
       )}
-      <div className="row">
+      <div className="pp-actions">
         <button type="button" className="btn grow" onClick={() => (check ? again() : setCheck({ verdict: 'wrong', expected: kind === 'pinyin' ? note.pinyin : note.hanzi }))}>
           {check ? 'Try again' : 'Show answer'}
         </button>
@@ -135,33 +129,40 @@ function DrawMode({ note }: { note: Note }) {
 
   return (
     <div className="pp-draw">
-      <div className="pp-prompt">
-        <Pinyin text={note.pinyin} />
-        <Meaning note={note} className="muted" />
+      <div className="pp-card pp-prompt">
+        <Pinyin text={note.pinyin} className="pp-bigpy" />
+        <Meaning note={note} className="pp-mn" />
       </div>
-      <div className="modes" role="group" aria-label="Outline">
-        <button type="button" className="chip" aria-pressed={guided} onClick={() => { setGuided(true); restart(); }}>
-          Outline on
-        </button>
-        <button type="button" className="chip" aria-pressed={!guided} onClick={() => { setGuided(false); restart(); }}>
-          Outline off
-        </button>
-      </div>
+      <Segmented
+        label="Outline"
+        className="pp-outline"
+        value={guided ? 'on' : 'off'}
+        onChange={(v) => {
+          setGuided(v === 'on');
+          restart();
+        }}
+        options={[
+          { value: 'on', label: 'Outline on' },
+          { value: 'off', label: 'Outline off' },
+        ]}
+      />
       {!done && <WritePad key={`${run}-${guided}`} word={note.hanzi} guided={guided} onDone={setResult} onSkip={() => setResult({ revealed: true })} />}
       {done && (
         <>
-          <div className={`verdict ${stats ? (stats.mistakes === 0 && !stats.hints ? 'right' : 'tones') : 'near'}`} role="status">
+          <div className={`pp-verdict verdict ${stats ? (stats.mistakes === 0 && !stats.hints ? 'right' : 'tones') : 'near'}`} role="status">
             {stats
               ? stats.missing.length
                 ? 'Done. No stroke data for some characters.'
                 : `Done: ${stats.mistakes} mistake${stats.mistakes === 1 ? '' : 's'}${stats.hints ? ', outline shown' : ''}`
               : 'Answer shown'}
           </div>
-          <div className="pp-answer">
-            <span className="pp-hanzi">{note.hanzi}</span>
-            <AudioButton text={note.hanzi} />
+          <div className="pp-card pp-answer pp-answer-col">
+            <div className="pp-answer">
+              <span className="pp-hanzi" lang="zh-CN">{note.hanzi}</span>
+              <AudioButton text={note.hanzi} />
+            </div>
+            <StrokeAnimation word={note.hanzi} size={110} />
           </div>
-          <StrokeAnimation word={note.hanzi} size={110} />
           <button type="button" className="btn block" onClick={restart}>
             Try again
           </button>

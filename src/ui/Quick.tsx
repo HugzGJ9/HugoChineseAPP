@@ -8,10 +8,11 @@ import { speak } from '../lib/speech';
 import { cardId, DAY } from '../lib/engine/schedule';
 import { noteStatuses, sheetRows, STATUS_LABEL, WORD_STATUSES } from '../lib/status';
 import { fnv1a } from '../lib/import/build';
-import { LangSwitch, Pinyin, toast, TopBar } from './common';
+import { Cell, Icon, LangSwitch, Pinyin, Segmented, toast, TopBar } from './common';
 import { inDialog } from './panel';
 import { WordPanel } from './word/WordPanel';
-import { LayerBar, QmList, useQmShown, useShift, type Layer, type Shown } from './qm';
+import { LayerBar, PresetSeg, QmList, useQmShown, useShift, type Layer, type Shown } from './qm';
+import './quick.css';
 
 type Filter = 'all' | `st:${WordStatus}` | 'week' | 'missed';
 const FILTERS: Filter[] = ['all', ...WORD_STATUSES.map((s) => `st:${s}` as const), 'week', 'missed'];
@@ -72,51 +73,86 @@ export function Quick() {
   };
 
   return (
-    <div className="main">
+    <div className="main qk">
       <TopBar title="Quick memory">
         <LangSwitch />
       </TopBar>
-      <div className="stack">
-        <LayerBar shown={shown} preset={preset} lang={lang} onToggle={toggle} onPreset={setShown} />
-        <div className="row wrap">
-          <select value={tag} onChange={(e) => (setTag(e.target.value), setPref('qm.tag', e.target.value))} aria-label="Sheet" style={{ width: 'auto' }}>
-            <option value="all">All words</option>
-            {tags.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-          <select value={filter} onChange={(e) => (setFilter(readFilter(e.target.value)), setPref('qm.filter', e.target.value))} aria-label="Filter" style={{ width: 'auto' }}>
-            <option value="all">Any status</option>
-            {WORD_STATUSES.map((st) => (
-              <option key={st} value={`st:${st}`}>
-                {STATUS_LABEL[st]}
-              </option>
-            ))}
-            <option value="week">Seen this week</option>
-            <option value="missed">Missed recently</option>
-          </select>
-          <button type="button" className="btn small" onClick={() => setSeed(seed ? '' : String(Date.now()))} aria-pressed={!!seed}>
-            {seed ? 'Sheet order' : 'Shuffle'}
-          </button>
-          <span className="small muted">{list.length} words</span>
-          <div className="seg" role="group" aria-label="View">
-            <button type="button" aria-pressed={mode === 'list'} onClick={() => switchMode('list')}>
-              List
-            </button>
-            <button type="button" aria-pressed={mode === 'card'} onClick={() => switchMode('card')}>
-              Cards
+      <div className="qk-body">
+        <section className="group" aria-label="Quick memory options">
+          <div className="group-card">
+            <Cell className="qk-presets">
+              <PresetSeg preset={preset} onPreset={setShown} />
+            </Cell>
+            <div className="cell">
+              <span className="cell-body">
+                <span className="cell-label">Show</span>
+              </span>
+              <LayerBar shown={shown} lang={lang} onToggle={toggle} />
+            </div>
+            <label className="cell">
+              <span className="cell-body">
+                <span className="cell-label">Sheet</span>
+              </span>
+              <span className="cell-select">
+                <select value={tag} onChange={(e) => (setTag(e.target.value), setPref('qm.tag', e.target.value))} aria-label="Sheet">
+                  <option value="all">All words</option>
+                  {tags.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+                <Icon name="updown" />
+              </span>
+            </label>
+            <label className="cell">
+              <span className="cell-body">
+                <span className="cell-label">Status</span>
+              </span>
+              <span className="cell-select">
+                <select value={filter} onChange={(e) => (setFilter(readFilter(e.target.value)), setPref('qm.filter', e.target.value))} aria-label="Filter">
+                  <option value="all">Any status</option>
+                  {WORD_STATUSES.map((st) => (
+                    <option key={st} value={`st:${st}`}>
+                      {STATUS_LABEL[st]}
+                    </option>
+                  ))}
+                  <option value="week">Seen this week</option>
+                  <option value="missed">Missed recently</option>
+                </select>
+                <Icon name="updown" />
+              </span>
+            </label>
+            <button type="button" className="cell tap has-icon action qk-shuffle" onClick={() => setSeed(seed ? '' : String(Date.now()))} aria-pressed={!!seed}>
+              <Icon name={seed ? 'list' : 'shuffle'} className="cell-glyph" />
+              <span className="cell-body">
+                <span className="cell-label">{seed ? 'Sheet order' : 'Shuffle'}</span>
+              </span>
+              <span className="cell-value">{list.length} words</span>
             </button>
           </div>
-        </div>
+        </section>
+        <Segmented
+          label="View"
+          className="qk-view"
+          value={mode}
+          onChange={switchMode}
+          options={[
+            { value: 'list', label: 'List' },
+            { value: 'card', label: 'Cards' },
+          ]}
+        />
         {mode === 'list' ? (
-          <QmList items={list.slice(0, limit).map((n) => ({ key: n.id, note: n }))} shown={shown} listen={listen} onOpen={(it) => setOpen(it.note)} />
+          list.length ? (
+            <QmList items={list.slice(0, limit).map((n) => ({ key: n.id, note: n }))} shown={shown} listen={listen} onOpen={(it) => setOpen(it.note)} />
+          ) : (
+            <p className="qk-empty">No words match these filters.</p>
+          )
         ) : (
           <QmCards key={seed + tag + filter} notes={list} shown={shown} listen={listen} onExplain={setOpen} />
         )}
         {mode === 'list' && list.length > limit && (
-          <button type="button" className="btn" onClick={() => setLimit(limit + 200)}>
+          <button type="button" className="btn tinted block" onClick={() => setLimit(limit + 200)}>
             Show more
           </button>
         )}
@@ -167,7 +203,7 @@ function QmCards({ notes, shown, listen, onExplain }: { notes: Note[]; shown: Sh
     return () => window.removeEventListener('keydown', onKey);
   });
 
-  if (!order.length) return <p className="muted">No words match these filters.</p>;
+  if (!order.length) return <p className="qk-empty">No words match these filters.</p>;
 
   if (!n) {
     const sendBack = async () => {
@@ -176,12 +212,15 @@ function QmCards({ notes, shown, listen, onExplain }: { notes: Note[]; shown: Sh
       toast(`${missed.length} word${missed.length > 1 ? 's' : ''} back in reviews`);
     };
     return (
-      <div className="panel stack center">
+      <div className="qk-done">
+        <span className="qk-done-icon" aria-hidden="true">
+          <Icon name="check-circle" />
+        </span>
         <h2>Round {round} done</h2>
-        <p className="muted">
+        <p className="qk-done-sub">
           Knew {knew}, missed {missed.length}.
         </p>
-        <div className="row wrap" style={{ justifyContent: 'center' }}>
+        <div className="qk-done-actions">
           {missed.length > 0 && (
             <button
               type="button"
@@ -224,14 +263,18 @@ function QmCards({ notes, shown, listen, onExplain }: { notes: Note[]; shown: Sh
   const vis = (k: Layer) => shift || !!peek.all || shown[k] !== !!peek[k];
   const flip = (k: Layer) => setPeek((p) => ({ ...p, [k]: !p[k] }));
   return (
-    <div className="stack">
-      <div className="small muted center">
+    <div className="qk-cards">
+      <div className="qk-progress" aria-hidden="true">
+        <i style={{ width: `${Math.round((i / order.length) * 100)}%` }} />
+      </div>
+      <div className="qk-count">
         {i + 1} / {order.length}
         {round > 1 ? ` · retry round ${round}` : ''}
       </div>
       <div
-        className="panel qm-card"
-        style={{ transform: `translateX(${dx}px) rotate(${dx / 40}deg)`, transition: start.current ? 'none' : 'transform 0.15s' }}
+        className="qk-card"
+        style={{ transform: dx ? `translateX(${dx}px) rotate(${dx / 40}deg)` : undefined, transition: start.current ? 'none' : undefined }}
+        data-swipe={dx > 40 ? 'right' : dx < -40 ? 'left' : undefined}
         onPointerDown={(e) => (start.current = { x: e.clientX, y: e.clientY })}
         onPointerMove={(e) => start.current && setDx(e.clientX - start.current.x)}
         onPointerUp={() => {
@@ -242,27 +285,31 @@ function QmCards({ notes, shown, listen, onExplain }: { notes: Note[]; shown: Sh
         }}
         onPointerCancel={() => ((start.current = null), setDx(0))}
       >
-        <button type="button" className="qm-cell hz" style={{ fontFamily: 'var(--kai)', fontSize: '4.5rem' }} onClick={() => (vis('hz') ? speak(n.hanzi) : flip('hz'))}>
-          {vis('hz') ? n.hanzi : <span className="bar" style={{ width: 120, height: 64 }} />}
+        <button type="button" className="qk-cell qk-hz" lang="zh-CN" onClick={() => (vis('hz') ? speak(n.hanzi) : flip('hz'))} aria-label={vis('hz') ? `${n.hanzi}, play audio` : 'Hidden hanzi, tap to show'}>
+          {vis('hz') ? <span className="qk-in">{n.hanzi}</span> : <span className="qk-hide" />}
         </button>
-        <button type="button" className="qm-cell" style={{ fontSize: '1.4rem' }} onClick={() => flip('py')}>
-          {vis('py') ? <Pinyin text={n.pinyin} /> : <span className="bar w-py" />}
+        <button type="button" className="qk-cell qk-py" onClick={() => flip('py')} aria-label={vis('py') ? n.pinyin : 'Hidden pinyin, tap to show'}>
+          {vis('py') ? <Pinyin text={n.pinyin} className="qk-in" /> : <span className="qk-hide" />}
         </button>
-        <button type="button" className="qm-cell" style={{ fontSize: '1.1rem', textAlign: 'center' }} onClick={() => flip('mn')} lang={lang}>
-          {vis('mn') ? meaning(n, lang).text : <span className="bar w-mn" />}
+        <button type="button" className="qk-cell qk-mn" onClick={() => flip('mn')} lang={lang} aria-label={vis('mn') ? undefined : 'Hidden meaning, tap to show'}>
+          {vis('mn') ? <span className="qk-in">{meaning(n, lang).text}</span> : <span className="qk-hide" />}
         </button>
+        <span className="qk-swipe qk-swipe-l" aria-hidden="true">Missed</span>
+        <span className="qk-swipe qk-swipe-r" aria-hidden="true">Knew it</span>
       </div>
+      <p className="qk-hint">Tap to reveal. Swipe right if you knew it, left if you missed it.</p>
       {vis('hz') && vis('mn') && (
-        <button type="button" className="btn block" onClick={() => onExplain(n)}>
+        <button type="button" className="btn plain qk-explain" onClick={() => onExplain(n)}>
+          <Icon name="sparkles" />
           Explain
         </button>
       )}
-      <div className="grades" style={{ gridTemplateColumns: '1fr 1fr' }}>
+      <div className="grades qk-grades">
         <button type="button" className="g1" onClick={() => answer(false)}>
-          Missed <small>← or swipe left</small>
+          Missed <small aria-hidden="true">←</small>
         </button>
         <button type="button" className="g3" onClick={() => answer(true)}>
-          Knew it <small>→ or swipe right</small>
+          Knew it <small aria-hidden="true">→</small>
         </button>
       </div>
     </div>

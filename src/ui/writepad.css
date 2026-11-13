@@ -1,0 +1,11 @@
+/* Writing pad: soft rounded squares, same grid colour in both schemes. */
+.pad { gap: 12px; width: 100%; }
+.pad .pad-cell { border-width: 1px; border-radius: 14px; }
+.pad .pad-cell.small { border-radius: 10px; }
+.pad .pad-cell.active { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.pad > .row { justify-content: space-between; width: 100%; max-width: 440px; font-size: var(--fs-footnote); }
+.pad > .row .small { font-size: var(--fs-footnote); }
+.pad > .row .btn { flex: none; }
+.pad > .row:last-child { gap: 10px; }
+.pad > .row:last-child .btn { min-height: 50px; border-radius: 14px; font-size: var(--fs-body); }
+.pad-cells .pad-cell { border-radius: 14px; }

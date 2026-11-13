@@ -104,7 +104,8 @@ async def run(p, label, device):
     await d.get_by_role('heading', name='Examples').wait_for(timeout=10000)
     check(await d.locator('.zh').count() >= 1, 'at least one example sentence')
 
-    # Layout: panel flush with the bottom of the viewport, no sideways scroll.
+    # Layout: panel flush with the bottom of the viewport, no sideways scroll (after the slide-up animation ends).
+    await d.evaluate('el => Promise.all(el.getAnimations().map(a => a.finished))')
     box = await d.bounding_box()
     vh = await pg.evaluate('innerHeight')
     check(abs(box['y'] + box['height'] - vh) <= 1, f'panel bottom {box["y"] + box["height"]:.0f} equals viewport bottom {vh}')

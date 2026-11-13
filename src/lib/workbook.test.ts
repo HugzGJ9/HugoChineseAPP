@@ -75,7 +75,9 @@ vi.mock('./ms/graph', () => ({
 }));
 vi.mock('./ms/auth', () => ({ msConfigured: () => true }));
 vi.mock('./sync', () => ({
-  getLink: async () => (h.syncLinked ? { owner: 'me', name: 'data', token: 'tok' } : null),
+  syncLinked: async () => h.syncLinked,
+  onSharedList: () => undefined,
+  backoffDelay: (n: number, after?: number) => Math.max(60000 * 2 ** Math.max(0, n - 1), after ?? 0),
   syncNow: async () => {
     h.syncs++;
     await h.onSync?.();

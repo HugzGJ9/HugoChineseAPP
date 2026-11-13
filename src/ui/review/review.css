@@ -1,0 +1,85 @@
+/* Review: focused iOS flashcard flow. Tokens only; light and dark follow the scheme. */
+.shell.focus .main.rv { display: flex; flex-direction: column; min-height: 100vh; min-height: 100dvh; max-width: 640px; padding-left: var(--gl); padding-right: var(--gr); }
+.rv .topbar { gap: 4px; margin-bottom: 8px; padding-top: 0; min-height: 52px; }
+.rv .topbar .icon-btn { color: var(--label-2); }
+.rv .topbar .icon-btn:disabled { opacity: 0.3; }
+.rv .topbar .seg { margin-left: 4px; }
+.rv .topbar .grow { padding: 0 8px; }
+.rv .progress { height: 6px; background: var(--fill-2); border-radius: 3px; }
+.rv .progress > i { border-radius: 3px; transition: width 0.4s var(--ease); }
+.rv-count { min-width: 2ch; text-align: right; font-size: var(--fs-footnote); color: var(--label-2); font-variant-numeric: tabular-nums; }
+
+/* The card */
+.rv .card {
+  flex: 1 0 auto; justify-content: center; gap: 20px; margin: 4px 0 12px; padding: 32px 16px 28px;
+  background: var(--bg-elev); border-radius: 20px; box-shadow: var(--shadow-card); animation: rv-in 0.3s var(--ease);
+}
+@keyframes rv-in { from { opacity: 0; transform: translateY(8px) scale(0.99); } }
+.rv .card > .tag { align-self: center; padding: 3px 10px; border-radius: 999px; background: var(--accent-tint); color: var(--accent); font-size: var(--fs-caption); }
+.rv .card .prompt { font-size: var(--fs-title1); font-weight: 600; line-height: 1.25; font-family: var(--font-display); }
+.rv .card .meaning { font-size: var(--fs-title3); font-weight: 500; line-height: 1.3; }
+.rv .card .pinyin.big { font-size: var(--fs-title1); font-weight: 500; }
+.rv .card .sentence { font-size: var(--fs-title1); line-height: 1.5; }
+.rv .grid-word.big { --cell: 120px; }
+.rv .grid-word.gw-m { --cell: 84px; }
+.rv .grid-cell { border-width: 1px; margin-left: -1px; border-radius: 0; }
+.rv .grid-word { border-radius: 12px; overflow: hidden; }
+@media (max-width: 420px) { .rv .grid-word.big { --cell: 104px; } .rv .grid-word.gw-m { --cell: 76px; } .rv .grid-word.gw-s { --cell: 52px; } }
+@media (max-width: 340px) { .rv .grid-word.big { --cell: 88px; } .rv .grid-word.gw-m { --cell: 64px; } }
+
+/* Answer */
+.rv .answer { max-width: 440px; }
+.rv .answer input { min-height: 52px; border-radius: 14px; font-size: max(16px, var(--fs-title3)); background: var(--fill); }
+.rv .answer .row { gap: 10px; }
+.rv .answer .btn { min-height: 50px; border-radius: 14px; }
+.rv .modes { gap: 6px; }
+.rv .verdict { align-self: stretch; text-align: center; font-size: var(--fs-body); }
+.rv .verdict.wrong { background: color-mix(in srgb, var(--red) 12%, transparent); color: var(--red); }
+.rv .back { max-width: 520px; padding-top: 18px; border-top: 0.5px solid var(--separator); gap: 12px; }
+.rv .back .zh { font-family: var(--hanzi); }
+.rv .back .small { line-height: 1.45; }
+.rv .back .notes { padding: 10px 12px; border-radius: var(--radius-m); background: var(--fill); }
+.rv .back > .small { text-align: center; }
+.rv .back .btn.small { align-self: center; }
+.rv .choices { gap: 10px; }
+.rv .choices button { min-height: 60px; background: var(--fill); box-shadow: none; font-size: var(--fs-title2); }
+.rv .choices button.right { background: var(--green-tint); box-shadow: inset 0 0 0 2px var(--green-ui); }
+.rv .choices button.wrong { background: color-mix(in srgb, var(--red) 12%, transparent); box-shadow: inset 0 0 0 2px var(--red); }
+.rv .tile { background: var(--fill); box-shadow: none; min-height: 48px; }
+.rv .tile.placed { background: var(--bg-elev-2); box-shadow: 0 0 0 0.5px var(--separator); }
+.rv .tiles.target { border-bottom-color: var(--separator-opaque); }
+
+/* Dock: card actions + grades */
+.rv .dock { bottom: 0; padding: 12px 0 calc(12px + env(safe-area-inset-bottom)); background: linear-gradient(to top, var(--bg) 82%, transparent); }
+.rv .card-actions { margin-bottom: 6px; gap: 4px; }
+.rv .card-actions .btn { font-size: var(--fs-subhead); font-weight: 500; color: var(--label-2); }
+.rv .grades { gap: 8px; }
+.rv .grades button {
+  min-height: 66px; border-radius: 16px; font-size: var(--fs-body); font-weight: 600; gap: 2px; border: 0;
+  transition: transform 0.2s var(--spring), opacity 0.15s ease, box-shadow 0.15s ease;
+}
+.rv .grades button small { font-size: var(--fs-caption); font-weight: 500; opacity: 0.85; font-variant-numeric: tabular-nums; }
+.rv .grades button:active { transform: scale(0.96); opacity: 0.75; }
+.rv .grades .g1 { background: color-mix(in srgb, var(--red) 14%, transparent); color: var(--red); }
+.rv .grades .g2 { background: var(--orange-tint); color: var(--orange); }
+.rv .grades .g3 { background: var(--green-tint); color: var(--green); }
+.rv .grades .g4 { background: var(--blue-tint); color: var(--blue); }
+.rv .grades button.picked { box-shadow: inset 0 0 0 2px currentColor; }
+@media (hover: hover) { .rv .grades button:hover { filter: brightness(0.96); } }
+@media (max-width: 340px) { .rv .grades { gap: 6px; } .rv .grades button { font-size: var(--fs-subhead); } }
+.rv .dock > .row { gap: 8px; }
+.rv .dock > .row .btn.primary { min-height: 50px; min-width: 112px; border-radius: 14px; }
+
+/* End screen */
+.rv .rv-done { justify-content: center; gap: 12px; }
+.rv-done-icon { display: inline-flex; color: var(--green-ui); }
+.rv-done-icon svg { width: 64px; height: 64px; stroke-width: 1.4; }
+.rv .rv-done h2 { font: 700 var(--fs-title1) / 1.2 var(--font-display); }
+.rv-done-actions { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 320px; margin-top: 12px; }
+
+/* Phones: the progress bar gets its own full-width line under the buttons. */
+@media (max-width: 520px) {
+  .rv .topbar { flex-wrap: wrap; row-gap: 0; margin-bottom: 4px; }
+  .rv .topbar .grow { order: 9; flex: 1 0 100%; padding: 2px 4px 6px; }
+  .rv .rv-count { margin-left: auto; }
+}

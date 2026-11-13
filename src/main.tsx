@@ -1,10 +1,10 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { App } from './ui/App';
-import { init } from './lib/store';
-import { startSync } from './lib/sync';
-import { onFolderMessage, startFolder } from './lib/folder';
-import { onWorkbookMessage, startWorkbook } from './lib/workbook';
+import { getState, init } from './lib/store';
+import { linkOneDrive, onRebase, startSync, syncTarget } from './lib/sync';
+import { checkFolder, onFolderMessage, startFolder } from './lib/folder';
+import { checkWorkbook, onWorkbookMessage, startWorkbook } from './lib/workbook';
 import { completeSignIn, msSignIn, shouldRenewAtStart, takeAuthResponse } from './lib/ms/auth';
 import { toast } from './ui/common';
 import { startPwa } from './lib/pwa';
@@ -20,12 +20,21 @@ init()
   .then(async () => {
     onFolderMessage(toast);
     onWorkbookMessage(toast);
+    // Sync took an older shared list while the workbook here was newer: read the workbook again on top of it (plan D3).
+    onRebase(() => (getState().ms.state === 'ok' ? checkWorkbook(true) : checkFolder(true)));
+    let signedIn = false;
     if (auth) {
       try {
         await completeSignIn(auth);
+        signedIn = getState().ms.state === 'ok';
       } catch (e) {
         toast(`Microsoft sign-in did not finish: ${(e as Error).message}`);
       }
+    }
+    // Signing in with Microsoft is the whole setup: a device that syncs nowhere yet syncs through OneDrive (plan Q3).
+    // Before the readers start, so the workbook is read on top of the shared list.
+    if (signedIn && !(await syncTarget())) {
+      await linkOneDrive().catch((e: unknown) => toast(`Sync through OneDrive could not start: ${(e as Error).message}`));
     }
     // Microsoft sign-ins of web apps last 24 hours: renew before they lapse (a short redirect, back in a moment).
     if (await shouldRenewAtStart(Date.now()).catch(() => false)) {

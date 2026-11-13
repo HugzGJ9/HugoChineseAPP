@@ -1,43 +1,141 @@
-/* Word panel: tabs, dictionary, Claude's explanation, examples. Tokens only, so light and dark both work. */
-.wp-title { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; min-width: 0; }
-.wp-hz { font-size: 1.6rem; line-height: 1.2; }
-.wp-py { font-size: 1rem; font-weight: 500; }
-.wp-tabs { display: flex; gap: 8px; }
-.wp-tabs .chip { flex: 1; justify-content: center; }
+/* Word panel (WordPanel.tsx, ExplainView.tsx): header, view switch, then inset groups on the sheet's grouped background:
+   Your list, Dictionary, Claude's explanation, Examples, Status. Tokens only, so light and dark both work. */
 
-.wx { display: flex; flex-direction: column; gap: 16px; min-width: 0; text-align: left; }
-.wx-sec { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
-.wx h3 { margin: 0; font-size: 0.8rem; font-weight: 650; letter-spacing: 0.04em; text-transform: uppercase; color: var(--ink-3); }
-.wx h4 { margin: 8px 0 0; font-size: 0.9rem; }
+/* Header: big hanzi with its pinyin, audio, close. */
+.wp .pp-title { display: block; }
+.wp-title { display: flex; align-items: baseline; gap: 2px 12px; flex-wrap: wrap; min-width: 0; }
+.wp-hz { font-size: var(--fs-large); line-height: 1.15; font-weight: 500; letter-spacing: 0.02em; }
+.wp-py { font-size: var(--fs-title3); font-weight: 500; }
+.wp .pp-head .icon-btn { color: var(--accent); }
+.wp-bar { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.seg.wp-tabs { flex: 1 1 auto; display: flex; }
+.seg.wp-tabs button { flex: 1 1 0; }
+.wp-loading { padding: 16px; color: var(--label-2); }
+
+/* Status, last group of the sheet */
+.wp-status .pp-group-h { min-height: 24px; }
+.wp-details { text-transform: none; letter-spacing: 0; font-size: var(--fs-subhead); color: var(--accent); display: inline-flex; align-items: center; min-height: 44px; margin: -10px 0; }
+
+/* Explain view: groups */
+.wx { display: flex; flex-direction: column; gap: 24px; min-width: 0; text-align: left; }
+.wx-sec { display: flex; flex-direction: column; min-width: 0; }
+.wx-h, .wx-sech {
+  margin: 0 0 7px; padding: 0 16px; font: 400 var(--fs-footnote) / 1.3 var(--font); color: var(--label-2);
+  text-transform: uppercase; letter-spacing: 0.02em;
+}
+.wx-sech { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 3px; padding-right: 0; }
+.wx-sech .wx-h { margin: 0; padding: 0; }
+.wx-card {
+  margin: 0; padding: 0; list-style: none; background: var(--bg-elev); border-radius: var(--radius-card); overflow: hidden;
+  min-width: 0; font-size: var(--fs-body); line-height: 1.38;
+}
+@media (prefers-color-scheme: dark) { .wx-card { background: var(--bg-elev-2); } }
+.wx-pad { padding: 12px 16px; }
+.wx-dim { color: var(--label-2); }
+.wx-mine { font-size: var(--fs-body); }
+.wx-row { position: relative; display: block; padding: 11px 16px; min-width: 0; }
+.wx-card > .wx-row + .wx-row::before {
+  content: ''; position: absolute; top: 0; left: 16px; right: 0; border-top: 0.5px solid var(--separator);
+}
+.wx-note { font-size: var(--fs-footnote); color: var(--label-2); }
 .wx p { margin: 0; }
-.wx-sech { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.wx-pychip { min-height: 44px; }
-.wx-senses { margin: 0; padding-left: 1.3em; display: flex; flex-direction: column; gap: 4px; }
+
+/* Dictionary */
 .wx-reading { display: flex; flex-direction: column; gap: 4px; }
-.wx-rpy { font-size: 1.05rem; }
-.wx-measure { display: flex; flex-direction: column; gap: 4px; }
+.wx-rpy { font-size: var(--fs-subhead); }
+.wx-senses { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: 5px; }
+.wx-senses li::marker { color: var(--label-3); font-size: var(--fs-subhead); font-variant-numeric: tabular-nums; }
+.wx-action {
+  display: flex; align-items: center; justify-content: space-between; width: 100%; min-height: 44px; border: 0; background: none;
+  color: var(--accent); font-size: var(--fs-body); text-align: left; cursor: pointer;
+}
+.wx-action svg { width: 18px; height: 18px; stroke-width: 2.2; }
+.wx-action:active { background: var(--press); }
+.wx-label { font-size: var(--fs-footnote); color: var(--label-2); }
+.wx-measure { display: flex; flex-direction: column; gap: 8px; }
 .wx-chips { display: flex; flex-wrap: wrap; gap: 6px; }
-.wx-chip { display: inline-flex; align-items: center; gap: 4px; min-height: 32px; padding: 0 10px; border-radius: 999px; background: var(--sheet-2); }
-.wx-other summary { min-height: 44px; }
+.wx-chip {
+  display: inline-flex; align-items: baseline; gap: 6px; min-height: 32px; padding: 5px 12px; border-radius: 999px; background: var(--fill);
+  font-size: var(--fs-subhead);
+}
+.wx-chip .zh { font-size: var(--fs-body); }
+.wx-other { padding: 0; }
+.wx-other > summary { gap: 8px; padding: 0 16px; color: var(--label); font-weight: 400; }
+.wx-other > summary:active { background: var(--press); }
+.wx-chev { width: 16px; height: 16px; color: var(--placeholder); stroke-width: 2.4; transition: transform 0.2s var(--ease); }
+.wx-other[open] .wx-chev { transform: rotate(90deg); }
+.wx-other > .wx-reading { padding: 4px 16px 12px; }
+
+/* Claude */
+/* Pinyin toggle in a group header: a 28px capsule with a 44px hit area around it. */
+.wx-sech .wx-pychip.chip {
+  position: relative; min-height: 28px; height: 28px; padding: 0 12px; margin: 0 4px 0 0; font-size: var(--fs-footnote); text-transform: none; letter-spacing: 0;
+}
+.wx-pychip.chip::after { content: ''; position: absolute; inset: -8px -4px; }
+.wx-claude {
+  display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; border-radius: var(--radius-card); background: var(--bg-elev);
+  min-width: 0; font-size: var(--fs-body); line-height: 1.42;
+}
+@media (prefers-color-scheme: dark) { .wx-claude { background: var(--bg-elev-2); } }
+.wx-summary { font-size: var(--fs-body); font-weight: 500; }
+.wx-claude h4 {
+  margin: 6px 0 -4px; font: 600 var(--fs-footnote) / 1.3 var(--font); color: var(--label-2); text-transform: uppercase; letter-spacing: 0.02em;
+}
+.wx-claude .wx-senses { gap: 8px; }
+.wx-claude .tag { margin-right: 2px; }
+.wx-check { padding: 10px 12px; border-radius: var(--radius-m); background: var(--blue-tint); font-size: var(--fs-subhead); }
+.wx-wrong { color: var(--red); }
+.wx-right { color: var(--green); }
 .wx-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 12px; }
 .wx-list li { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; max-width: 100%; }
-.wx-zh {
-  display: block; width: 100%; min-height: 44px; padding: 4px 0; border: 0; background: none; color: var(--ink);
-  text-align: left; font-size: 1.2rem; line-height: 1.5; cursor: pointer; overflow-wrap: anywhere;
+.wx-sub { width: 100%; margin-top: 4px; padding-left: 12px; box-shadow: inset 2px 0 0 var(--fill-3); }
+.wx-foot { padding: 7px 16px 0; font-size: var(--fs-footnote); line-height: 1.38; color: var(--label-2); }
+.wx-foot .wx-link { min-height: 0; font-size: inherit; }
+.wx-run { display: flex; flex-direction: column; gap: 2px; padding: 14px 16px 10px; margin-top: 10px; border-radius: var(--radius-card); background: var(--bg-elev); }
+.wx-run .wx-foot { padding: 6px 0 0; }
+@media (prefers-color-scheme: dark) { .wx-run { background: var(--bg-elev-2); } }
+.wx-ask { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
+.wx-ask .btn.plain { padding: 0 8px; margin-left: 8px; }
+.wx-ask .btn.plain svg { width: 17px; height: 17px; }
+.wx-ask-first { flex-direction: column; align-items: stretch; margin-top: 0; }
+.wx-ask-first .btn { min-height: 50px; border-radius: var(--radius-card); }
+.wx-ask-first .wx-foot { text-align: left; }
+.wx-err {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; padding: 12px 14px; border-radius: var(--radius-card);
+  background: var(--accent-tint); color: var(--label); font-size: var(--fs-subhead);
 }
-.wx-tr { color: var(--ink-2); }
-.wx-sub { width: 100%; padding-left: 10px; border-left: 2px solid var(--line); }
-.wx-src { display: inline-flex; align-items: center; min-height: 44px; color: var(--ink-3); }
-.wx-summary { font-size: 1.02rem; }
-.wx-claude { display: flex; flex-direction: column; gap: 10px; padding: 12px; border-radius: var(--radius-m); background: var(--sheet-2); min-width: 0; }
-.wx-check { padding: 8px 10px; border-radius: var(--radius-m); background: var(--blue-soft); }
-.wx-wrong { color: var(--seal); }
-.wx-right { color: var(--jade); }
-.wx-run { display: flex; flex-direction: column; gap: 6px; }
-.wx-ask { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
-.wx-err { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 10px 12px; border-radius: var(--radius-m); background: var(--seal-soft); color: var(--seal); }
-.wx-err a { color: inherit; text-decoration: underline; }
-.wx-link { min-height: 44px; padding: 0; border: 0; background: none; color: var(--ink); text-decoration: underline; }
+.wx-err > span { flex: 1 1 200px; }
+.wx-err a { color: var(--accent); font-weight: 600; }
+.wx-err .btn { background: var(--bg-elev); }
+.wx-link { min-height: 44px; padding: 0; border: 0; background: none; color: var(--accent); font-weight: 500; }
 .wx-link:disabled { opacity: 0.5; }
-.wx-foot { margin-top: 2px; }
-.wx.inline { gap: 14px; }
+.wx-claude + .wx-foot { margin-bottom: 2px; }
+
+/* Sentences: tap to hear */
+.wx-ex > .wx-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'zh src' 'py py' 'tr tr';
+  align-items: start; column-gap: 8px; row-gap: 2px; padding: 8px 8px 11px 16px;
+}
+.wx-ex .wx-zh { grid-area: zh; }
+.wx-ex .wx-py { grid-area: py; }
+.wx-ex .wx-tr { grid-area: tr; padding-right: 8px; }
+.wx-ex .wx-src { grid-area: src; }
+.wx-zh {
+  display: block; width: 100%; min-height: 36px; padding: 2px 0; border: 0; background: none; color: var(--label);
+  text-align: left; font-size: var(--fs-body); line-height: 1.5; cursor: pointer; overflow-wrap: anywhere; border-radius: 6px;
+  transition: color 0.15s ease;
+}
+.wx-claude .wx-zh { min-height: 0; padding: 0; }
+.wx-zh:active { color: var(--accent); }
+@media (hover: hover) { .wx-zh:hover { color: var(--accent); } }
+.wx-py { font-size: var(--fs-subhead); color: var(--label-2); }
+.wx-tr { font-size: var(--fs-subhead); color: var(--label-2); line-height: 1.38; }
+.wx-src {
+  display: inline-flex; align-items: center; gap: 3px; min-height: 36px; padding: 0 8px; border-radius: 999px;
+  font-size: var(--fs-caption); color: var(--label-3);
+}
+.wx-src svg { width: 11px; height: 11px; stroke-width: 2; }
+.wx-src:active { background: var(--fill); }
+@media (pointer: coarse) { .wx-src { min-height: 44px; margin: -4px 0 -6px; } }
+
+.wx.inline { gap: 20px; }

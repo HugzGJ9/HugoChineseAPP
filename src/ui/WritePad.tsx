@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import HanziWriter from 'hanzi-writer';
 import { charDataLoader } from '../lib/strokes';
 import { HAN } from '../lib/pinyin';
+import './writepad.css';
 
 export interface WriteResult {
   mistakes: number;

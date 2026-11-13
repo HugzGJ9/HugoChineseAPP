@@ -55,7 +55,10 @@ async def main():
         check('both devices show the sheets', await pg.locator('.sheets [role=tab]').count() >= 3
               and await pp.locator('.sheets [role=tab]').count() >= 3)
         await pg.screenshot(path=S + 'odsync-pc.png'); await pp.screenshot(path=S + 'odsync-phone.png')
-        data = ms.app_files('data')
+        for _ in range(30):  # the list is pushed a moment after the import
+            data = ms.app_files('data')
+            if 'vocab.json.gz' in data and 'settings.json' in data: break
+            await pg.wait_for_timeout(1000)
         check('app folder holds the shared list and settings', 'vocab.json.gz' in data and 'settings.json' in data, str(sorted(data)))
         devs = [n for n in data if re.fullmatch(r'devices\.[^.]+\.json', n)]
         check('both devices registered (devices.<id>.json)', len(devs) == 2, str(devs))
@@ -87,6 +90,7 @@ async def main():
         grp = lambda page: page.get_by_role('group', name=SEL['lang_group']).first
         await pg.goto(U + '#/settings')
         await grp(pg).get_by_role('button', name='FR').click()
+        await pg.wait_for_timeout(2500)  # shared preferences are saved 1.5 s after the change
         await sync_now(pg)
         settings = ms.app_json('settings.json') or {}
         check('settings.json in the app folder carries the language', (settings.get('prefs') or {}).get('lang') == 'fr', str(settings.get('prefs')))

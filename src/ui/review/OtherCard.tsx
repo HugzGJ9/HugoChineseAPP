@@ -4,7 +4,7 @@ import type { CardState, Grade, Note } from '../../lib/types';
 import { meaning, useApp } from '../../lib/store';
 import { gradeFor } from '../../lib/engine/grade';
 import { speak } from '../../lib/speech';
-import { AudioButton, GridWord, Meaning, Pinyin } from '../common';
+import { AudioButton, GridWord, Icon, Meaning, Pinyin } from '../common';
 import { GradeBar } from './GradeBar';
 import { VerdictLine, seeded, segment, type Answered } from './shared';
 
@@ -142,8 +142,8 @@ function OtherBack({ note, onExplain }: { note: Note; onExplain?: () => void }) 
         </div>
       ))}
       {onExplain && (
-        <button type="button" className="btn small" onClick={onExplain} title="Explain (E)">
-          Explain <span className="faint small">E</span>
+        <button type="button" className="btn small tinted" onClick={onExplain} title="Explain (E)">
+          <Icon name="sparkles" /> Explain <span className="faint small">E</span>
         </button>
       )}
     </div>

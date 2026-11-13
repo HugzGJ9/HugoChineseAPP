@@ -5,6 +5,7 @@ import { pref, setPref } from '../lib/db';
 import { speak } from '../lib/speech';
 import { Meaning, Pinyin } from './common';
 import { inDialog } from './panel';
+import './qm.css';
 
 export type Layer = 'hz' | 'py' | 'mn';
 export type Shown = Record<Layer, boolean>;
@@ -30,34 +31,37 @@ export function useQmShown(prefix: string, def: Shown = { hz: true, py: true, mn
   return { shown, preset, listen, setShown, toggle };
 }
 
+/** Show/hide toggles for the three layers. `compact` uses short labels (Sheets toolbar). */
 export function LayerBar({
-  shown, preset, lang, onToggle, onPreset, noPinyin = false, compact = false,
+  shown, lang, onToggle, noPinyin = false, compact = false,
 }: {
-  shown: Shown; preset: string; lang: string; onToggle: (l: Layer) => void; onPreset: (s: Shown, name: string) => void; noPinyin?: boolean;
-  /** Short chips only; the presets live elsewhere (Sheets "more" menu). */
-  compact?: boolean;
+  shown: Shown; lang: string; onToggle: (l: Layer) => void; noPinyin?: boolean; compact?: boolean;
+  /** Unused, kept so older call sites still type-check. */
+  preset?: string; onPreset?: (s: Shown, name: string) => void;
 }) {
+  const chip = (l: Layer, label: string, aria: string, key: string) => (
+    <button type="button" className={`ql-chip ${shown[l] ? '' : 'off'}`} aria-pressed={shown[l]} aria-label={aria} onClick={() => onToggle(l)} title={`${aria} (key ${key})`}>
+      {label}
+    </button>
+  );
   return (
-    <div className={`qm-bar ${compact ? 'compact' : ''}`} role="group" aria-label="Show or hide">
-      <button type="button" className={`chip ${shown.hz ? '' : 'off'}`} aria-pressed={shown.hz} aria-label="Hanzi" onClick={() => onToggle('hz')} title="Key 1">
-        {compact ? '汉' : '汉字'}
-      </button>
-      {!noPinyin && (
-        <button type="button" className={`chip ${shown.py ? '' : 'off'}`} aria-pressed={shown.py} aria-label="Pinyin" onClick={() => onToggle('py')} title="Key 2">
-          {compact ? 'Py' : 'Pinyin'}
+    <div className={`ql-bar ${compact ? 'compact' : ''}`} role="group" aria-label="Show or hide">
+      {chip('hz', compact ? '汉' : '汉字', 'Hanzi', '1')}
+      {!noPinyin && chip('py', compact ? 'Py' : 'Pinyin', 'Pinyin', '2')}
+      {chip('mn', lang.toUpperCase(), `Meaning (${lang.toUpperCase()})`, '3')}
+    </div>
+  );
+}
+
+/** Quiz presets (which layers start hidden) as a segmented control. */
+export function PresetSeg({ preset, onPreset, label = 'Presets', id }: { preset: string; onPreset: (s: Shown, name: string) => void; label?: string; id?: string }) {
+  return (
+    <div className="seg ql-presets" role="group" aria-label={id ? undefined : label} aria-labelledby={id}>
+      {PRESETS.map((p) => (
+        <button key={p.name} type="button" aria-pressed={preset === p.name} onClick={() => onPreset(p.shown, p.name)}>
+          {p.name}
         </button>
-      )}
-      <button type="button" className={`chip ${shown.mn ? '' : 'off'}`} aria-pressed={shown.mn} aria-label={`Meaning (${lang.toUpperCase()})`} onClick={() => onToggle('mn')} title="Key 3">
-        {lang.toUpperCase()}
-      </button>
-      {!compact && <span className="grow" />}
-      {!compact && <div className="seg" role="group" aria-label="Presets">
-        {PRESETS.map((p) => (
-          <button key={p.name} type="button" aria-pressed={preset === p.name} onClick={() => onPreset(p.shown, p.name)}>
-            {p.name}
-          </button>
-        ))}
-      </div>}
+      ))}
     </div>
   );
 }
@@ -145,7 +149,7 @@ export function QmList<T extends Item>({
     document.getElementById(`qm-${cur}`)?.scrollIntoView({ block: 'nearest' });
   }, [cur]);
   return (
-    <div className="qm-list" role="list">
+    <div className="ql" role="list">
       {items.map((it, i) => (
         <QmRow
           key={it.key}
@@ -198,25 +202,29 @@ function QmRow({
     onClick: (e: React.MouseEvent) => e.stopPropagation(),
   };
   return (
-    <div id={id} role="listitem" className={`qm-row ${focused ? 'focus' : ''} ${extra}`} {...hold.props} onClick={() => listen && speak(note.hanzi)}>
+    <div id={id} role="listitem" className={`ql-row ${focused ? 'focus' : ''} ${extra}`} {...hold.props} onClick={() => listen && speak(note.hanzi)}>
       {lead != null && (
-        <span className="qm-lead" {...own}>
+        <span className="ql-lead" {...own}>
           {lead}
         </span>
       )}
-      <button type="button" className="qm-cell hz" onClick={tap('hz')} aria-label={vis('hz') ? note.hanzi : 'Hidden hanzi, tap to show'}>
-        {vis('hz') ? <span className="peek">{note.hanzi}</span> : <span className="bar w-hz" />}
-      </button>
-      {!noPinyin && (
-        <button type="button" className="qm-cell py" onClick={tap('py')} aria-label={vis('py') ? note.pinyin : 'Hidden pinyin, tap to show'}>
-          {vis('py') ? <Pinyin text={note.pinyin} className="peek" /> : <span className="bar w-py" />}
+      <div className="ql-main">
+        <div className="ql-top">
+          <button type="button" className="ql-cell ql-hz" onClick={tap('hz')} aria-label={vis('hz') ? note.hanzi : 'Hidden hanzi, tap to show'}>
+            {vis('hz') ? <span className="peek" lang="zh-CN">{note.hanzi}</span> : <span className="ql-hide" />}
+          </button>
+          {!noPinyin && (
+            <button type="button" className="ql-cell ql-py" onClick={tap('py')} aria-label={vis('py') ? note.pinyin : 'Hidden pinyin, tap to show'}>
+              {vis('py') ? <Pinyin text={note.pinyin} className="peek" /> : <span className="ql-hide" />}
+            </button>
+          )}
+        </div>
+        <button type="button" className="ql-cell ql-mn" onClick={tap('mn')} aria-label={vis('mn') ? 'Meaning' : 'Hidden meaning, tap to show'}>
+          {vis('mn') ? <Meaning note={note} className="peek" /> : <span className="ql-hide" />}
         </button>
-      )}
-      <button type="button" className="qm-cell mn" onClick={tap('mn')} aria-label={vis('mn') ? 'Meaning' : 'Hidden meaning, tap to show'}>
-        {vis('mn') ? <Meaning note={note} className="peek" /> : <span className="bar w-mn" />}
-      </button>
+      </div>
       {trail != null && (
-        <div className="qm-trail" {...own}>
+        <div className="ql-trail" {...own}>
           {trail}
         </div>
       )}

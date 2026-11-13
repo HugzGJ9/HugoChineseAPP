@@ -1,25 +1,66 @@
-/* Shared panel shell: bottom sheet on phones, right side panel on wide screens. */
-.pp-backdrop { position: fixed; inset: 0; z-index: 70; background: rgb(0 0 0 / 0.4); }
+/* Shared panel shell (panel.tsx): an iOS sheet on phones, a side panel from 900px. The sheet uses the grouped
+   background so its content can sit in white inset groups. Tokens only. */
+.pp-backdrop { position: fixed; inset: 0; z-index: 70; background: var(--scrim); }
 .pp-panel {
   position: fixed; z-index: 71; left: 0; right: 0; bottom: 0;
-  max-height: 92dvh; overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
-  background: var(--sheet); color: var(--ink); border-top: 1px solid var(--line);
+  max-height: calc(100dvh - env(safe-area-inset-top) - 10px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch; background: var(--bg); color: var(--label);
   border-radius: var(--radius-l) var(--radius-l) 0 0;
-  padding: 12px calc(16px + env(safe-area-inset-right)) calc(16px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
-  display: flex; flex-direction: column; gap: 12px; outline: none; overflow-wrap: anywhere;
-  box-shadow: 0 -8px 28px rgb(0 0 0 / 0.22);
+  padding: 0 calc(16px + env(safe-area-inset-right)) calc(20px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+  display: flex; flex-direction: column; gap: 14px; outline: none; overflow-wrap: anywhere;
 }
-.pp-head { display: flex; align-items: center; gap: 8px; min-height: 44px; }
-.pp-head h2 { flex: 1; min-width: 0; margin: 0; font-size: 1.05rem; }
-.pp-head .icon-btn, .pp-panel .icon-btn { min-width: 44px; min-height: 44px; }
+div.pp-panel::before { display: none; }
+.pp-panel.tall { min-height: min(72dvh, 640px); }
+@media (prefers-color-scheme: dark) { .pp-panel { background: var(--bg-elev); } }
+
+/* Grabber + header: the header stays pinned while the sheet scrolls. */
+.pp-grabber {
+  flex: none; position: sticky; top: 0; z-index: 3; height: 0; margin: 0 -16px; touch-action: none;
+}
+.pp-grabber::after {
+  content: ''; position: absolute; left: 50%; top: 5px; width: 36px; height: 5px; margin-left: -18px; border-radius: 3px; background: var(--fill-3);
+}
+.pp-head {
+  position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 4px; min-height: 56px;
+  margin: 0 calc(-16px - env(safe-area-inset-right)) 0 calc(-16px - env(safe-area-inset-left));
+  padding: 14px calc(10px + env(safe-area-inset-right)) 6px calc(16px + env(safe-area-inset-left));
+  background: var(--bg); touch-action: none;
+}
+@media (prefers-color-scheme: dark) { .pp-head { background: var(--bg-elev); } }
+.pp-title { flex: 1; min-width: 0; margin: 0; font: 600 var(--fs-body) / 1.3 var(--font); }
+.pp-close {
+  flex: none; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin-right: -4px;
+  padding: 0; border: 0; border-radius: 50%; background: none; color: var(--label-2);
+}
+.pp-close span {
+  display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 50%;
+  background: var(--fill); transition: transform 0.2s var(--spring), background-color 0.15s ease;
+}
+.pp-close svg { width: 15px; height: 15px; stroke-width: 2.6; }
+.pp-close:active span { transform: scale(0.88); background: var(--fill-3); }
+@media (hover: hover) { .pp-close:hover span { background: var(--fill-2); } }
+.pp-panel .icon-btn { min-width: 44px; min-height: 44px; }
 .pp-panel .btn { min-height: 44px; }
-.pp-panel .chip { min-height: 44px; }
+.pp-panel .btn.small { min-height: 34px; }
+@media (pointer: coarse) { .pp-panel .btn.small { min-height: 44px; } }
+
+/* White inset groups inside a sheet (Section-like, for screens that render their own markup). */
+.pp-group { display: flex; flex-direction: column; min-width: 0; }
+.pp-group-h {
+  display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 22px; margin: 0 0 7px; padding: 0 16px;
+  font: 400 var(--fs-footnote) / 1.3 var(--font); color: var(--label-2); text-transform: uppercase; letter-spacing: 0.02em;
+}
+.pp-card { background: var(--bg-elev); border-radius: var(--radius-card); overflow: hidden; min-width: 0; }
+@media (prefers-color-scheme: dark) { .pp-card { background: var(--bg-elev-2); } }
+.pp-card-pad { padding: 14px 16px; }
+.pp-group-f { padding: 7px 16px 0; font-size: var(--fs-footnote); line-height: 1.38; color: var(--label-2); }
 
 @media (min-width: 900px) {
   .pp-backdrop { display: none; }
   .pp-panel {
-    left: auto; top: 0; bottom: 0; width: 400px; max-height: none;
-    border-top: 0; border-left: 1px solid var(--line); border-radius: 0;
-    padding-bottom: 16px; box-shadow: -8px 0 28px rgb(0 0 0 / 0.15);
+    left: auto; top: 0; bottom: 0; width: 420px; max-height: none; min-height: 0; border-radius: 0;
+    padding-bottom: 24px; box-shadow: -0.5px 0 0 var(--separator), var(--shadow-pop) !important;
   }
+  .pp-head { padding-top: 12px; touch-action: auto; }
+  .pp-grabber { display: none; }
 }

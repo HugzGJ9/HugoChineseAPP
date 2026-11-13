@@ -135,8 +135,11 @@ export function monthOf(e: ReviewEvent): string {
 
 /** Preferences that follow Hugo to every device, through `Settings.prefs` in settings.json. */
 export const SHARED_PREFS: readonly string[] = ['lang', 'acceptBoth', 'qm.shown', 'qm.preset', 'qm.tag', 'qm.filter'];
-/** Preferences that stay on one device (voices differ; the iPhone writes, the PC types). Plus every `mode.<cardType>` and `sh.*`. */
-export const DEVICE_PREFS: readonly string[] = ['voice', 'rate', 'qm.mode'];
+/**
+ * Preferences that stay on one device (voices differ; the iPhone writes, the PC types; `excel.write` = write statuses into
+ * the workbook automatically, default on). Plus every `mode.<cardType>` and `sh.*`.
+ */
+export const DEVICE_PREFS: readonly string[] = ['voice', 'rate', 'qm.mode', 'excel.write'];
 export const DEVICE_PREF_PREFIX = 'mode.';
 /** Sheets screen preferences (tab, filter, shown layers, paint): per device, backed up, never synced. */
 export const SHEETS_PREF_PREFIX = 'sh.';

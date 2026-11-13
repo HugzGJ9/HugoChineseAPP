@@ -7,6 +7,8 @@ import type { Note, ReviewEvent, StatusMark, VocabFile } from './types';
 import { fromBase64, toBase64 } from './github';
 import { latestMarks } from './engine/schedule';
 import { sheetRows } from './status';
+import { FakeLocation, FakeMicrosoft, fakeSignIn } from './ms/fake';
+import { fromOdName, toOdName } from './syncstore';
 
 class FakeGitHub {
   files = new Map<string, { sha: string; bytes: Uint8Array }>();
@@ -1016,5 +1018,504 @@ describe('explanations', () => {
     putBytes(`explain/${old}/2026-10.json.gz`, phone.sync.encodeExplain(old, '2026-10', []));
     await phone.sync.linkRepo(LINK);
     expect(phone.store.getState().device).not.toBe(old);
+  });
+});
+
+// ---------- OneDrive app folder (plan WP6) ----------
+
+const START = `https://hugzgj9.github.io${import.meta.env.BASE_URL}`;
+const DATA = 'Apps/Hugo Chinese/data';
+let ms: FakeMicrosoft;
+let loc: FakeLocation;
+
+/** GitHub calls go to the fake GitHub, Anthropic to `claude` when set, everything else to the fake Microsoft. */
+let claude: ((init: RequestInit) => Response) | null = null;
+const routed = async (input: string | URL | Request, init: RequestInit = {}): Promise<Response> => {
+  const url = new URL(typeof input === 'string' || input instanceof URL ? String(input) : input.url);
+  if (url.host === 'api.github.com') return gh.fetch(String(input), init);
+  if (url.host === 'api.anthropic.com' && claude) return claude(init);
+  return ms.fetch(input, init);
+};
+
+function msSetup() {
+  beforeEach(() => {
+    ms = new FakeMicrosoft('test-client');
+    ms.redirectUri = START;
+    loc = new FakeLocation(START);
+    claude = null;
+    vi.stubEnv('VITE_MS_CLIENT_ID', 'test-client');
+    vi.stubGlobal('fetch', routed);
+    vi.stubGlobal('location', loc);
+    vi.stubGlobal('history', loc.history);
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+}
+
+/** A device signed in to Microsoft (its own tokens in its own database). */
+async function msDevice(idb?: IDBFactory, signIn = true) {
+  const d = await device(idb);
+  const auth = await import('./ms/auth');
+  if (signIn) await fakeSignIn(ms, loc, auth);
+  return { ...d, auth };
+}
+type Dev = Awaited<ReturnType<typeof msDevice>>;
+
+const odItem = (path: string) => ms.byPath(`${DATA}/${toOdName(path)}`);
+const odText = (path: string) => new TextDecoder().decode(odItem(path)!.bytes);
+const odPaths = () =>
+  [...ms.items.values()]
+    .filter((x) => x.folder === DATA)
+    .map((x) => fromOdName(x.name) ?? `?${x.name}`)
+    .sort();
+function odPut(path: string, bytes: Uint8Array) {
+  const it = odItem(path);
+  if (it) ms.excelSave(it.id, bytes);
+  else ms.addFile(`${DATA}/${toOdName(path)}`, bytes);
+}
+const dataPuts = () => ms.requests.filter((r) => r.method === 'PUT' && r.url.includes('/special/approot:/data/'));
+
+/** The same tests through either store. */
+interface Backend {
+  link(d: Dev): Promise<void>;
+  paths(): string[];
+  text(path: string): string;
+  put(path: string, bytes: Uint8Array): void;
+  writes(): number;
+  /** URL ending of a write of this path, to inject a race. */
+  writeUrl(path: string): string;
+}
+const backends: Record<'github' | 'onedrive', Backend> = {
+  github: {
+    link: (d) => d.sync.linkRepo(LINK),
+    paths: () => [...gh.files.keys()].sort(),
+    text: (p) => gh.text(p),
+    put: (p, bytes) => {
+      const sha = `x${Math.random().toString(16).slice(2, 10)}`;
+      gh.files.set(p, { sha, bytes });
+      gh.blobs.set(sha, bytes);
+    },
+    writes: () => gh.commits,
+    writeUrl: (p) => `/contents/${p}`,
+  },
+  onedrive: {
+    link: (d) => d.sync.linkOneDrive(),
+    paths: odPaths,
+    text: odText,
+    put: odPut,
+    writes: () => dataPuts().length,
+    writeUrl: (p) => `/data/${toOdName(p)}:/content`,
+  },
+};
+
+const enc = (s: string) => new TextEncoder().encode(s);
+
+describe.each(['github', 'onedrive'] as const)('sync through %s', (kind) => {
+  msSetup();
+  const B = backends[kind];
+
+  it('two devices end with the same words, settings, reviews, statuses and cards; an idle sync writes nothing', async () => {
+    const pc = await msDevice();
+    await pc.store.setVocab(vocab(12, T0));
+    await pc.db.kvSet('vocabDirty', true);
+    await pc.store.recordReview('v:词1|ci1#recog', 3, 'reveal', 2000, T0 + 1000);
+    await B.link(pc);
+    expect(pc.store.getState().sync.state).toBe('idle');
+    expect(B.paths()).toEqual([`devices/${pc.id}.json`, `events/${pc.id}/2026-11.json`, 'settings.json', 'vocab.json.gz']);
+    expect(JSON.parse(B.text(`devices/${pc.id}.json`))).toMatchObject({ id: pc.id, caps: 2 });
+    await pc.store.updateSettings({ newVocab: 15 });
+    await pc.sync.syncNow();
+
+    const phone = await msDevice();
+    await B.link(phone);
+    let p = phone.store.getState();
+    expect(p.notes).toHaveLength(12);
+    expect(p.settings.newVocab).toBe(15);
+    expect(p.events).toHaveLength(1);
+    expect(snapshot(p.cards)).toEqual(snapshot(pc.store.getState().cards));
+    expect(await phone.db.kvGet('vocabDirty', true)).toBe(false);
+
+    await phone.store.recordReview('v:词2|ci2#recog', 1, 'type-pinyin', 2500, T0 + 86400000);
+    const st = await phone.store.setNoteStatus('v:词3|ci3', 'st:mastered', T0 + 86400000 + 10);
+    await phone.store.setNoteStatus('v:词4|ci4', 'suspend', T0 + 86400000 + 20);
+    await phone.sync.syncNow();
+    await pc.sync.syncNow();
+    const s = pc.store.getState();
+    expect(s.events).toHaveLength(2);
+    expect(s.marks.map((m) => m.id)).toContain(st.id);
+    expect(s.cards.get('v:词4|ci4#recog')?.suspended).toBe(true);
+    expect(snapshot(s.cards)).toEqual(snapshot(phone.store.getState().cards));
+
+    const writes = B.writes();
+    await pc.sync.syncNow();
+    await phone.sync.syncNow();
+    expect(B.writes()).toBe(writes);
+
+    await pc.store.setVocab(vocab(14, T0 + 2 * 86400000, 'v2'));
+    await pc.db.kvSet('vocabDirty', true);
+    await pc.sync.syncNow();
+    await phone.sync.syncNow();
+    p = phone.store.getState();
+    expect(p.notes).toHaveLength(14);
+    expect(p.meta?.hash).toBe('h14v2');
+    expect(snapshot(p.cards)).toEqual(snapshot(pc.store.getState().cards));
+  });
+
+  it('settings: the latest change wins', async () => {
+    const pc = await msDevice();
+    await pc.store.setVocab(vocab(3, T0));
+    await B.link(pc);
+    const phone = await msDevice();
+    await B.link(phone);
+    await pc.store.updateSettings({ maxReviews: 200 });
+    await new Promise((r) => setTimeout(r, 5));
+    await phone.store.updateSettings({ maxReviews: 80 });
+    await pc.sync.syncNow();
+    await phone.sync.syncNow();
+    await pc.sync.syncNow();
+    expect(pc.store.getState().settings.maxReviews).toBe(80);
+    expect(phone.store.getState().settings.maxReviews).toBe(80);
+  });
+
+  it('an explanation made on one device reaches the other', async () => {
+    const ex5 = Array.from({ length: 5 }, (_, i) => ({ zh: `我们每天学习${i}个小时。`, pinyin: 'wǒmen …', tr: `example ${i}` }));
+    const x = { summary: 'from the pc', senses: [{ meaning: 'm' }], register: 'neutral', nuance: [], collocations: [], patterns: [], mistakes: [], examples: ex5 };
+    claude = () => {
+      const evs = [
+        { type: 'message_start', message: { model: 'claude-sonnet-5-5', usage: { input_tokens: 10, output_tokens: 1 } } },
+        { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', name: 'word_explanation', input: {} } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: JSON.stringify(x) } },
+        { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 10 } },
+        { type: 'message_stop' },
+      ];
+      return new Response(evs.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(''), { status: 200 });
+    };
+    const pc = await msDevice();
+    await pc.store.setVocab(vocab(3, T0));
+    await B.link(pc);
+    const phone = await msDevice();
+    await B.link(phone);
+    const word = pc.store.getState().notes[1];
+    await pc.explain.setClaudeKey('sk-ant-test-0000');
+    const e = await pc.explain.requestExplanation(word, 'fr');
+    await pc.sync.syncNow();
+    expect(B.paths()).toContain(`explain/${pc.id}/${pc.db.monthKey(e.at)}.json.gz`);
+    await phone.sync.syncNow();
+    expect((await phone.explain.getExplanation(word, 'fr'))?.x.summary).toBe('from the pc');
+  });
+
+  it('a write conflict pulls again and retries once', async () => {
+    const pc = await msDevice();
+    await pc.store.setVocab(vocab(3, T0));
+    await B.link(pc);
+    const phone = await msDevice();
+    await B.link(phone);
+    await phone.store.updateSettings({ maxReviews: 80 });
+    let conflicts = 0;
+    let raced = false;
+    vi.stubGlobal('fetch', async (input: string | URL, init: RequestInit = {}) => {
+      if (!raced && init.method === 'PUT' && new URL(String(input)).pathname.endsWith(B.writeUrl(SETTINGS))) {
+        // The computer saves newer settings just before the phone's write lands (straight into the store: its sync
+        // would wait on the phone's lock).
+        raced = true;
+        B.put(SETTINGS, enc(JSON.stringify({ ...pc.store.getState().settings, maxReviews: 50, updatedAt: Date.now() + 1000 }, null, 1) + '\n'));
+      }
+      const res = await routed(input, init);
+      if (res.status === 409 || res.status === 412) conflicts++;
+      return res;
+    });
+    await phone.sync.syncNow();
+    expect(conflicts).toBe(1);
+    expect(phone.store.getState().sync.state).toBe('idle');
+    expect(phone.store.getState().settings.maxReviews).toBe(50);
+    expect(JSON.parse(B.text(SETTINGS)).maxReviews).toBe(50);
+  });
+
+  it('keeps reviews made while offline and sends them later', async () => {
+    const pc = await msDevice();
+    await pc.store.setVocab(vocab(3, T0));
+    await B.link(pc);
+    vi.stubGlobal('fetch', async () => {
+      throw new TypeError('Failed to fetch');
+    });
+    await pc.store.recordReview('v:词0|ci0#recog', 3, 'reveal', 1000, T0 + 5000);
+    await pc.sync.syncNow();
+    expect(pc.store.getState().sync.state).toBe('error');
+    expect(pc.store.getState().sync.message).toMatch(/could not be reached/);
+    expect(pc.sync.nextAutoSync()).toBeGreaterThan(Date.now());
+    vi.stubGlobal('fetch', routed);
+    await pc.sync.syncNow();
+    expect(pc.store.getState().sync.state).toBe('idle');
+    expect(B.text(`events/${pc.id}/2026-11.json`)).toContain('v:词0|ci0#recog');
+  });
+
+  it('one unreadable file does not stop the rest of the sync', async () => {
+    const pc = await msDevice();
+    await pc.store.setVocab(vocab(4, T0));
+    await B.link(pc);
+    const tab = (id: string, t: number): ReviewEvent => ({ id, card: 'v:词1|ci1#recog', r: 3, t, d: 1, m: 'reveal', dev: 'tablet-1' });
+    B.put('events/tablet-1/2026-10.json', enc('{"events":[["a"'));
+    B.put('events/tablet-1/2026-11.json', enc(pc.sync.encodeEvents('tablet-1', '2026-11', [tab('t1', T0 + 1)])));
+    B.put(SETTINGS, enc('not json'));
+    const ev = await pc.store.recordReview('v:词2|ci2#recog', 3, 'reveal', 1000, T0 + 2000);
+    await pc.store.updateSettings({ newVocab: 7 });
+    await pc.sync.syncNow();
+    const s = pc.store.getState();
+    expect(s.sync.state).toBe('idle');
+    expect(s.sync.warnings).toHaveLength(2);
+    expect(s.events.map((e) => e.id).sort()).toEqual([ev.id, 't1'].sort());
+    expect(JSON.parse(B.text(SETTINGS)).newVocab).toBe(7);
+  });
+});
+
+const SETTINGS = 'settings.json';
+
+describe('OneDrive app folder', () => {
+  msSetup();
+
+  it('flat names map back to the sync paths', () => {
+    const paths = ['events/pc-1a2b3c4d/2026-11.json', 'marks/phone-0f0f0f0f/2027-01.json', 'explain/pc-1/2026-12.json.gz', 'devices/pc-1.json', 'vocab.json.gz', 'settings.json'];
+    for (const p of paths) expect(fromOdName(toOdName(p))).toBe(p);
+    expect(toOdName('events/pc-1/2026-11.json')).toBe('events.pc-1.2026-11.json');
+    // Files that aren't sync files are ignored.
+    for (const n of ['settings 1.json', 'events.pc-1.2026-11.json.tmp', 'notes.txt', 'events.pc.1.2026-11.json']) expect(fromOdName(n)).toBeNull();
+  });
+
+  it('lists every page; every write is conditional; nothing else is touched', async () => {
+    ms.pageSize = 2;
+    const other = ms.addFile('Documents/keep.txt', enc('mine'));
+    const pc = await msDevice();
+    await pc.store.setVocab(vocab(6, T0));
+    for (let m = 0; m < 4; m++) await pc.store.recordReview(`v:词${m}|ci${m}#recog`, 3, 'reveal', 1000, Date.UTC(2026, 10 + m, 10));
+    await pc.sync.linkOneDrive();
+    expect(odPaths()).toHaveLength(7);
+    const phone = await msDevice();
+    await phone.sync.linkOneDrive();
+    expect(phone.store.getState().events).toHaveLength(4);
+    expect(ms.requests.some((r) => r.url.includes('$skiptoken'))).toBe(true);
+    for (const r of dataPuts()) expect(!!r.headers['if-match'] || new URL(r.url).searchParams.get('@microsoft.graph.conflictBehavior') === 'fail').toBe(true);
+    // Only the app folder; the Microsoft token only to Microsoft.
+    expect(ms.requests.filter((r) => r.method !== 'GET' && !r.url.includes('/special/approot') && !r.url.includes('login.microsoftonline.com'))).toEqual([]);
+    expect(ms.items.get(other.id)!.ver).toBe(1);
+    for (const r of ms.requests) if (r.headers.authorization) expect(new URL(r.url).host).toBe('graph.microsoft.com');
+  });
+
+  it('two devices creating the same file: the second is refused (409), pulls again and retries once', async () => {
+    const pc = await msDevice();
+    await pc.store.setVocab(vocab(3, T0));
+    await pc.store.updateSettings({ newVocab: 4 });
+    const phone = await msDevice();
+    await phone.store.updateSettings({ newVocab: 6 });
+    // Linked at the same moment: the phone listed an empty folder, then the pc created settings.json.
+    let raced = false;
+    let refused = 0;
+    vi.stubGlobal('fetch', async (input: string | URL, init: RequestInit = {}) => {
+      if (!raced && init.method === 'PUT' && String(input).includes('/data/settings.json:/content')) {
+        raced = true;
+        odPut(SETTINGS, enc(JSON.stringify({ ...pc.store.getState().settings, updatedAt: Date.now() + 1000 })));
+      }
+      const res = await routed(input, init);
+      if (res.status === 409) refused++;
+      return res;
+    });
+    await phone.sync.linkOneDrive();
+    expect(refused).toBe(1);
+    expect(phone.store.getState().sync.state).toBe('idle');
+    expect(phone.store.getState().settings.newVocab).toBe(4);
+  });
+
+  it('sign-in expired: Reconnect, no back-off, nothing lost; sync resumes after signing in again', async () => {
+    const pc = await msDevice();
+    await pc.store.setVocab(vocab(3, T0));
+    await pc.sync.linkOneDrive();
+    ms.expireRefresh();
+    ms.revokeAccess();
+    const ev = await pc.store.recordReview('v:词1|ci1#recog', 3, 'reveal', 1000, T0 + 5000);
+    await pc.sync.syncNow();
+    let s = pc.store.getState();
+    expect(s.sync.state).toBe('error');
+    expect(s.sync.message).toMatch(/Reconnect to Microsoft/);
+    expect(s.ms.state).toBe('reconnect');
+    expect(pc.sync.nextAutoSync()).toBe(0);
+    await pc.sync.syncNow();
+    expect(pc.sync.nextAutoSync()).toBe(0);
+    expect(await pc.store.dirtyMonths()).toHaveProperty('2026-11');
+
+    await fakeSignIn(ms, loc, pc.auth);
+    await pc.sync.syncNow();
+    s = pc.store.getState();
+    expect(s.sync.state).toBe('idle');
+    expect(odText(`events/${pc.id}/2026-11.json`)).toContain(ev.id);
+  });
+
+  it('signed out: asks to sign in', async () => {
+    const pc = await msDevice();
+    await pc.sync.linkOneDrive();
+    await pc.auth.msSignOut();
+    await pc.sync.syncNow();
+    expect(pc.store.getState().sync.message).toMatch(/Sign in with Microsoft/);
+    expect(pc.sync.nextAutoSync()).toBe(0);
+  });
+
+  it('devices report their caps; an older one shows as caps 1; the own file follows the app version', async () => {
+    odPut('devices/old-1.json', enc('{"id":"old-1","linkedAt":1}'));
+    odPut('events/old-1/2026-10.json', enc('{"events":[]}'));
+    const pc = await msDevice();
+    await pc.sync.linkOneDrive();
+    const phone = await msDevice();
+    await phone.sync.linkOneDrive();
+    await pc.sync.syncNow();
+    const devs = await pc.sync.knownDevices();
+    expect(devs[0]).toMatchObject({ id: pc.id, caps: 2 });
+    expect(devs.find((d) => d.id === phone.id)).toMatchObject({ caps: 2 });
+    expect(devs.find((d) => d.id === 'old-1')).toMatchObject({ caps: 1 });
+    // A new app version rewrites the devices file once.
+    const before = odItem(`devices/${pc.id}.json`)!.ver;
+    await pc.db.kvSet('syncDeviceSig', { onedrive: '2|older' });
+    await pc.sync.syncNow();
+    await pc.sync.syncNow();
+    expect(odItem(`devices/${pc.id}.json`)!.ver).toBe(before + 1);
+    expect(JSON.parse(odText(`devices/${pc.id}.json`)).linkedAt).toBe(await pc.db.kvGet('syncOdLinkedAt', 0));
+  });
+
+  it('a device that relinks keeps its id; another device with the same id and reviews is refused', async () => {
+    const pc = await msDevice();
+    await pc.store.recordReview('v:词1|ci1#recog', 3, 'reveal', 1000, T0);
+    await pc.sync.linkOneDrive();
+    await pc.sync.unlinkOneDrive();
+    expect(pc.store.getState().sync.state).toBe('off');
+    await pc.sync.linkOneDrive();
+    expect(pc.store.getState().device).toBe(pc.id);
+    const tablet = await msDevice();
+    await tablet.store.recordReview('v:词2|ci2#recog', 3, 'reveal', 1000, T0);
+    odPut(`devices/${tablet.id}.json`, enc('{"id":"x","linkedAt":1}'));
+    await expect(tablet.sync.linkOneDrive()).rejects.toThrow(/already uses the id/);
+    expect(await tablet.sync.syncTarget()).toBeNull();
+  });
+});
+
+describe('shared import history (OneDrive)', () => {
+  msSetup();
+  type Since = NonNullable<VocabFile['colourSince']>;
+  function qvocab(n: number, importedAt: number, qxh: string, modified: number, colourSince?: Since): VocabFile {
+    const v = vocab(n, importedAt);
+    return { ...v, source: { ...v.source, qxh, modified }, ...(colourSince ? { colourSince } : {}) };
+  }
+
+  it('same workbook content on both devices: one merged history, earliest times; then nothing to send', async () => {
+    const pc = await msDevice();
+    await pc.store.setVocab(qvocab(6, T0, 'Q1', T0 - 1000, { a: ['mastered', T0 + 500], b: ['new', T0 + 100] }));
+    await pc.db.kvSet('vocabDirty', true);
+    await pc.sync.linkOneDrive();
+    const phone = await msDevice();
+    await phone.store.setVocab(qvocab(6, T0 + 1000, 'Q1', T0 - 1000, { a: ['mastered', T0 + 200], b: ['notknown', T0 + 300], c: ['studying', T0 + 50] }));
+    await phone.db.kvSet('vocabDirty', true);
+    const shared: string[] = [];
+    phone.sync.onSharedList((m) => shared.push(`${m.source.qxh}:${m.importedAt}`));
+    await phone.sync.linkOneDrive();
+    const want = { a: ['mastered', T0 + 200], b: ['new', T0 + 100], c: ['studying', T0 + 50] };
+    expect(phone.store.getState().meta?.colourSince).toEqual(want);
+    // Seeds: the earliest (the pc's import).
+    expect(phone.store.getState().meta?.seeds['v:词0|ci0']).toBe(T0);
+    expect(shared[0]).toBe(`Q1:${T0}`);
+    const remote = JSON.parse(new TextDecoder().decode(gunzipSync(odItem('vocab.json.gz')!.bytes))) as VocabFile;
+    expect(remote.colourSince).toEqual(want);
+    await pc.sync.syncNow();
+    expect(pc.store.getState().meta?.colourSince).toEqual(want);
+    expect(await pc.db.kvGet('vocabDirty', true)).toBe(false);
+    const writes = dataPuts().length;
+    await pc.sync.syncNow();
+    await phone.sync.syncNow();
+    expect(dataPuts().length).toBe(writes);
+  });
+
+  it('newer content in the folder is taken; newer content here takes the shared history, then imports again', async () => {
+    const pc = await msDevice();
+    await pc.store.setVocab(qvocab(3, T0, 'QA', T0));
+    await pc.db.kvSet('vocabDirty', true);
+    await pc.sync.linkOneDrive();
+
+    const phone = await msDevice();
+    const B4 = qvocab(4, T0 + 5000, 'QB', T0 + 4000);
+    await phone.store.setVocab(B4);
+    await phone.db.kvSet('vocabDirty', true);
+    let rebased = 0;
+    phone.sync.onRebase(async () => {
+      rebased++;
+      // What the workbook reader does: import the newer workbook on top of the list just taken.
+      expect(phone.store.getState().meta?.source.qxh).toBe('QA');
+      await phone.store.setVocab(B4);
+      await phone.db.kvSet('vocabDirty', true);
+    });
+    const shared: string[] = [];
+    phone.sync.onSharedList((m) => shared.push(m.source.qxh!));
+    await phone.sync.linkOneDrive();
+    await vi.waitFor(() => expect(JSON.parse(new TextDecoder().decode(gunzipSync(odItem('vocab.json.gz')!.bytes))).source.qxh).toBe('QB'), { timeout: 4000 });
+    await vi.waitFor(() => expect(phone.store.getState().sync.state).toBe('idle'));
+    expect(rebased).toBe(1);
+    expect(shared).toEqual(['QA', 'QB']);
+
+    await pc.sync.syncNow();
+    expect(pc.store.getState().notes).toHaveLength(4);
+    expect(pc.store.getState().meta?.source.qxh).toBe('QB');
+    expect(await pc.db.kvGet('vocabDirty', true)).toBe(false);
+  });
+});
+
+describe('moving sync from GitHub to OneDrive', () => {
+  msSetup();
+
+  it('the moved device reads the old one through GitHub, never writes there, and stops once every device moved', async () => {
+    const pc = await msDevice();
+    await pc.store.setVocab(vocab(6, T0));
+    await pc.db.kvSet('vocabDirty', true);
+    const r1 = await pc.store.recordReview('v:词1|ci1#recog', 3, 'reveal', 1000, T0 + 1000);
+    await pc.sync.linkRepo(LINK);
+    const phone = await msDevice();
+    await phone.sync.linkRepo(LINK);
+    const r2 = await phone.store.recordReview('v:词2|ci2#recog', 3, 'reveal', 1000, T0 + 2000);
+    await phone.sync.syncNow();
+
+    // 1. The pc moves: a last GitHub sync, then everything it holds goes to OneDrive.
+    await pc.sync.linkOneDrive();
+    expect(await pc.sync.syncTarget()).toBe('onedrive');
+    expect(pc.store.getState().sync).toMatchObject({ state: 'idle', repo: 'OneDrive' });
+    expect(odPaths()).toEqual([`devices/${pc.id}.json`, `events/${pc.id}/2026-11.json`, 'settings.json', 'vocab.json.gz']);
+    expect(pc.sync.decodeEvents(odText(`events/${pc.id}/2026-11.json`), pc.id).map((e) => e.id)).toEqual([r1.id]);
+    expect(pc.store.getState().events.map((e) => e.id).sort()).toEqual([r1.id, r2.id].sort());
+    expect(await pc.sync.githubReading()).toEqual({ on: true, waiting: [phone.id] });
+
+    // 2. The phone (an older version) keeps writing to GitHub; the pc reads it there and passes the settings on.
+    const r3 = await phone.store.recordReview('v:词3|ci3#recog', 4, 'reveal', 1000, T0 + 3000);
+    const m3 = await phone.store.setNoteStatus('v:词4|ci4', 'st:mastered', T0 + 3100);
+    await phone.store.updateSettings({ newVocab: 9 });
+    await phone.sync.syncNow();
+    const commits = gh.commits;
+    await pc.sync.syncNow();
+    expect(gh.commits).toBe(commits);
+    let s = pc.store.getState();
+    expect(s.events.map((e) => e.id)).toContain(r3.id);
+    expect(s.marks.map((m) => m.id)).toContain(m3.id);
+    expect(s.settings.newVocab).toBe(9);
+    expect(JSON.parse(odText(SETTINGS)).newVocab).toBe(9);
+
+    // 3. The phone moves too: its files are in OneDrive, the pc stops reading GitHub.
+    await phone.sync.linkOneDrive();
+    const moved = gh.commits;
+    expect(odPaths()).toContain(`events/${phone.id}/2026-11.json`);
+    expect(odPaths()).toContain(`marks/${phone.id}/2026-11.json`);
+    await pc.sync.syncNow();
+    expect(await pc.sync.githubReading()).toEqual({ on: false, waiting: [] });
+    const r4 = await phone.store.recordReview('v:词5|ci5#recog', 3, 'reveal', 1000, T0 + 4000);
+    await phone.sync.syncNow();
+    const msCalls = ms.requests.length;
+    await pc.sync.syncNow();
+    s = pc.store.getState();
+    expect(s.events.map((e) => e.id).sort()).toEqual([r1.id, r2.id, r3.id, r4.id].sort());
+    expect(snapshot(s.cards)).toEqual(snapshot(phone.store.getState().cards));
+    // Nothing writes to GitHub any more.
+    expect(gh.commits).toBe(moved);
+    expect(ms.requests.length).toBeGreaterThan(msCalls);
   });
 });

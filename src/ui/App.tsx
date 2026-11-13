@@ -44,13 +44,15 @@ function UpdateBanner() {
   useEffect(() => onUpdateReady(() => setOn(true)), []);
   if (!on) return null;
   return (
-    <div
-      className="notice ok row"
-      role="status"
-      style={{ position: 'fixed', top: 'calc(8px + env(safe-area-inset-top))', left: 12, right: 12, maxWidth: 420, margin: '0 auto', zIndex: 60, alignItems: 'center', boxShadow: '0 2px 10px rgba(0,0,0,.18)' }}
-    >
-      <span className="grow">New version.</span>
-      <button type="button" className="btn small" onClick={applyUpdate}>
+    <div className="banner" role="status">
+      <span className="banner-icon" aria-hidden="true">
+        <Icon name="download" />
+      </span>
+      <span className="grow">
+        <b>New version ready</b>
+        <span className="banner-sub">Reload to update.</span>
+      </span>
+      <button type="button" className="btn small primary" onClick={applyUpdate}>
         Reload
       </button>
     </div>
@@ -102,20 +104,25 @@ export function App() {
       {!inReview && (
         <nav className="nav" aria-label="Main">
           <div className="brand">
-            <span className="grid-cell" style={{ ['--cell' as string]: '34px' }}>学</span>
+            <img src="icons/icon-192.png" alt="" width="32" height="32" />
             Hugo 中文
           </div>
-          {TABS.map((t) => (
-            <a key={t.id} href={`#/${t.id}`} aria-current={page === t.id || (t.id === 'settings' && UNDER_SETTINGS.includes(page)) ? 'page' : undefined}>
-              <Icon name={t.icon} />
-              <span>{t.label}</span>
-            </a>
-          ))}
+          {TABS.map((t) => {
+            const on = page === t.id || (t.id === 'settings' && UNDER_SETTINGS.includes(page));
+            return (
+              <a key={t.id} href={`#/${t.id}`} aria-current={on ? 'page' : undefined}>
+                <Icon name={t.icon} filled={on} />
+                <span>{t.label}</span>
+              </a>
+            );
+          })}
         </nav>
       )}
       <Suspense fallback={<main className="page" aria-busy="true" />}>{view}</Suspense>
-      <ReconnectBanner />
-      <UpdateBanner />
+      <div className="banners">
+        <ReconnectBanner />
+        <UpdateBanner />
+      </div>
       <Toaster />
     </div>
   );

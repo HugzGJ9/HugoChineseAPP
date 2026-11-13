@@ -4,8 +4,12 @@ import { useApp } from '../lib/store';
 import { msConfigured, msSignIn, msSignOut } from '../lib/ms/auth';
 import { runDiagnostics } from '../lib/ms/diagnostics';
 import type { DriveItem } from '../lib/ms/graph';
-import { checkWorkbook, findExcelFiles, findWorkbooks, linkWorkbook, missingText, unlinkWorkbook } from '../lib/workbook';
-import { formatAgo, formatDate, toast, useNow } from './common';
+import { knownDevices } from '../lib/sync';
+import {
+  checkWorkbook, confirmFirstWrite, excelWriteOn, findExcelFiles, findWorkbooks, linkWorkbook, missingText, setExcelWrite, unlinkWorkbook,
+  writeBack, type WriteWait,
+} from '../lib/workbook';
+import { Cell, formatAgo, formatDate, Icon, Section, Switch, toast, useNow } from './common';
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : 'Something went wrong');
 
@@ -24,7 +28,7 @@ function SignInButton({ label = 'Sign in with Microsoft', primary = true }: { la
       <div>
         <button
           type="button"
-          className={`btn ${primary ? 'primary' : ''}`}
+          className={`btn block ${primary ? 'primary' : ''}`}
           disabled={busy}
           onClick={async () => {
             setBusy(true);
@@ -80,6 +84,7 @@ function WorkbookPicker({ items, fileName, onDone }: { items: DriveItem[]; fileN
           type="button"
           className="btn block"
           style={{ justifyContent: 'flex-start', textAlign: 'left', height: 'auto', padding: '8px 14px', minHeight: 44, whiteSpace: 'normal' }}
+          aria-label={`${it.name}, ${folderOf(it)}`}
           disabled={!!busy}
           onClick={async () => {
             setBusy(it.id);
@@ -94,13 +99,13 @@ function WorkbookPicker({ items, fileName, onDone }: { items: DriveItem[]; fileN
         >
           <span style={{ display: 'block', minWidth: 0, overflowWrap: 'anywhere' }}>
             {it.name}
-            <span className="small muted" style={{ display: 'block' }}>
+            <span className="cell-detail" style={{ display: 'block' }}>
               {folderOf(it)} · {formatDate(Date.parse(it.lastModifiedDateTime))}
             </span>
           </span>
         </button>
       ))}
-      <div className="row wrap">
+      <div className="cell-actions">
         {!all && (
           <button type="button" className="btn small" disabled={listing || !!busy} onClick={showAll}>
             {listing ? 'Listing…' : 'Show all Excel files'}
@@ -110,6 +115,214 @@ function WorkbookPicker({ items, fileName, onDone }: { items: DriveItem[]; fileN
           Cancel
         </button>
       </div>
+    </div>
+  );
+}
+
+
+// ---------- writing statuses into the workbook ----------
+
+const clock = (t: number) => new Date(t).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+const plural = (n: number, one: string, many: string) => `${n} ${n === 1 ? one : many}`;
+
+/** Why waiting statuses are not written yet, in plain words. */
+function whyText(w: WriteWait | string | undefined, until: number | undefined, err: string | undefined): string {
+  const at = until ? `; writing at ${clock(until)}` : '';
+  switch (w) {
+    case 'off': return 'automatic writing is off';
+    case 'quiet': return `the workbook was edited a moment ago (Excel may be open)${at}`;
+    case 'open':
+    case 'locked': return `the workbook is open in Excel${at}`;
+    case 'local': return 'this PC has edits OneDrive has not received yet';
+    case 'behind': return 'OneDrive has not received the newest file yet';
+    case 'busy': return 'another write is running';
+    case 'retry': return `the last write failed${err ? ` (${err})` : ''}${until ? `; trying again at ${clock(until)}` : ''}`;
+    case 'held': return 'a new workbook version needs your review first';
+    case 'other': return `your other device is writing them${at}`;
+    case 'offline': return 'no connection';
+    case 'signin': return 'Microsoft sign-in expired';
+    default: return '';
+  }
+}
+
+/** One line for the write state, or null when there is nothing to say. `full` adds the "written" line. */
+function useWriteLine(full: boolean) {
+  const excel = useApp((s) => s.excel);
+  const now = useNow(30000);
+  if (excel.state === 'off' || excel.state === 'missing') return null;
+  const n = excel.pending ?? 0;
+  const confirm = excel.waiting === 'confirm' && n > 0;
+  let text = '';
+  let bad = false;
+  if (n > 0) {
+    if (confirm) text = `${plural(n, 'status', 'statuses')} not written to your workbook yet`;
+    else {
+      const why = whyText(excel.waiting, excel.waitUntil, excel.writeError);
+      text = `${n} waiting${why ? `: ${why}` : ''}`;
+      bad = excel.waiting === 'retry';
+    }
+  } else if (excel.stuck) {
+    text = `${plural(excel.stuck, 'row', 'rows')} could not be written (row not found)`;
+    bad = true;
+  } else if (excel.writeError) {
+    text = excel.writeError;
+    bad = true;
+  } else if (full && excel.written) text = `Your statuses written ${formatAgo(excel.written, now)}`;
+  if (!text) return null;
+  const stuckNote = n > 0 && excel.stuck ? ` · ${plural(excel.stuck, 'row', 'rows')} could not be written` : '';
+  return { text: text + stuckNote, bad, confirm, canWrite: n > 0 && !confirm, patchMs: excel.patchMs };
+}
+
+function WriteNowButton() {
+  const [busy, setBusy] = useState(false);
+  return (
+    <button
+      type="button"
+      className="btn small"
+      disabled={busy}
+      onClick={async () => {
+        setBusy(true);
+        try {
+          await writeBack({ force: true });
+        } catch (e) {
+          toast(errText(e));
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      {busy ? 'Writing…' : 'Write now'}
+    </button>
+  );
+}
+
+/** The first-write confirmation: what will change and what protects the workbook. */
+function WriteConfirmBody({ onLater }: { onLater: () => void }) {
+  const n = useApp((s) => s.excel.pending ?? 0);
+  const [busy, setBusy] = useState(false);
+  const [older, setOlder] = useState(false);
+  useEffect(() => {
+    let live = true;
+    knownDevices()
+      .then((d) => live && setOlder(d.some((x) => x.caps < 2)))
+      .catch(() => undefined);
+    return () => {
+      live = false;
+    };
+  }, []);
+  return (
+    <div className="stack" style={{ gap: 10 }}>
+      <b>Write your statuses into your workbook?</b>
+      <p className="small" style={{ margin: 0 }}>
+        {plural(n, 'row', 'rows')} will change. Only the status colours change in your real Hugo_chinese_vocab.xlsx; words and everything else stay
+        as they are.
+      </p>
+      <p className="small muted" style={{ margin: 0 }}>
+        A backup goes to OneDrive › Apps › Hugo Chinese › backups first, then weekly. OneDrive version history keeps every earlier version too.
+      </p>
+      {older && (
+        <p className="small notice" style={{ margin: 0 }}>
+          Another device runs an older version. Open the app there to update it first.
+        </p>
+      )}
+      <div className="cell-actions">
+        <button
+          type="button"
+          className="btn primary"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              await confirmFirstWrite();
+            } catch (e) {
+              toast(errText(e));
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          Write
+        </button>
+        <button type="button" className="btn" disabled={busy} onClick={onLater}>
+          Not now
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** Sheets: one calm line above the tabs. Hidden when everything is written. */
+export function WriteLine() {
+  const line = useWriteLine(false);
+  const [dlg, setDlg] = useState(false);
+  if (!line) return null;
+  return (
+    <>
+      <div className={`notice hs-write${line.bad ? ' bad' : ''}`} role="status">
+        <span className="hs-write-t">{line.text}</span>
+        <span className="hs-write-actions">
+          {line.confirm && (
+            <button type="button" className="btn small" onClick={() => setDlg(true)}>
+              Review
+            </button>
+          )}
+          {line.canWrite && <WriteNowButton />}
+          <a className="btn small ghost" href="#/settings" aria-label="Write details in Settings">
+            Details
+          </a>
+        </span>
+      </div>
+      {dlg && (
+        <div className="pop-backdrop" onClick={() => setDlg(false)}>
+          <div className="pop" role="dialog" aria-modal="true" aria-label="Write to workbook" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && setDlg(false)}>
+            <WriteConfirmBody onLater={() => setDlg(false)} />
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+/** Microsoft panel: details, the switch, and the first-write confirmation. */
+function WriteSection() {
+  const line = useWriteLine(true);
+  const [later, setLater] = useState(false);
+  const [on, setOn] = useState(excelWriteOn());
+  return (
+    <div className="stack" style={{ gap: 8 }}>
+      {line?.confirm && !later ? (
+        <WriteConfirmBody onLater={() => setLater(true)} />
+      ) : (
+        line && (
+          <>
+            <p className={`small ${line.bad ? 'notice bad' : ''}`} style={{ margin: 0 }}>{line.text}</p>
+            {line.confirm && (
+              <div>
+                <button type="button" className="btn small" onClick={() => setLater(false)}>
+                  Review
+                </button>
+              </div>
+            )}
+            {line.canWrite && (
+              <div>
+                <WriteNowButton />
+              </div>
+            )}
+            {line.patchMs ? <p className="small muted" style={{ margin: 0 }}>Last write took {(line.patchMs / 1000).toFixed(1)} s</p> : null}
+          </>
+        )
+      )}
+      <label className="hs-switchline">
+        <span>Write my statuses into the workbook automatically</span>
+        <Switch
+          checked={on}
+          label="Write my statuses into the workbook automatically"
+          onChange={(v) => {
+            setExcelWrite(v);
+            setOn(v);
+          }}
+        />
+      </label>
     </div>
   );
 }
@@ -135,41 +348,42 @@ function SignedIn() {
     }
   };
   const linked = excel.state !== 'off';
+  const name = excel.name ?? fileName;
   return (
     <div className="stack">
-      <p className="small">
-        Signed in{ms.account ? <> as <b style={{ overflowWrap: 'anywhere' }}>{ms.account}</b></> : ''}.
-      </p>
-      {ms.state === 'error' && ms.message && <p className="notice bad">{ms.message}</p>}
-      {linked && excel.state !== 'missing' && (
-        <p className="small" style={{ overflowWrap: 'anywhere' }}>
-          {excel.name ?? 'Workbook'}
-          {excel.checked ? `, read ${formatAgo(excel.checked, now)}` : ''}.
-        </p>
+      {linked && excel.state !== 'missing' ? (
+        <span className="cell-body">
+          <span className="cell-label">{name}</span>
+          <span className="cell-detail">{excel.checked ? `Read ${formatAgo(excel.checked, now)}` : 'Not read yet'}</span>
+        </span>
+      ) : (
+        !choices && excel.state !== 'missing' && <span className="cell-detail">No workbook linked yet.</span>
       )}
-      {excel.state === 'missing' && <p className="notice bad">{missingText(excel.name ?? fileName)}</p>}
+      {ms.account && <span className="cell-detail" style={{ overflowWrap: 'anywhere' }}>Signed in as {ms.account}</span>}
+      {ms.state === 'error' && ms.message && <p className="notice bad">{ms.message}</p>}
+      {excel.state === 'missing' && <p className="notice bad">{missingText(name)}</p>}
       {excel.state === 'error' && excel.message && <p className="notice bad">{excel.message}</p>}
-      {!linked && !choices && <p className="small muted">No workbook linked yet.</p>}
+      {linked && excel.state !== 'missing' && !choices && <WriteSection />}
       {choices ? (
         <WorkbookPicker items={choices} fileName={fileName} onDone={() => setChoices(null)} />
       ) : (
-        <div className="row wrap">
+        <div className="cell-actions">
           {linked && (
             <button type="button" className="btn small" onClick={() => checkWorkbook(true).catch((e) => toast(errText(e)))}>
               Read now
             </button>
           )}
-          <button type="button" className="btn small" disabled={busy} onClick={find}>
+          <button type="button" className={`btn small ${linked ? '' : 'primary'}`} disabled={busy} onClick={find}>
             {busy ? 'Searching…' : linked ? 'Change workbook' : 'Find workbook'}
           </button>
           {linked && (
-            <button type="button" className="btn small ghost" onClick={() => unlinkWorkbook()}>
+            <button type="button" className="btn small danger" onClick={() => unlinkWorkbook()}>
               Unlink
             </button>
           )}
           <button
             type="button"
-            className="btn small ghost"
+            className="btn small danger"
             onClick={async () => {
               if (window.confirm('Sign out of Microsoft on this device? Words and reviews stay on it.')) await msSignOut();
             }}
@@ -186,26 +400,35 @@ function SignedIn() {
 export function MicrosoftPanel({ bare = false, explainOff = false }: { bare?: boolean; explainOff?: boolean }) {
   const ms = useApp((s) => s.ms);
   if (!msConfigured()) return explainOff ? <MicrosoftNotConfigured /> : null;
-  const body =
-    ms.state === 'off' ? (
-      <>
-        <p className="muted small">Reads Hugo_chinese_vocab.xlsx from your OneDrive. Sign in once on each device; on iPhone, in the Home Screen app.</p>
-        <SignInButton />
-      </>
-    ) : ms.state === 'reconnect' ? (
-      <>
-        <p className="notice">Microsoft sign-in expired. Excel and sync are waiting.</p>
-        <SignInButton label="Reconnect" />
-      </>
-    ) : (
-      <SignedIn />
-    );
+  const off = ms.state === 'off';
+  const body = off ? (
+    <>
+      {bare && <p className="muted small">Reads Hugo_chinese_vocab.xlsx from your OneDrive. Sign in once on each device; on iPhone, in the Home Screen app.</p>}
+      <SignInButton />
+    </>
+  ) : ms.state === 'reconnect' ? (
+    <>
+      <p className="notice">Microsoft sign-in expired. Excel and sync are waiting.</p>
+      <SignInButton label="Reconnect" />
+    </>
+  ) : (
+    <SignedIn />
+  );
   if (bare) return <div className="stack">{body}</div>;
   return (
-    <section className="panel stack" aria-labelledby="ms-h">
-      <h2 id="ms-h">Microsoft</h2>
-      {body}
-    </section>
+    <Section
+      title="Microsoft"
+      id="ms"
+      footer={
+        off
+          ? 'Reads Hugo_chinese_vocab.xlsx from your OneDrive and keeps your devices in sync. Sign in once on each device; on iPhone, in the Home Screen app.'
+          : undefined
+      }
+    >
+      <Cell>
+        <div className="stack">{body}</div>
+      </Cell>
+    </Section>
   );
 }
 
@@ -226,7 +449,7 @@ export function MicrosoftDiagnostics() {
       <div>
         <button
           type="button"
-          className="btn"
+          className="btn small"
           disabled={busy || ms !== 'ok'}
           onClick={async () => {
             setBusy(true);
@@ -279,15 +502,19 @@ export function ReconnectBanner() {
   }, [state]);
   if (state !== 'reconnect') return null;
   return (
-    <div
-      className="notice row"
-      role="status"
-      style={{ position: 'fixed', top: 'calc(8px + env(safe-area-inset-top))', left: 12, right: 12, maxWidth: 420, margin: '0 auto', zIndex: 59, alignItems: 'center', boxShadow: '0 2px 10px rgba(0,0,0,.18)' }}
-    >
-      <span className="grow">Microsoft sign-in expired. Excel and sync are waiting.</span>
+    <div className="banner" role="status">
+      <span className="banner-icon" aria-hidden="true">
+        <Icon name="cloud" />
+      </span>
+      <span className="grow" style={{ fontWeight: 600 }}>
+        Microsoft sign-in expired
+        <span className="banner-sub" style={{ fontWeight: 400 }}>
+          Excel and sync are waiting.
+        </span>
+      </span>
       <button
         type="button"
-        className="btn small"
+        className="btn small primary"
         disabled={busy}
         onClick={() => {
           setBusy(true);

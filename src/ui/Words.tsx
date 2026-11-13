@@ -5,12 +5,13 @@ import { markStatus, noteStatuses, sheetRows, STATUS_LABEL, STATUS_MARK } from '
 import { cardStatus, formatInterval, noteStatus, type Status } from '../lib/engine/schedule';
 import { groupCards } from '../lib/stats';
 import { speak } from '../lib/speech';
-import { AudioButton, formatDate, GridWord, LangSwitch, Meaning, Pinyin, StatusPill, TopBar } from './common';
+import { AudioButton, formatDate, GridWord, Icon, LangSwitch, Meaning, Pinyin, Row, Section, StatusPill, TopBar } from './common';
 import { StrokeAnimation } from './WritePad';
 import { normMeaning } from '../lib/engine/grade';
 import { StatusPicker } from './StatusPicker';
 import { ExplainView } from './word/ExplainView';
 import './word/word.css';
+import './screens.css';
 
 const CARD_LABEL: Record<string, string> = { recog: 'Recognition', recall: 'Recall', listen: 'Listening', grammar: 'Grammar', measure: 'Measure word', synonym: 'Which word fits' };
 const MODE_LABEL: Record<string, string> = {
@@ -59,58 +60,69 @@ export function Words({ id, kinds = ['vocab', 'measure', 'synonym'], title = 'Wo
       <TopBar title={title} back="#/settings">
         <LangSwitch />
       </TopBar>
-      <div className="split">
-        <div className="stack" style={selected ? undefined : undefined}>
+      <div className="split wd">
+        <div className="stack-l">
           <input type="search" value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search hanzi, pinyin or meaning" aria-label="Search" />
-          <div className="row wrap">
+          <Section>
             {tags.length > 1 && (
-              <select value={tag} onChange={(e) => setTag(e.target.value)} aria-label="Sheet" style={{ width: 'auto' }}>
-                <option value="all">All sheets</option>
-                {tags.map((t) => (
-                  <option key={t}>{t}</option>
-                ))}
-              </select>
-            )}
-            <select value={status} onChange={(e) => setStatus(e.target.value as Status | 'all' | 'studied' | 'marked')} aria-label="Status" style={{ width: 'auto' }}>
-              <option value="all">Any status</option>
-              <option value="studied">Green in Excel</option>
-              <option value="new">New</option>
-              <option value="learning">Learning</option>
-              <option value="review">Review</option>
-              <option value="mastered">Mastered</option>
-              <option value="leech">Leech</option>
-              <option value="suspended">Suspended</option>
-              <option value="marked">Set by you</option>
-            </select>
-            <span className="small muted" aria-live="polite">
-              {list.length === pool.length ? `${pool.length} ${pool.length === 1 ? 'entry' : 'entries'}` : `${list.length} of ${pool.length}`}
-            </span>
-          </div>
-          <div className="list">
-            {list.slice(0, limit).map((n) => (
-              <a key={n.id} className="list-item" href={`${base}/${encodeURIComponent(n.id)}`} aria-current={n.id === id ? 'true' : undefined} style={n.id === id ? { background: 'var(--sheet-2)' } : undefined}>
-                {n.colour && <span className="dot" style={{ background: `#${n.colour}` }} title="Row colour in Excel" />}
-                <span className="hz">{n.hanzi}</span>
-                <span className="grow">
-                  <Pinyin text={n.pinyin} className="small" />
-                  <span
-                    className="mn"
-                    style={{ display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', whiteSpace: 'normal', overflow: 'hidden', overflowWrap: 'break-word' }}
-                  >
-                    {meaning(n, lang).text}
-                  </span>
+              <div className="cell">
+                <span className="cell-body"><span className="cell-label">Sheet</span></span>
+                <span className="cell-select">
+                  <select value={tag} onChange={(e) => setTag(e.target.value)} aria-label="Sheet">
+                    <option value="all">All sheets</option>
+                    {tags.map((t) => (
+                      <option key={t}>{t}</option>
+                    ))}
+                  </select>
+                  <Icon name="updown" />
                 </span>
+              </div>
+            )}
+            <div className="cell">
+              <span className="cell-body"><span className="cell-label">Status</span></span>
+              <span className="cell-select">
+                <select value={status} onChange={(e) => setStatus(e.target.value as Status | 'all' | 'studied' | 'marked')} aria-label="Status">
+                  <option value="all">Any status</option>
+                  <option value="studied">Green in Excel</option>
+                  <option value="new">New</option>
+                  <option value="learning">Learning</option>
+                  <option value="review">Review</option>
+                  <option value="mastered">Mastered</option>
+                  <option value="leech">Leech</option>
+                  <option value="suspended">Suspended</option>
+                  <option value="marked">Set by you</option>
+                </select>
+                <Icon name="updown" />
+              </span>
+            </div>
+          </Section>
+          <Section
+            title={
+              <span aria-live="polite">
+                {list.length === pool.length ? `${pool.length} ${pool.length === 1 ? 'entry' : 'entries'}` : `${list.length} of ${pool.length}`}
+              </span>
+            }
+          >
+            {list.slice(0, limit).map((n) => (
+              <a key={n.id} className={`cell tap wd-row${n.id === id ? ' sel' : ''}`} href={`${base}/${encodeURIComponent(n.id)}`} aria-current={n.id === id ? 'true' : undefined}>
+                <span className="hz">{n.hanzi}</span>
+                <span className="cell-body">
+                  <Pinyin text={n.pinyin} className="small" />
+                  <span className="mn">{meaning(n, lang).text}</span>
+                </span>
+                {n.colour && <span className="dot" style={{ background: `#${n.colour}` }} title="Row colour in Excel" />}
                 <StatusPill status={noteStatus(byNote.get(n.id) ?? [], now)} />
               </a>
             ))}
-          </div>
+            {list.length === 0 && <div className="cell cell-pad muted">No matches.</div>}
+          </Section>
           {list.length > limit && (
-            <button type="button" className="btn" onClick={() => setLimit(limit + 300)}>
+            <button type="button" className="btn block" onClick={() => setLimit(limit + 300)}>
               Show more
             </button>
           )}
         </div>
-        <div className="detail">{selected ? <NoteDetail key={selected.id} note={selected} /> : <p className="muted">Pick a word to see its details and review history.</p>}</div>
+        <div className="detail">{selected ? <NoteDetail key={selected.id} note={selected} /> : <p className="muted wd-empty">Pick a word to see its details and review history.</p>}</div>
       </div>
     </div>
   );
@@ -143,6 +155,7 @@ export function NoteDetail({ note }: { note: Note }) {
   };
   const lastSet = ownMarks[0];
   return (
+    <div className="stack-l wd-detail">
     <div className="panel stack">
       {note.kind === 'grammar' ? (
         <h2 className="sentence">{note.hanzi}</h2>
@@ -213,52 +226,37 @@ export function NoteDetail({ note }: { note: Note }) {
           {lastSet.dev !== device ? ` (${lastSet.dev})` : ''}
         </p>
       )}
-      <h3>Cards</h3>
-      <table className="plain">
-        <tbody>
-          {own.map((c) => (
-            <tr key={c.id}>
-              <td>{CARD_LABEL[c.type]}</td>
-              <td><StatusPill status={c.locked ? 'new' : cardStatus(c, now)} /></td>
-              <td className="small muted">
-                {c.locked ? 'after first review' : c.state === 0 ? 'not started' : c.due <= now ? 'due now' : `next ${formatDate(c.due)} (in ${formatInterval(c.due - now)})`}
-                {c.lapses ? ` · ${c.lapses} lapse${c.lapses > 1 ? 's' : ''}` : ''}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <div className="row">
-        <a className="btn small" href={`#/review?cards=${own.filter((c) => !c.locked).map((c) => encodeURIComponent(c.id)).join(',')}`}>
-          Review now
-        </a>
-      </div>
+    </div>
+      <Section title="Cards">
+        {own.map((c) => (
+          <Row
+            key={c.id}
+            label={CARD_LABEL[c.type]}
+            detail={
+              (c.locked ? 'after first review' : c.state === 0 ? 'not started' : c.due <= now ? 'due now' : `next ${formatDate(c.due)} (in ${formatInterval(c.due - now)})`) +
+              (c.lapses ? ` · ${c.lapses} lapse${c.lapses > 1 ? 's' : ''}` : '')
+            }
+            trailing={<StatusPill status={c.locked ? 'new' : cardStatus(c, now)} />}
+          />
+        ))}
+        <Row glyph="bolt" tone="action" label="Review now" href={`#/review?cards=${own.filter((c) => !c.locked).map((c) => encodeURIComponent(c.id)).join(',')}`} />
+      </Section>
       {(history.length > 0 || ownMarks.length > 0) && (
-        <>
-          <h3>History</h3>
-          <table className="plain small">
-            <tbody>
-              {rows.slice(0, 40).map((r) =>
-                r.mark ? (
-                  <tr key={r.mark.id}>
-                    <td>{fmt(r.t)}</td>
-                    <td colSpan={2}>{markHistory(r.mark.a)}</td>
-                    <td className="muted">Set by you{r.mark.dev !== device ? ` · ${r.mark.dev}` : ''}</td>
-                  </tr>
-                ) : (
-                  r.ev && (
-                    <tr key={r.ev.id}>
-                      <td>{fmt(r.t)}</td>
-                      <td>{CARD_LABEL[r.ev.card.slice(r.ev.card.lastIndexOf('#') + 1)]}</td>
-                      <td>{['', 'Again', 'Hard', 'Good', 'Easy'][r.ev.r]}</td>
-                      <td className="muted">{MODE_LABEL[r.ev.m] ?? r.ev.m}{r.ev.dev !== device ? ` · ${r.ev.dev}` : ''}</td>
-                    </tr>
-                  )
-                ),
-              )}
-            </tbody>
-          </table>
-        </>
+        <Section title="History">
+          {rows.slice(0, 40).map((r) =>
+            r.mark ? (
+              <Row key={r.mark.id} label={markHistory(r.mark.a)} detail={`${fmt(r.t)} · Set by you${r.mark.dev !== device ? ` · ${r.mark.dev}` : ''}`} />
+            ) : (
+              r.ev && (
+                <Row
+                  key={r.ev.id}
+                  label={`${CARD_LABEL[r.ev.card.slice(r.ev.card.lastIndexOf('#') + 1)]}: ${['', 'Again', 'Hard', 'Good', 'Easy'][r.ev.r]}`}
+                  detail={`${fmt(r.t)} · ${MODE_LABEL[r.ev.m] ?? r.ev.m}${r.ev.dev !== device ? ` · ${r.ev.dev}` : ''}`}
+                />
+              )
+            ),
+          )}
+        </Section>
       )}
     </div>
   );

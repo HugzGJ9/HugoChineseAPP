@@ -154,7 +154,7 @@ async def event_count(page):
 
 async def poll_for_change(page):
     """An Excel save is noticed on focus, visibility, online or the 2 minute poll."""
-    await page.evaluate("() => { window.dispatchEvent(new Event('focus')); document.dispatchEvent(new Event('visibilitychange')); "
+    await page.evaluate("() => { if (!location.hash.startsWith('#/sheets')) location.hash = '#/sheets'; window.dispatchEvent(new Event('focus')); document.dispatchEvent(new Event('visibilitychange')); "
                         "window.dispatchEvent(new Event('online')); }")
 
 

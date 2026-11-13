@@ -1,7 +1,7 @@
-// One panel per word: Explain (dictionary, Claude, examples) and Practise tabs, with the status footer when allowed.
+// One panel per word: Explain (dictionary, Claude, examples) and Practise tabs, with the status picker when allowed.
 import { lazy, Suspense, useState } from 'react';
 import type { Note, WordStatus } from '../../lib/types';
-import { AudioButton, LangSwitch, Pinyin } from '../common';
+import { AudioButton, LangSwitch, Pinyin, Segmented } from '../common';
 import { Shell } from '../panel';
 import { StatusPicker } from '../StatusPicker';
 import { PracticeBody } from '../sheets/Practice';
@@ -21,45 +21,42 @@ export function WordPanel({
   const details = `#/${note.kind === 'grammar' ? 'grammar' : 'words'}/${encodeURIComponent(note.id)}`;
   return (
     <Shell
+      className="wp tall"
       label={note.hanzi}
       onClose={onClose}
       title={
         <span className="wp-title">
           <span className="zh wp-hz" lang="zh-CN">{note.hanzi}</span>
-          {note.kind !== 'grammar' && <Pinyin text={note.pinyin} className="wp-py" />}
+          {note.kind !== 'grammar' && note.pinyin && <Pinyin text={note.pinyin} className="wp-py" />}
         </span>
       }
-      head={
-        <>
-          <AudioButton text={note.hanzi} />
-          <LangSwitch />
-        </>
-      }
+      head={<AudioButton text={note.hanzi} />}
     >
-      {tabs.length > 1 && (
-        <div className="wp-tabs" role="group" aria-label="Panel view">
-          {tabs.map((t) => (
-            <button key={t} type="button" className="chip" aria-pressed={cur === t} onClick={() => setCur(t)}>
-              {TAB_LABEL[t]}
-            </button>
-          ))}
-        </div>
-      )}
+      <div className="wp-bar">
+        {tabs.length > 1 ? (
+          <Segmented label="Panel view" className="wp-tabs" value={cur} onChange={setCur} options={tabs.map((t) => ({ value: t, label: TAB_LABEL[t] }))} />
+        ) : (
+          <span className="grow" />
+        )}
+        <LangSwitch />
+      </div>
       {cur === 'explain' ? (
-        <Suspense fallback={<p className="muted" aria-busy="true">Loading…</p>}>
+        <Suspense fallback={<p className="wp-loading" aria-busy="true">Loading…</p>}>
           <ExplainView note={note} />
         </Suspense>
       ) : (
         <PracticeBody note={note} />
       )}
       {onStatus && status && (
-        <div className="pp-foot">
-          <div className="small muted">
-            <span id="pp-status-label">Set status</span>
-            <a href={details}>Details</a>
-          </div>
+        <section className="pp-group wp-status" aria-labelledby="pp-status-label">
+          <h3 className="pp-group-h">
+            <span id="pp-status-label">Status</span>
+            <a href={details} className="wp-details">
+              Details
+            </a>
+          </h3>
           <StatusPicker value={status} onChange={onStatus} compact />
-        </div>
+        </section>
       )}
     </Shell>
   );

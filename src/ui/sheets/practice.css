@@ -1,22 +1,51 @@
-/* Practice and scratch panel contents (the shell is in ../panel.css). */
-.pp-prompt { display: flex; flex-direction: column; align-items: center; gap: 4px; text-align: center; }
-.pp-prompt .pp-hanzi { font-family: var(--hanzi); font-size: 2.6rem; line-height: 1.2; }
-.pp-prompt .pinyin { font-size: 1.4rem; }
-.pp-input {
-  width: 100%; min-height: 44px; padding: 0 12px; font-size: 16px; /* 16px: no zoom on iPhone */
-  border: 1px solid var(--line); border-radius: var(--radius-m); background: var(--paper); color: var(--ink);
-}
-.pp-answer { display: flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; font-size: 1.15rem; }
-.pp-answer .pp-hanzi { font-family: var(--hanzi); font-size: 1.6rem; }
-.pp-foot { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--line); padding-top: 12px; }
-.pp-foot .small { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-.pp-foot a { display: inline-flex; align-items: center; min-height: 44px; }
-.pp-draw { display: flex; flex-direction: column; align-items: center; gap: 10px; }
-.pp-draw .pad-cell { max-width: 100%; }
+/* Practice and scratch pad (Practice.tsx, ScratchPad.tsx), inside the panel sheet (../panel.css). Tokens only. */
+.seg.pp-modes, .seg.pp-outline { display: flex; width: 100%; }
+.seg.pp-modes button, .seg.pp-outline button { flex: 1 1 0; padding: 0 6px; }
 
-/* Scratch pad */
+.pp-card { background: var(--bg-elev); border-radius: var(--radius-card); min-width: 0; }
+@media (prefers-color-scheme: dark) { .pp-card { background: var(--bg-elev-2); } }
+
+.pp-type { display: flex; flex-direction: column; gap: 12px; }
+.pp-prompt { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 20px 16px 18px; text-align: center; }
+.pp-prompt .pp-hanzi { font-family: var(--hanzi); font-size: 44px; line-height: 1.15; }
+.pp-bigpy { font-size: var(--fs-title2); }
+.pp-mn { color: var(--label-2); font-size: var(--fs-subhead); line-height: 1.38; }
+.pp-type .pp-input {
+  width: 100%; min-height: 52px; padding: 0 14px; border: 0; border-radius: var(--radius-card);
+  background: var(--bg-elev); color: var(--label); font-size: max(16px, var(--fs-title3)); text-align: center; /* ≥16px: no zoom on iPhone */
+}
+@media (prefers-color-scheme: dark) { .pp-type .pp-input { background: var(--bg-elev-2); } }
+.pp-type .pp-input:focus { box-shadow: 0 0 0 2px var(--accent); }
+.pp-verdict { text-align: center; }
+.pp-answer { display: flex; align-items: center; justify-content: center; gap: 10px; flex-wrap: wrap; padding: 6px 12px; font-size: var(--fs-title3); }
+.pp-answer .pp-hanzi { font-family: var(--hanzi); font-size: var(--fs-title1); }
+.pp-answer-col { flex-direction: column; gap: 6px; padding: 10px 12px 16px; }
+.pp-answer-col > .pp-answer { padding: 0; }
+.pp-answer .icon-btn { color: var(--accent); }
+.pp-actions { display: flex; gap: 10px; }
+.pp-actions .btn { flex: 1 1 0; min-height: 50px; border-radius: var(--radius-card); }
+.pp-actions .btn:not(.primary) { background: var(--bg-elev); }
+@media (prefers-color-scheme: dark) { .pp-actions .btn:not(.primary) { background: var(--bg-elev-2); } }
+.pp-draw { display: flex; flex-direction: column; align-items: stretch; gap: 12px; }
+.pp-draw > .pad, .pp-draw > .btn { align-self: stretch; }
+.pp-draw .pad-cell { max-width: 100%; }
+.pp-draw > .btn.block { min-height: 50px; border-radius: var(--radius-card); background: var(--bg-elev); color: var(--accent); }
+
+/* Scratch pad: a white writing card with a dashed 田字格, tools as a toolbar of labelled icons. */
 .sp { display: flex; flex-direction: column; gap: 10px; }
-.sp-box { width: 100%; border: 1.5px solid var(--grid); border-radius: 2px; background: var(--paper); overflow: hidden; }
+.sp-box { width: 100%; border-radius: var(--radius-card); background: var(--bg-elev); overflow: hidden; box-shadow: inset 0 0 0 1.5px var(--grid); }
+@media (prefers-color-scheme: dark) { .sp-box { background: var(--bg-elev-2); } }
 .sp-canvas { display: block; width: 100%; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; cursor: crosshair; }
-.sp-tools .btn { padding: 0 8px; }
-.sp-tools .btn[aria-pressed='true'] { border-color: var(--ink); }
+.sp-tools { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.sp-tool {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 56px; padding: 6px 4px;
+  border: 0; border-radius: var(--radius-card); background: var(--bg-elev); color: var(--accent); font-size: var(--fs-caption); font-weight: 500;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+@media (prefers-color-scheme: dark) { .sp-tool { background: var(--bg-elev-2); } }
+.sp-tool svg { width: 22px; height: 22px; }
+.sp-tool span { color: var(--label); }
+.sp-tool:active:not(:disabled) { transform: scale(0.96); opacity: 0.7; }
+.sp-tool:disabled { opacity: 0.4; cursor: default; }
+.sp-tool[aria-pressed='true'] { background: var(--accent-tint); }
+.sp-tool[aria-pressed='true'] span { color: var(--accent); font-weight: 600; }

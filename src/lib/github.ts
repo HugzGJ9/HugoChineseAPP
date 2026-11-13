@@ -21,6 +21,16 @@ export class GitHubError extends Error {
   get rateLimited(): boolean {
     return this.status === 429 || (this.status === 403 && this.retryAfter != null);
   }
+
+  /** Another device wrote the file meanwhile (409 sha mismatch, 422 sha missing): pull again and retry. */
+  get conflict(): boolean {
+    return this.status === 409 || this.status === 422;
+  }
+
+  /** The token was refused. */
+  get auth(): boolean {
+    return this.status === 401;
+  }
 }
 
 const API = 'https://api.github.com';

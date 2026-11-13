@@ -1,7 +1,9 @@
 // The OneDrive folder on a computer, through the File System Access API (Edge and Chrome).
 // The app reads Hugo_chinese_vocab.xlsx whenever it changes, and writes "Hugo_chinese_vocab (app).xlsx" next to it: a
-// copy of his workbook with his statuses as cell fills. The original is only ever read.
-// OneDrive's own client does the uploading, so no Microsoft sign-in is needed.
+// copy of his workbook with his statuses as cell fills. The original is never written from here (no If-Match).
+// OneDrive's own client does the uploading, so no Microsoft sign-in is needed. Once the workbook is linked through
+// Microsoft, statuses go into the workbook itself (workbook.ts) and the copy stops; the folder then only gives local
+// signals (fresh saves, Excel's owner file, edits not uploaded yet).
 // The file's content id (quickXorHash, as OneDrive computes it) tells whether the list already holds this content, so
 // this reader and the Microsoft one (workbook.ts) never re-import each other's results.
 import { kvGet, kvSet } from './db';
@@ -12,7 +14,9 @@ import { copyFills, sheetRows } from './status';
 import { getState, setFolder, subscribe } from './store';
 import type { RowFill, SheetCols, WorkbookSource } from './types';
 import type { OdWorkbook } from './workbook';
-import { copyFileName, WorkbookChangedError, type PatchRequest, type PatchResponse, type PatchResult } from './xlsx/patch';
+import { liveExplained, WRITE_TARGET } from './writeIntents';
+import { copyFileName, WorkbookChangedError } from './xlsx/patch';
+import { patchInWorker } from './xlsx/patchClient';
 
 type Mode = { mode: 'read' | 'readwrite' };
 interface DirHandle extends FileSystemDirectoryHandle {
@@ -130,7 +134,8 @@ export async function checkFolder(force = false): Promise<void> {
     if (force || (changed && sig !== heldSig)) {
       const prevHash = getState().meta?.hash;
       const bytes = await file.arrayBuffer();
-      const o = await importBytes(bytes, await localSource(file, bytes));
+      // This device's write intents: a file the app itself wrote through Microsoft is not an Excel edit.
+      const o = await importBytes(bytes, await localSource(file, bytes), { explained: await liveExplained() });
       if (o.applied) {
         heldSig = '';
         // A forced re-read of the same file (columns for the copy, a failed copy check) stays quiet.
@@ -152,32 +157,15 @@ export async function checkFolder(force = false): Promise<void> {
 const COPY_SIG = 'copySig';
 
 /** Columns per sheet, found at import (none for a list imported by an older app version). */
-function sheetCols(): Record<string, SheetCols> {
+export function sheetCols(): Record<string, SheetCols> {
   const out: Record<string, SheetCols> = {};
   for (const r of getState().meta?.report ?? []) if (r.cols) out[r.name] = r.cols;
   return out;
 }
 
-function colsMissing(): boolean {
+/** A sheet with words but no columns to colour: the list was imported by an older app version, read the file again. */
+export function colsMissing(): boolean {
   return (getState().meta?.report ?? []).some((r) => r.kind !== 'skipped' && r.notes > 0 && !r.cols);
-}
-
-/** Patch the workbook in a Web Worker; the bytes are moved there and back. */
-function patchInWorker(req: PatchRequest): Promise<PatchResult> {
-  return new Promise((resolve, reject) => {
-    const worker = new Worker(new URL('./xlsx/patch.worker.ts', import.meta.url), { type: 'module' });
-    worker.onmessage = (e: MessageEvent<PatchResponse>) => {
-      worker.terminate();
-      const d = e.data;
-      if (d.ok) resolve(d.result);
-      else reject(d.changed ? new WorkbookChangedError(d.changed.sheet, d.changed.row) : new Error(d.error));
-    };
-    worker.onerror = (e) => {
-      worker.terminate();
-      reject(new Error(e.message || 'The copy could not be built'));
-    };
-    worker.postMessage(req, [req.bytes.buffer]);
-  });
 }
 
 async function exists(dir: DirHandle, name: string): Promise<boolean> {
@@ -187,6 +175,39 @@ async function exists(dir: DirHandle, name: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** The workbook is linked through Microsoft and statuses go into it (plan D10): the copy writer stays off. */
+async function writesOriginal(): Promise<boolean> {
+  if (WRITE_TARGET !== 'original' || getState().ms.state === 'off') return false;
+  return !!(await kvGet<OdWorkbook | null>('odWorkbook', null));
+}
+
+/**
+ * Local signals for the write-back on the PC (plan D7): Excel has the workbook open (its owner file `~$name`, or `~$`
+ * + the name without its first 2 characters for long names), and the local file holds edits OneDrive hasn't uploaded
+ * yet (newer than the list's source, other content). Null without a linked folder the app may read.
+ */
+export async function folderSignals(): Promise<{ excelOpen: boolean; localNewer: boolean } | null> {
+  const dir = await handle();
+  if (!dir) return null;
+  try {
+    if ((await dir.queryPermission(RW)) !== 'granted') return null;
+  } catch {
+    return null;
+  }
+  const fileName = getState().settings.fileName;
+  let excelOpen = false;
+  for (const n of new Set([`~$${fileName}`, `~$${fileName.slice(2)}`])) if (await exists(dir, n)) excelOpen = true;
+  let localNewer = false;
+  try {
+    const file = await (await dir.getFileHandle(fileName)).getFile();
+    const src = getState().meta?.source;
+    if (src && file.lastModified > src.modified && (!src.qxh || (await localQxh(file)) !== src.qxh)) localNewer = true;
+  } catch {
+    // Not in the folder: checkFolder reports it.
+  }
+  return { excelOpen, localNewer };
 }
 
 let writing = false;
@@ -208,6 +229,8 @@ export async function writeCopy(force = false): Promise<void> {
   }
   const s = getState();
   if (!s.notes.length || !s.meta) return;
+  // Statuses go into the workbook itself through Microsoft (workbook.ts): no copy then.
+  if (await writesOriginal()) return;
   const dir = await handle();
   if (!dir || (await dir.queryPermission(RW)) !== 'granted') return;
   const fileName = s.settings.fileName;

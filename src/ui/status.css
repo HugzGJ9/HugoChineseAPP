@@ -1,0 +1,53 @@
+/* Status glyphs, the row chip and the 4-segment status picker (StatusPicker.tsx). Tokens only. */
+.st-new { --st: var(--label-2); --st-tint: var(--fill); --st-solid: var(--gray); }
+.st-studying { --st: var(--blue); --st-tint: var(--blue-tint); --st-solid: var(--badge-blue); }
+.st-notknown { --st: var(--orange); --st-tint: var(--orange-tint); --st-solid: var(--badge-orange); }
+.st-mastered { --st: var(--green); --st-tint: var(--green-tint); --st-solid: var(--badge-green); }
+
+/* Row chip: the button is a 44px hit area, the visible capsule sits inside it. */
+button.status-chip {
+  display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: 0;
+  border: 0; border-radius: 999px; background: transparent; color: inherit; -webkit-user-select: none; user-select: none;
+}
+.sc-pill {
+  display: inline-flex; align-items: center; gap: 5px; height: 28px; padding: 0 10px 0 7px; border-radius: 999px;
+  background: var(--st-tint); color: var(--st); font-size: var(--fs-footnote); font-weight: 600; white-space: nowrap;
+  transition: transform 0.2s var(--spring), opacity 0.15s ease;
+}
+.sc-pill .st-icon { width: 16px; height: 16px; }
+.sc-pill.st-new { color: var(--label-2); }
+button.status-chip:active .sc-pill { transform: scale(0.92); opacity: 0.7; }
+@media (hover: hover) { button.status-chip:hover .sc-pill { box-shadow: inset 0 0 0 999px var(--hover); } }
+@media (max-width: 400px) {
+  .sc-pill .sc-label { display: none; }
+  .sc-pill { width: 28px; padding: 0; justify-content: center; }
+}
+
+/* Picker: a segmented track; the selected segment fills with the status colour. */
+.st-seg {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 2px; padding: 2px;
+  background: var(--fill); border-radius: var(--radius-m);
+}
+.st-seg button {
+  position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  min-height: 52px; min-width: 0; padding: 4px 2px; border: 0; border-radius: 8px; background: transparent;
+  color: var(--label); font-size: var(--fs-caption); font-weight: 500; line-height: 1.15; text-align: center;
+  transition: background-color 0.2s var(--ease), color 0.2s var(--ease), transform 0.15s ease;
+}
+.st-seg button .st-icon { width: 20px; height: 20px; color: var(--st); transition: color 0.2s var(--ease); }
+.st-seg button span { overflow-wrap: anywhere; }
+.st-seg button:active { transform: scale(0.96); }
+.st-seg button + button::before {
+  content: ''; position: absolute; left: -1px; top: 28%; bottom: 28%; width: 1px; background: var(--fill-3); transition: opacity 0.2s;
+}
+.st-seg button[aria-checked='true']::before, .st-seg button[aria-checked='true'] + button::before { opacity: 0; }
+/* Selected: the raised white segment, washed with the status tint; text in the AA-safe status colour. */
+.st-seg button[aria-checked='true'] {
+  background: linear-gradient(var(--st-tint), var(--st-tint)), var(--seg-on); color: var(--st); font-weight: 600;
+  box-shadow: 0 3px 8px rgb(0 0 0 / 0.1), 0 1px 1px rgb(0 0 0 / 0.04), inset 0 0 0 1.5px color-mix(in srgb, var(--st) 45%, transparent);
+}
+.st-seg button.st-new[aria-checked='true'] { background: var(--seg-on); color: var(--label); box-shadow: 0 3px 8px rgb(0 0 0 / 0.1), 0 1px 1px rgb(0 0 0 / 0.04); }
+@media (prefers-color-scheme: dark) { .st-seg button[aria-checked='true'] { background: linear-gradient(var(--st-tint), var(--st-tint)), var(--bg-elev-2); } }
+.st-seg.compact button { min-height: 48px; }
+@media (max-width: 340px) { .st-seg button { font-size: 11px; letter-spacing: -0.01em; } }
+@media (hover: hover) { .st-seg button:not([aria-checked='true']):hover { background: var(--hover); } }
