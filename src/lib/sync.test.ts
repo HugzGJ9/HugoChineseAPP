@@ -1519,3 +1519,177 @@ describe('moving sync from GitHub to OneDrive', () => {
     expect(ms.requests.length).toBeGreaterThan(msCalls);
   });
 });
+
+// ---------- switching sync stores (safety-tests plan WP4) ----------
+
+describe('switching sync stores', () => {
+  msSetup();
+
+  const DAY = 86400000;
+  const VOCAB = 'vocab.json.gz';
+  /** Put a file straight into the fake repository (another device's write). */
+  const ghPut = (path: string, bytes: Uint8Array) => {
+    const sha = `x${Math.random().toString(16).slice(2, 10)}`;
+    gh.files.set(path, { sha, bytes });
+    gh.blobs.set(sha, bytes);
+  };
+  const gz = (v: VocabFile) => gzipSync(enc(JSON.stringify(v)));
+  const odVocab = () => JSON.parse(new TextDecoder().decode(gunzipSync(odItem(VOCAB)!.bytes))) as VocabFile;
+  const vocabPuts = () => dataPuts().filter((r) => r.url.includes(`/data/${toOdName(VOCAB)}:`)).length;
+  /** Route every call as usual, counting the ones that reach GitHub. */
+  function countGitHub(): { calls: number } {
+    const c = { calls: 0 };
+    vi.stubGlobal('fetch', async (input: string | URL | Request, init: RequestInit = {}) => {
+      const url = new URL(typeof input === 'string' || input instanceof URL ? String(input) : input.url);
+      if (url.host === 'api.github.com') c.calls++;
+      return routed(input, init);
+    });
+    return c;
+  }
+  /** pc and phone linked to GitHub, then the pc moves to OneDrive (the phone, an older version, stays). */
+  async function moved() {
+    const pc = await msDevice();
+    await pc.store.setVocab(vocab(6, T0));
+    await pc.db.kvSet('vocabDirty', true);
+    await pc.sync.linkRepo(LINK);
+    const phone = await msDevice();
+    await phone.sync.linkRepo(LINK);
+    await pc.sync.linkOneDrive();
+    expect(await pc.sync.githubReading()).toEqual({ on: true, waiting: [phone.id] });
+    return { pc, phone };
+  }
+
+  it('unlinkOneDrive with a repository still linked sends every month of reviews, marks and explanations to GitHub', async () => {
+    const ex5 = Array.from({ length: 5 }, (_, i) => ({ zh: `我们每天学习${i}个小时。`, pinyin: 'wǒmen …', tr: `example ${i}` }));
+    const x = { summary: 'mine', senses: [{ meaning: 'm' }], register: 'neutral', nuance: [], collocations: [], patterns: [], mistakes: [], examples: ex5 };
+    claude = () => {
+      const evs = [
+        { type: 'message_start', message: { model: 'claude-sonnet-5-5', usage: { input_tokens: 10, output_tokens: 1 } } },
+        { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', name: 'word_explanation', input: {} } },
+        { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: JSON.stringify(x) } },
+        { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 10 } },
+        { type: 'message_stop' },
+      ];
+      return new Response(evs.map((e) => `event: ${e.type}\ndata: ${JSON.stringify(e)}\n\n`).join(''), { status: 200 });
+    };
+    const pc = await msDevice();
+    await pc.store.setVocab(vocab(6, T0));
+    await pc.db.kvSet('vocabDirty', true);
+    const rOct = await pc.store.recordReview('v:词1|ci1#recog', 3, 'reveal', 1000, T0 - 10 * DAY);
+    await pc.sync.linkRepo(LINK);
+    const OCT = `events/${pc.id}/2026-10.json`;
+    expect(fileIds(OCT)).toEqual([rOct.id]);
+    await pc.sync.linkOneDrive();
+
+    // Made after the move: sent to OneDrive only.
+    const rNov = await pc.store.recordReview('v:词2|ci2#recog', 4, 'reveal', 1000, T0 + 1000);
+    const mark = await pc.store.setNoteStatus('v:词3|ci3', 'st:mastered', T0 + 2000);
+    await pc.explain.setClaudeKey('sk-ant-test-0000');
+    const word = pc.store.getState().notes[1];
+    const ex = await pc.explain.requestExplanation(word, 'fr');
+    await pc.sync.syncNow();
+    const NOV = `events/${pc.id}/2026-11.json`;
+    const MARKS = `marks/${pc.id}/2026-11.json`;
+    const EXPL = `explain/${pc.id}/${pc.db.monthKey(ex.at)}.json.gz`;
+    expect(odPaths()).toEqual(expect.arrayContaining([NOV, MARKS, EXPL]));
+    for (const p of [NOV, MARKS, EXPL]) expect(gh.files.has(p)).toBe(false);
+    // A month already sent to GitHub before the move goes again too (here: lost from the repository meanwhile).
+    gh.files.delete(OCT);
+
+    await pc.sync.unlinkOneDrive();
+    await pc.sync.syncNow();
+    expect(await pc.sync.syncTarget()).toBe('github');
+    expect(pc.store.getState().sync).toMatchObject({ state: 'idle', repo: 'me/data' });
+    expect(fileIds(OCT)).toEqual([rOct.id]);
+    expect(fileIds(NOV)).toEqual([rNov.id]);
+    expect(pc.sync.decodeMarks(gh.text(MARKS), pc.id).map((m) => m.id)).toEqual([mark.id]);
+    expect(pc.sync.decodeExplain(gh.files.get(EXPL)!.bytes).map((e) => [e.k, e.x.summary])).toEqual([[`${word.id}|fr`, 'mine']]);
+    // Nothing left queued, and the OneDrive copies are untouched.
+    expect(await pc.db.kvGet('dirty', {})).toEqual({});
+    expect(await pc.db.kvGet('marksDirty', {})).toEqual({});
+    expect(await pc.db.kvGet('explainDirty', {})).toEqual({});
+    expect(odPaths()).toEqual(expect.arrayContaining([NOV, MARKS, EXPL]));
+  });
+
+  it('unlinkRepo while the target is OneDrive keeps OneDrive as the target, and sync keeps working', async () => {
+    const { pc } = await moved();
+    await pc.sync.unlinkRepo();
+    expect(await pc.sync.syncTarget()).toBe('onedrive');
+    expect(await pc.sync.getLink()).toBeNull();
+    expect(await pc.sync.githubReading()).toBeNull();
+    expect(pc.store.getState().sync.state).not.toBe('off');
+
+    const gc = countGitHub();
+    const commits = gh.commits;
+    const r = await pc.store.recordReview('v:词4|ci4#recog', 3, 'reveal', 1000, T0 + 5000);
+    await pc.sync.syncNow();
+    expect(pc.store.getState().sync).toMatchObject({ state: 'idle', repo: 'OneDrive' });
+    expect(pc.sync.decodeEvents(odText(`events/${pc.id}/2026-11.json`), pc.id).map((e) => e.id)).toContain(r.id);
+    expect(gc.calls).toBe(0);
+    expect(gh.commits).toBe(commits);
+  });
+
+  it('the read-only GitHub pull forwards a newer word list to OneDrive, not an older or identical one', async () => {
+    const { pc } = await moved();
+    const commits = gh.commits;
+    const before = odVocab();
+    expect(before.hash).toBe('h6');
+    let puts = vocabPuts();
+
+    // An older list on GitHub.
+    ghPut(VOCAB, gz(vocab(5, T0 - DAY, 'old')));
+    await pc.sync.syncNow();
+    expect(pc.store.getState().meta?.hash).toBe('h6');
+    expect(pc.store.getState().notes).toHaveLength(6);
+    expect(vocabPuts()).toBe(puts);
+    expect(odVocab()).toEqual(before);
+    expect(await pc.db.kvGet('vocabDirty', true)).toBe(false);
+
+    // The same list as here, written again (new version tag).
+    const { meta, notes } = pc.store.getState();
+    ghPut(VOCAB, gz({ ...meta!, notes }));
+    await pc.sync.syncNow();
+    expect(pc.store.getState().meta?.hash).toBe('h6');
+    expect(vocabPuts()).toBe(puts);
+    expect(await pc.db.kvGet('vocabDirty', true)).toBe(false);
+
+    // A newer list: taken here and sent on to OneDrive in the same sync.
+    ghPut(VOCAB, gz(vocab(8, T0 + DAY, 'v2')));
+    await pc.sync.syncNow();
+    expect(pc.store.getState().meta?.hash).toBe('h8v2');
+    expect(pc.store.getState().notes).toHaveLength(8);
+    expect(vocabPuts()).toBe(puts + 1);
+    puts = vocabPuts();
+    expect(odVocab()).toMatchObject({ hash: 'h8v2', importedAt: T0 + DAY });
+    expect(await pc.db.kvGet('vocabDirty', true)).toBe(false);
+    // Never written to GitHub.
+    expect(gh.commits).toBe(commits);
+
+    // Read once: the next sync does not forward it again.
+    await pc.sync.syncNow();
+    expect(vocabPuts()).toBe(puts);
+  });
+
+  it('stopReadingGitHub: the next sync no longer reads GitHub', async () => {
+    const { pc, phone } = await moved();
+    await pc.sync.stopReadingGitHub();
+    expect(await pc.sync.githubReading()).toEqual({ on: false, waiting: [phone.id] });
+
+    // The phone keeps writing to GitHub.
+    const r = await phone.store.recordReview('v:词5|ci5#recog', 3, 'reveal', 1000, T0 + 6000);
+    await phone.sync.syncNow();
+    expect(fileIds(`events/${phone.id}/2026-11.json`)).toContain(r.id);
+
+    const gc = countGitHub();
+    const mine = await pc.store.recordReview('v:词0|ci0#recog', 3, 'reveal', 1000, T0 + 7000);
+    await pc.sync.syncNow();
+    expect(gc.calls).toBe(0);
+    expect(pc.store.getState().sync.state).toBe('idle');
+    expect(pc.store.getState().events.map((e) => e.id)).not.toContain(r.id);
+    expect(pc.sync.decodeEvents(odText(`events/${pc.id}/2026-11.json`), pc.id).map((e) => e.id)).toContain(mine.id);
+    // Still off at the following sync.
+    await pc.sync.syncNow();
+    expect(gc.calls).toBe(0);
+    expect(await pc.sync.githubReading()).toEqual({ on: false, waiting: [phone.id] });
+  });
+});

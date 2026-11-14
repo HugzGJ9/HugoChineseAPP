@@ -37,11 +37,11 @@ OneDrive uses flat names (`events.<dev>.<YYYY-MM>.json`), see `syncstore.ts`. Wr
 
 ## Testing
 - Fakes: fake GitHub + `device()` helper in `sync.test.ts`; fake Microsoft/OneDrive in `ms/fake.ts`
-  (`vi.stubGlobal('fetch', fake.fetch)`). No test touches the network.
+  (`vi.stubGlobal('fetch', fake.fetch)`); in-memory folder (File System Access) in `fakefs.ts`. No test touches the network.
 - Node 24 has global `navigator.locks`: never run one device's sync inside another's.
 - `sync.test.ts` is ~1,500 lines: grep for the `describe` you need, don't read it whole.
-- Run first, by area: sync → `sync.test.ts`; workbook write-back → `writeback.test.ts`, `workbook.test.ts`,
-  `xlsx/patch.test.ts`; statuses → `status.test.ts`, `store.test.ts`; engine → `engine/engine.test.ts`;
+- Run first, by area: sync → `sync.test.ts`; workbook write-back → `writeback.test.ts`, `workbook.safety.test.ts`,
+  `workbook.test.ts`, `xlsx/patch.test.ts`; PC copy → `folder.test.ts`; held imports → `sources.test.ts`; statuses → `status.test.ts`, `store.test.ts`; engine → `engine/engine.test.ts`;
   import → `import/*.test.ts`; Microsoft → `ms/*.test.ts`; explain → `explain/explain.test.ts`.
 
 ## Gotchas

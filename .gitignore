@@ -9,3 +9,4 @@ public/dict
 test-data
 e2e-out
 __pycache__
+coverage
