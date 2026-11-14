@@ -30,6 +30,7 @@ folder (default) or a private GitHub repo (legacy).
 ## Commands
 - `npm test` (vitest + fake-indexeddb) · `npx tsc --noEmit -p .` · `npm run build` (stroke data, CFDICT, type-check, vite)
 - Single test file: `npx vitest run src/lib/sync.test.ts` — prefer this over the full suite while iterating.
+- `npm run coverage`: line/branch coverage of `src/lib` (UI is covered by `e2e/`, not unit tests).
 - Preview: `npm run build && npx vite preview --port 4173` → http://localhost:4173/HugoChineseAPP/
 - Browser checks: Python Playwright (`e2e/`, see `e2e/README.md`). In cloud sessions Chromium + Playwright are
   preinstalled; never run `playwright install`.
