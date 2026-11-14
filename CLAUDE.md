@@ -43,7 +43,6 @@ Statuses reach Excel two ways:
   edits, backup first).
 - No Microsoft sign-in → PC only, a copy `Hugo_chinese_vocab (app).xlsx` next to the original (`folder.ts`); the original
   is never written from there.
-<!-- TODO(Hugo): confirm this two-path summary is the current behaviour; the old brief said "the original is never written". -->
 Nav: Sheets · Quick · Settings (Today, Stats, Words under Settings › More). Tapping a word opens a panel: Explain and Practise.
 
 ## Top-level map

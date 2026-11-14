@@ -6,10 +6,9 @@
 ## Invariants (break one and Hugo loses data)
 - Events and marks are append-only; ids are never reused. Each device writes only its own `events/`, `marks/`,
   `explain/` files; the month is frozen in `mo`.
-- Dexie DB `hugo-zhongwen` is still v1 (decisions: STORE-1). Any index or stored-shape change = `version(n+1)` + upgrade.
-- Sync formats are additive only; older app versions must still read them (decisions: SYNC-*).
+- Dexie DB `hugo-zhongwen` is still v1 (docs/decisions.md STORE-1). Any index or stored-shape change = `version(n+1)` + upgrade.
+- Sync formats are additive only; older app versions must still read them (SYNC-2).
 - Write-back to the workbook: If-Match always; never overwrite an Excel edit; backup into the app folder first.
-- TODO: add any invariant that has caused a bug or a review comment twice.
 
 ## Map
 | Area | Files | Notes |
@@ -29,7 +28,7 @@
 | Explain | `explain/` | Claude client, key in kv `claudeKey` (never synced/backed up), cache, prompt |
 | Other | `backup.ts`, `stats.ts`, `pinyin.ts`, `speech.ts`, `strokes.ts`, `pwa.ts` | `progress.ts` = legacy, not written |
 
-TODO: is `progress.ts` safe to delete? If yes, delete it and its test; if no, say why here.
+`progress.ts` is dormant (only its test imports it); deleting it is connected-saving WP13.
 
 ## Sync file layout
 `vocab.json.gz` · `settings.json` (latest `updatedAt` wins; `prefs` field) · `events/<dev>/<YYYY-MM>.json` ·
@@ -41,7 +40,9 @@ OneDrive uses flat names (`events.<dev>.<YYYY-MM>.json`), see `syncstore.ts`. Wr
   (`vi.stubGlobal('fetch', fake.fetch)`). No test touches the network.
 - Node 24 has global `navigator.locks`: never run one device's sync inside another's.
 - `sync.test.ts` is ~1,500 lines: grep for the `describe` you need, don't read it whole.
-- TODO: list the 3–5 tests to run first for each area (e.g. sync change → `sync.test.ts`, `writeback.test.ts`).
+- Run first, by area: sync → `sync.test.ts`; workbook write-back → `writeback.test.ts`, `workbook.test.ts`,
+  `xlsx/patch.test.ts`; statuses → `status.test.ts`, `store.test.ts`; engine → `engine/engine.test.ts`;
+  import → `import/*.test.ts`; Microsoft → `ms/*.test.ts`; explain → `explain/explain.test.ts`.
 
 ## Gotchas
-- TODO: one line each, added at the end of sessions that hit them.
+- Add one line each, at the end of sessions that hit them.

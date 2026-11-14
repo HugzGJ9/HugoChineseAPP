@@ -23,8 +23,10 @@
 | Other | `Today.tsx`, `Stats.tsx`, `Words.tsx`, `common.tsx` |
 
 ## Test hooks (e2e depends on them, don't rename)
-`.sheets [role=tab]`, `button.status-chip`, `#sync`, `section.panel` — full list in the design spec §5.
-TODO: move the full list here so ui-dev doesn't have to open the spec.
+`.sheets [role=tab]`, `button.status-chip`, `#sync` (keep `id="sync"` on the sync section, its texts and buttons),
+`section.panel`, the labels "Claude API key", "Save key", "Remove key", and the xlsx file input.
 
 ## Gotchas
-- TODO: iPhone/Safari quirks found so far (one line each).
+- iPhone Home Screen app has its own storage, separate from Safari: keys and sign-ins must be entered there.
+- No popups (they open outside the Home Screen app) and no iframes for sign-in (Safari blocks them).
+- Add more one-liners at the end of sessions that hit a quirk.
