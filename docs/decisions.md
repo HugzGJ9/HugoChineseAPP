@@ -64,3 +64,9 @@
   React state or logs. One key per device. Source: word-explain D5.
 - **EXP-2. Explanations are cached per (note, language) in kv `ex:*` and synced as `explain/<dev>/<YYYY-MM>.json.gz`**,
   with their own dirty queue so old versions never touch it. Source: word-explain D6.
+
+## Quick memory
+- **QUICK-1. The Quick card session is device-only UI state** (localStorage `hz.qm.cards`, plus `hz.qm.seed` and
+  `hz.qm.answer`): not a shared pref, not backed up, never synced, and never a source of truth. It only restores the deck
+  after a tab switch or reload; typed answers record no review events except "Send to reviews". Typed verdicts are right
+  or wrong only (`tones` and `near` count as wrong). Source: quick-typed D1–D3.

@@ -8,6 +8,8 @@ import { speak } from '../lib/speech';
 import { cardId, DAY } from '../lib/engine/schedule';
 import { noteStatuses, sheetRows, STATUS_LABEL, WORD_STATUSES } from '../lib/status';
 import { fnv1a } from '../lib/import/build';
+import { checkAnswer, clearSession, isRight, loadSession, saveSession, sessionKey, TARGETS, type Target } from '../lib/quick';
+import type { Check } from '../lib/engine/grade';
 import { Cell, Icon, LangSwitch, Pinyin, Segmented, toast, TopBar } from './common';
 import { inDialog } from './panel';
 import { WordPanel } from './word/WordPanel';
@@ -25,10 +27,12 @@ export function Quick() {
   const [mode, setMode] = useState<'list' | 'card'>(() => pref('qm.mode', 'list'));
   const [tag, setTag] = useState<string>(() => pref('qm.tag', 'all'));
   const [filter, setFilter] = useState<Filter>(() => readFilter(pref('qm.filter', 'all')));
-  const [seed, setSeed] = useState<string>('');
+  const [seed, setSeed] = useState<string>(() => pref('qm.seed', ''));
+  const changeSeed = (v: string) => (setSeed(v), setPref('qm.seed', v));
   const [limit, setLimit] = useState(100);
   const [open, setOpen] = useState<Note | null>(null);
 
+  const byId = useMemo(() => new Map(notes.map((n) => [n.id, n] as const)), [notes]);
   const tags = useMemo(() => [...new Set(notes.filter((n) => n.kind === 'vocab').flatMap((n) => n.tags))], [notes]);
   const list = useMemo(() => {
     const now = Date.now();
@@ -123,7 +127,7 @@ export function Quick() {
                 <Icon name="updown" />
               </span>
             </label>
-            <button type="button" className="cell tap has-icon action qk-shuffle" onClick={() => setSeed(seed ? '' : String(Date.now()))} aria-pressed={!!seed}>
+            <button type="button" className="cell tap has-icon action qk-shuffle" onClick={() => changeSeed(seed ? '' : String(Date.now()))} aria-pressed={!!seed}>
               <Icon name={seed ? 'list' : 'shuffle'} className="cell-glyph" />
               <span className="cell-body">
                 <span className="cell-label">{seed ? 'Sheet order' : 'Shuffle'}</span>
@@ -149,7 +153,7 @@ export function Quick() {
             <p className="qk-empty">No words match these filters.</p>
           )
         ) : (
-          <QmCards key={seed + tag + filter} notes={list} shown={shown} listen={listen} onExplain={setOpen} />
+          <QmCards key={seed + tag + filter} deck={sessionKey(tag, filter, seed)} byId={byId} notes={list} shown={shown} listen={listen} onExplain={setOpen} />
         )}
         {mode === 'list' && list.length > limit && (
           <button type="button" className="btn tinted block" onClick={() => setLimit(limit + 200)}>
@@ -162,38 +166,86 @@ export function Quick() {
   );
 }
 
-function QmCards({ notes, shown, listen, onExplain }: { notes: Note[]; shown: Shown; listen: boolean; onExplain: (n: Note) => void }) {
-  const [order, setOrder] = useState<Note[]>(notes);
-  const [i, setI] = useState(0);
+const TARGET_LABEL: Record<Target, string> = { hanzi: 'Hanzi', pinyin: 'Pinyin', fr: 'French' };
+const TARGET_LAYER: Record<Target, Layer> = { hanzi: 'hz', pinyin: 'py', fr: 'mn' };
+const PLACEHOLDER: Record<Target, string> = { hanzi: '汉字', pinyin: 'ni3 hao3', fr: 'sens en français' };
+const readTarget = (v: string): Target => (TARGETS.includes(v as Target) ? (v as Target) : 'hanzi');
+
+function QmCards({
+  deck,
+  byId,
+  notes,
+  shown,
+  listen,
+  onExplain,
+}: {
+  deck: string;
+  byId: Map<string, Note>;
+  notes: Note[];
+  shown: Shown;
+  listen: boolean;
+  onExplain: (n: Note) => void;
+}) {
+  // The saved session (this device only) wins over a fresh deck; ids are resolved against every note, not the filtered list.
+  const [saved] = useState(() => loadSession(deck, new Set(byId.keys())));
+  const pick = (ids: string[]) => ids.map((id) => byId.get(id)).filter((x): x is Note => !!x);
+  const [order, setOrder] = useState<Note[]>(() => (saved ? pick(saved.ids) : notes));
+  const [i, setI] = useState(saved?.i ?? 0);
   const [peek, setPeek] = useState<Record<string, boolean>>({});
-  const [missed, setMissed] = useState<Note[]>([]);
-  const [knew, setKnew] = useState(0);
-  const [round, setRound] = useState(1);
-  const [sent, setSent] = useState(false);
+  const [missed, setMissed] = useState<Note[]>(() => (saved ? pick(saved.missed) : []));
+  const [knew, setKnew] = useState(saved?.knew ?? 0);
+  const [round, setRound] = useState(saved?.round ?? 1);
+  const [sent, setSent] = useState(saved?.sent ?? false);
+  const [target, setTarget] = useState<Target>(() => readTarget(pref('qm.answer', 'hanzi')));
+  const [typed, setTyped] = useState('');
+  const [check, setCheck] = useState<Check | null>(null);
   const shift = useShift();
   const lang = useApp((s) => s.lang);
   const n = order[i];
-  const start = useRef<{ x: number; y: number } | null>(null);
-  const [dx, setDx] = useState(0);
+  const input = useRef<HTMLInputElement>(null);
+  const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+
+  const save = (o: Note[], at: number, m: Note[], k: number, r: number, s = false) =>
+    saveSession({ key: deck, ids: o.map((x) => x.id), i: at, missed: m.map((x) => x.id), knew: k, round: r, sent: s });
 
   useEffect(() => setPeek({}), [i, shown]);
   useEffect(() => {
     if (n && listen) speak(n.hanzi);
   }, [n, listen]);
+  useEffect(() => {
+    if (n && !coarse) input.current?.focus();
+  }, [n, coarse]);
 
-  const answer = (ok: boolean) => {
-    if (!n) return;
-    if (ok) setKnew((k) => k + 1);
-    else setMissed((m) => (m.includes(n) ? m : [...m, n]));
+  const chooseTarget = (t: Target) => {
+    setTarget(t);
+    setPref('qm.answer', t);
+    setTyped('');
+  };
+
+  // The result counts now and is saved with the next card, so leaving on the verdict neither loses nor repeats it.
+  const submit = (given: string) => {
+    if (!n || check) return;
+    const c: Check = given ? checkAnswer(target, given, n, pref<boolean>('acceptBoth', true)) : { verdict: 'wrong', expected: '' };
+    const ok = isRight(c.verdict);
+    const m = ok || missed.includes(n) ? missed : [...missed, n];
+    const k = knew + (ok ? 1 : 0);
+    setCheck(c);
+    setMissed(m);
+    setKnew(k);
+    save(order, i + 1, m, k, round);
+  };
+  const next = () => {
+    setCheck(null);
+    setTyped('');
     setI(i + 1);
-    setDx(0);
+    if (!coarse || document.activeElement === input.current) input.current?.focus();
   };
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.tagName === 'INPUT' || (e.target as HTMLElement)?.tagName === 'SELECT' || inDialog(e)) return;
-      if (e.key === 'ArrowRight') answer(true);
-      else if (e.key === 'ArrowLeft') answer(false);
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'SELECT' || inDialog(e)) return;
+      if (e.key === 'Enter' && check && tag !== 'BUTTON') next();
       else if (e.key === ' ') {
         e.preventDefault();
         setPeek((p) => ({ ...p, all: !p.all }));
@@ -207,8 +259,10 @@ function QmCards({ notes, shown, listen, onExplain }: { notes: Note[]; shown: Sh
 
   if (!n) {
     const sendBack = async () => {
-      for (const w of missed) await recordReview(cardId(w.id, 'recog'), 1, 'quick', 0);
+      // Saved before recording, so a reload during or after it can't send the same words twice.
       setSent(true);
+      save(order, i, missed, knew, round, true);
+      for (const w of missed) await recordReview(cardId(w.id, 'recog'), 1, 'quick', 0);
       toast(`${missed.length} word${missed.length > 1 ? 's' : ''} back in reviews`);
     };
     return (
@@ -218,7 +272,7 @@ function QmCards({ notes, shown, listen, onExplain }: { notes: Note[]; shown: Sh
         </span>
         <h2>Round {round} done</h2>
         <p className="qk-done-sub">
-          Knew {knew}, missed {missed.length}.
+          Right {knew}, wrong {missed.length}.
         </p>
         <div className="qk-done-actions">
           {missed.length > 0 && (
@@ -232,14 +286,15 @@ function QmCards({ notes, shown, listen, onExplain }: { notes: Note[]; shown: Sh
                 setI(0);
                 setRound(round + 1);
                 setSent(false);
+                save(missed, 0, [], 0, round + 1);
               }}
             >
-              Retry the {missed.length} missed
+              Retry the {missed.length} wrong
             </button>
           )}
           {missed.length > 0 && !sent && (
             <button type="button" className="btn" onClick={sendBack}>
-              Send missed to reviews
+              Send to reviews
             </button>
           )}
           <button
@@ -251,6 +306,8 @@ function QmCards({ notes, shown, listen, onExplain }: { notes: Note[]; shown: Sh
               setKnew(0);
               setI(0);
               setRound(1);
+              if (notes.length) save(notes, 0, [], 0, 1);
+              else clearSession();
             }}
           >
             Start over
@@ -260,8 +317,11 @@ function QmCards({ notes, shown, listen, onExplain }: { notes: Note[]; shown: Sh
     );
   }
 
-  const vis = (k: Layer) => shift || !!peek.all || shown[k] !== !!peek[k];
-  const flip = (k: Layer) => setPeek((p) => ({ ...p, [k]: !p[k] }));
+  const hidden = TARGET_LAYER[target];
+  const vis = (k: Layer) => !!check || (k !== hidden && (shift || !!peek.all || shown[k] !== !!peek[k]));
+  const flip = (k: Layer) => k !== hidden && setPeek((p) => ({ ...p, [k]: !p[k] }));
+  const ok = check ? isRight(check.verdict) : false;
+  const answer = target === 'hanzi' ? n.hanzi : target === 'pinyin' ? n.pinyinNum || n.pinyin : meaning(n, 'fr').text;
   return (
     <div className="qk-cards">
       <div className="qk-progress" aria-hidden="true">
@@ -271,47 +331,83 @@ function QmCards({ notes, shown, listen, onExplain }: { notes: Note[]; shown: Sh
         {i + 1} / {order.length}
         {round > 1 ? ` · retry round ${round}` : ''}
       </div>
-      <div
-        className="qk-card"
-        style={{ transform: dx ? `translateX(${dx}px) rotate(${dx / 40}deg)` : undefined, transition: start.current ? 'none' : undefined }}
-        data-swipe={dx > 40 ? 'right' : dx < -40 ? 'left' : undefined}
-        onPointerDown={(e) => (start.current = { x: e.clientX, y: e.clientY })}
-        onPointerMove={(e) => start.current && setDx(e.clientX - start.current.x)}
-        onPointerUp={() => {
-          start.current = null;
-          if (dx > 90) answer(true);
-          else if (dx < -90) answer(false);
-          else setDx(0);
-        }}
-        onPointerCancel={() => ((start.current = null), setDx(0))}
-      >
-        <button type="button" className="qk-cell qk-hz" lang="zh-CN" onClick={() => (vis('hz') ? speak(n.hanzi) : flip('hz'))} aria-label={vis('hz') ? `${n.hanzi}, play audio` : 'Hidden hanzi, tap to show'}>
+      <Segmented
+        label="Answer with"
+        className="qk-answer-with"
+        value={target}
+        onChange={chooseTarget}
+        options={TARGETS.map((t) => ({ value: t, label: TARGET_LABEL[t] }))}
+      />
+      <div className="qk-card">
+        <button type="button" className="qk-cell qk-hz" lang="zh-CN" onClick={() => (vis('hz') ? speak(n.hanzi) : flip('hz'))} aria-label={vis('hz') ? `${n.hanzi}, play audio` : hidden === 'hz' ? 'Hidden hanzi, type it below' : 'Hidden hanzi, tap to show'}>
           {vis('hz') ? <span className="qk-in">{n.hanzi}</span> : <span className="qk-hide" />}
         </button>
-        <button type="button" className="qk-cell qk-py" onClick={() => flip('py')} aria-label={vis('py') ? n.pinyin : 'Hidden pinyin, tap to show'}>
+        <button type="button" className="qk-cell qk-py" onClick={() => flip('py')} aria-label={vis('py') ? n.pinyin : hidden === 'py' ? 'Hidden pinyin, type it below' : 'Hidden pinyin, tap to show'}>
           {vis('py') ? <Pinyin text={n.pinyin} className="qk-in" /> : <span className="qk-hide" />}
         </button>
-        <button type="button" className="qk-cell qk-mn" onClick={() => flip('mn')} lang={lang} aria-label={vis('mn') ? undefined : 'Hidden meaning, tap to show'}>
+        <button type="button" className="qk-cell qk-mn" onClick={() => flip('mn')} lang={lang} aria-label={vis('mn') ? undefined : hidden === 'mn' ? 'Hidden meaning, type it below' : 'Hidden meaning, tap to show'}>
           {vis('mn') ? <span className="qk-in">{meaning(n, lang).text}</span> : <span className="qk-hide" />}
         </button>
-        <span className="qk-swipe qk-swipe-l" aria-hidden="true">Missed</span>
-        <span className="qk-swipe qk-swipe-r" aria-hidden="true">Knew it</span>
       </div>
-      <p className="qk-hint">Tap to reveal. Swipe right if you knew it, left if you missed it.</p>
+      <form
+        className="qk-type"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (check) next();
+          else if (typed.trim()) submit(typed);
+        }}
+      >
+        <input
+          ref={input}
+          className="qk-input"
+          type="text"
+          value={typed}
+          readOnly={!!check}
+          onChange={(e) => setTyped(e.target.value)}
+          // Digits are tone numbers here, so 1 2 3 L Space type into the box; Escape leaves it to get the shortcuts back.
+          onKeyDown={(e) => e.key === 'Escape' && e.currentTarget.blur()}
+          placeholder={PLACEHOLDER[target]}
+          aria-label={`Type the ${TARGET_LABEL[target].toLowerCase()}`}
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          lang={target === 'hanzi' ? 'zh-CN' : target === 'fr' ? 'fr' : 'en'}
+          enterKeyHint={check ? 'next' : 'done'}
+        />
+        {check && (
+          <>
+            <div className={`qk-verdict verdict ${ok ? 'right' : 'wrong'}`} role="status">
+              {ok ? 'Right' : 'Wrong'}
+            </div>
+            <p className="qk-expected" lang={target === 'hanzi' ? 'zh-CN' : target === 'fr' ? 'fr' : undefined}>
+              {answer}
+            </p>
+          </>
+        )}
+        <div className="qk-actions">
+          {check ? (
+            <button key="next" type="submit" className="btn primary grow">
+              Next
+            </button>
+          ) : (
+            <>
+              <button key="show" type="button" className="btn grow" onClick={() => submit('')}>
+                Show answer
+              </button>
+              <button key="check" type="submit" className="btn primary grow" disabled={!typed.trim()}>
+                Check
+              </button>
+            </>
+          )}
+        </div>
+      </form>
       {vis('hz') && vis('mn') && (
         <button type="button" className="btn plain qk-explain" onClick={() => onExplain(n)}>
           <Icon name="sparkles" />
           Explain
         </button>
       )}
-      <div className="grades qk-grades">
-        <button type="button" className="g1" onClick={() => answer(false)}>
-          Missed <small aria-hidden="true">←</small>
-        </button>
-        <button type="button" className="g3" onClick={() => answer(true)}>
-          Knew it <small aria-hidden="true">→</small>
-        </button>
-      </div>
     </div>
   );
 }

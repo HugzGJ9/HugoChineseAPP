@@ -12,9 +12,10 @@
 | 2026-11-08 | [connected-saving](2026-11-08-connected-saving.md) | P1–P3 shipped (0d1e311, 63facb6); P4 partly | Microsoft sign-in (PKCE), app-folder sync, write-back into the real workbook | P4 WP13: PC `~$` presence for the phone, delete dormant `progress.ts`, silent renewal via iframe (+ `frame-src`) |
 | 2026-11-09 | [ios-design](2026-11-09-ios-design.md) | Shipped (63facb6) | Native iOS look: tokens, components, every screen; §7 theme colours done | Spec stays the reference for new screens |
 | 2026-11-14 | [safety-tests](2026-11-14-safety-tests.md) | Shipped | 34 unit tests for untested data-writing branches: workbook write-back, held imports, PC copy, sync store switch; each checked against a deliberate break | Not done (medium): sync timers, multi-device convergence with random order, `pwa.ts` update flow |
+| 2026-11-14 | [quick-typed](2026-11-14-quick-typed.md) | Built, PR open (qa passed) | Quick cards: type hanzi / pinyin (tone numbers) / French, right or wrong only; card session survives tab switch and reload (device-only, QUICK-1); `e2e/quick.py` in CI | Merge → deploy. Not covered by e2e: Quick list mode (unchanged) |
 
 ## Now / next
-- Now: nothing in progress.
+- Now: quick-typed PR waiting for merge.
 - Next candidates: connected-saving WP13; roadmap phase 4 #1 weak-words drill, then #3 HSK level progress (needs its own
   short plan: data source and licence).
 
