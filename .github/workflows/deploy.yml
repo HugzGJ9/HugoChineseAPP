@@ -87,6 +87,11 @@ jobs:
         run: python e2e/offline.py
         env:
           HUGO_URL: http://localhost:4175/HugoChineseAPP/
+      - name: Quick cards check
+        run: python e2e/quick.py
+        env:
+          HUGO_URL: http://localhost:4175/HugoChineseAPP/
+          E2E_OUT: ${{ runner.temp }}/e2e-out
       - name: Sync check
         run: |
           python e2e/make_sample.py "$RUNNER_TEMP/sample.xlsx"

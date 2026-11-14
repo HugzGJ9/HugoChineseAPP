@@ -17,7 +17,7 @@
   position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px;
   min-height: min(46vh, 380px); padding: 28px 20px; border-radius: 20px; background: var(--bg-elev);
   box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.06);
-  touch-action: pan-y; -webkit-user-select: none; user-select: none; transition: transform 0.3s var(--spring);
+  -webkit-user-select: none; user-select: none;
 }
 @media (prefers-color-scheme: dark) { .qk-card { box-shadow: none; } }
 .qk-cell {
@@ -34,19 +34,21 @@
 .qk-py .qk-hide { width: 96px; height: 22px; }
 .qk-mn .qk-hide { width: 168px; height: 18px; }
 .qk-cell:active .qk-hide { opacity: 0.6; }
-.qk-swipe {
-  position: absolute; top: 16px; padding: 4px 10px; border-radius: 999px; font-size: var(--fs-footnote); font-weight: 700;
-  letter-spacing: 0.02em; opacity: 0; transition: opacity 0.15s ease; pointer-events: none;
+.seg.qk-answer-with { display: flex; width: 100%; }
+.seg.qk-answer-with button { flex: 1 1 0; }
+.qk-type { display: flex; flex-direction: column; gap: 10px; }
+.qk-input {
+  width: 100%; min-height: 52px; padding: 0 14px; border: 0; border-radius: var(--radius-card);
+  background: var(--bg-elev); color: var(--label); font-size: max(16px, var(--fs-title3)); text-align: center; /* ≥16px: no zoom on iPhone */
 }
-.qk-swipe-l { right: 16px; background: var(--accent-tint); color: var(--accent); }
-.qk-swipe-r { left: 16px; background: var(--green-tint); color: var(--green); }
-.qk-card[data-swipe='left'] .qk-swipe-l, .qk-card[data-swipe='right'] .qk-swipe-r { opacity: 1; }
-.qk-hint { text-align: center; font-size: var(--fs-footnote); color: var(--label-3); }
+@media (prefers-color-scheme: dark) { .qk-input { background: var(--bg-elev-2); } }
+.qk-input:focus { box-shadow: 0 0 0 2px var(--accent); outline: none; }
+.qk-verdict { text-align: center; }
+.qk-expected { text-align: center; font-size: var(--fs-title3); color: var(--label); overflow-wrap: anywhere; }
+.qk-actions { display: flex; gap: 8px; }
+.qk-actions .btn { min-height: 50px; }
 .qk-explain { align-self: center; }
 .qk-explain svg { width: 18px; height: 18px; }
-.grades.qk-grades { grid-template-columns: 1fr 1fr; }
-.grades.qk-grades button { min-height: 56px; flex-direction: row; gap: 8px; font-size: var(--fs-body); }
-.grades.qk-grades small { font-size: var(--fs-subhead); opacity: 0.6; }
 
 /* End of a round */
 .qk-done {

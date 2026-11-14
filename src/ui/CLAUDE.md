@@ -29,4 +29,6 @@
 ## Gotchas
 - iPhone Home Screen app has its own storage, separate from Safari: keys and sign-ins must be entered there.
 - No popups (they open outside the Home Screen app) and no iframes for sign-in (Safari blocks them).
+- Buttons swapped in place inside a `<form>` (Quick: Show answer / Check / Next) need distinct `key`s, or React reuses the
+  node and a `type=button` click submits the form.
 - Add more one-liners at the end of sessions that hit a quirk.

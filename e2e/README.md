@@ -7,6 +7,7 @@ don't run `playwright install`.
 npm run build && npx vite preview --port 4173 &   # serves http://localhost:4173/HugoChineseAPP/
 python3 e2e/offline.py                            # service worker, dictionary warm-up, offline reload, update flow
 python3 e2e/sync.py                               # uses a synthetic workbook from make_sample.py
+python3 e2e/quick.py                              # Quick cards: typed answers, deck kept across tab switch and reload
 python3 e2e/explain.py                            # word panel, Settings key, "Explain more" (needs LEXICON_SAMPLE=1 build)
 HUGO_XLSX=/path/to/Hugo_chinese_vocab.xlsx python3 e2e/sync.py   # or a real file
 ```
