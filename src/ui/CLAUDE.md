@@ -7,6 +7,8 @@
   §5 do/don't). Read §5 before any style change.
 - Tokens and shared classes in `src/styles.css`; components in `common.tsx`; reference screen: `Settings.tsx`.
 - Screen CSS lives next to its screen. Always tokens, never raw hex; check light and dark.
+- Colour roles: docs/decisions.md UI-1 (ink controls, red = wrong only, Excel status colours, tone hues); the
+  ios-design §5 red rule is superseded. `colours.test.ts` guards contrast and tone/status distance.
 
 ## Map
 | Screen | Files |
@@ -16,7 +18,8 @@
 | Hide/show list (shared) | `qm.tsx` |
 | Quick | `Quick.tsx` |
 | Review | `review/Session.tsx`, `CardView.tsx`, `GradeBar.tsx`, `VocabBack.tsx`, `OtherCard.tsx` (`Review.tsx` re-exports) |
-| Word panel | `word/WordPanel.tsx`, `word/ExplainView.tsx`, `panel.tsx` |
+| Word panel | `word/WordPanel.tsx`, `word/ExplainView.tsx`, `panel.tsx` (`Sheet`: every bottom sheet and menu) |
+| Keyboard inset | `keyboard.ts` (`useKeyboardInset`, sets `--kb`) |
 | Status | `StatusPicker.tsx` |
 | Writing | `WritePad.tsx` |
 | Settings and setup | `Settings.tsx`, `Setup.tsx` (folder, sync, QR/key, link page), `Microsoft.tsx` |
@@ -31,4 +34,5 @@
 - No popups (they open outside the Home Screen app) and no iframes for sign-in (Safari blocks them).
 - Buttons swapped in place inside a `<form>` (Quick: Show answer / Check / Next) need distinct `key`s, or React reuses the
   node and a `type=button` click submits the form.
+- Sheet drag uses native touch listeners: iOS fires `pointercancel` as soon as it starts scrolling, so pointer events can't drag a sheet.
 - Add more one-liners at the end of sessions that hit a quirk.

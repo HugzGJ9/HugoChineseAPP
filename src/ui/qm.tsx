@@ -110,10 +110,13 @@ export function useShift(): boolean {
 type Item = { key: string; note: Note };
 
 export function QmList<T extends Item>({
-  items, shown, listen, lead, trail, rowClass, onKey, onOpen, hidePinyin = false,
+  items, shown, listen, lead, trail, answer, rowClass, onKey, onOpen, hidePinyin = false,
 }: {
   items: T[]; shown: Shown; listen: boolean;
-  lead?: (it: T) => ReactNode; trail?: (it: T) => ReactNode; rowClass?: (it: T) => string;
+  lead?: (it: T) => ReactNode; trail?: (it: T) => ReactNode;
+  /** An answer field: sits with the meaning (phones) or in its own column (wide). Isolated like `trail`. */
+  answer?: (it: T) => ReactNode;
+  rowClass?: (it: T) => string;
   onKey?: (e: KeyboardEvent, it: T) => boolean; hidePinyin?: boolean;
   /** Called when a shown hanzi is tapped (it is still spoken). */
   onOpen?: (it: T) => void;
@@ -161,9 +164,10 @@ export function QmList<T extends Item>({
           all={shift || !!peek[it.key + ':all']}
           peek={peek}
           focused={i === cur}
-          extra={`${lead || trail ? 'x' : ''} ${hidePinyin ? 'nopy' : ''} ${rowClass?.(it) ?? ''}`}
+          extra={`${lead || trail || answer ? 'x' : ''} ${answer ? 'a' : ''} ${hidePinyin ? 'nopy' : ''} ${rowClass?.(it) ?? ''}`}
           lead={lead?.(it)}
           trail={trail?.(it)}
+          answer={answer?.(it)}
           noPinyin={hidePinyin}
           onPeek={(k) => setPeek((p) => ({ ...p, [it.key + ':' + k]: !p[it.key + ':' + k] }))}
           onAll={(on) => setPeek((p) => ({ ...p, [it.key + ':all']: on }))}
@@ -176,10 +180,10 @@ export function QmList<T extends Item>({
 }
 
 function QmRow({
-  id, note, pk, shown, listen, all, peek, focused, extra, lead, trail, noPinyin, onPeek, onAll, onFocus, onOpen,
+  id, note, pk, shown, listen, all, peek, focused, extra, lead, trail, answer, noPinyin, onPeek, onAll, onFocus, onOpen,
 }: {
   id: string; note: Note; pk: string; shown: Shown; listen: boolean; all: boolean; peek: Record<string, boolean>; focused: boolean;
-  extra: string; lead?: ReactNode; trail?: ReactNode; noPinyin: boolean;
+  extra: string; lead?: ReactNode; trail?: ReactNode; answer?: ReactNode; noPinyin: boolean;
   onPeek: (k: Layer) => void; onAll: (on: boolean) => void; onFocus: () => void; onOpen?: () => void;
 }) {
   const hold = useHold(onAll);
@@ -192,7 +196,7 @@ function QmRow({
       onOpen?.();
     } else onPeek(k);
   };
-  // Buttons and menus in the lead and trail slots must not peek, hold or speak.
+  // Buttons, menus and fields in the lead, trail and answer slots must not peek, hold or speak.
   const own = {
     onPointerDown: (e: React.PointerEvent) => {
       e.stopPropagation();
@@ -219,9 +223,16 @@ function QmRow({
             </button>
           )}
         </div>
-        <button type="button" className="ql-cell ql-mn" onClick={tap('mn')} aria-label={vis('mn') ? 'Meaning' : 'Hidden meaning, tap to show'}>
-          {vis('mn') ? <Meaning note={note} className="peek" /> : <span className="ql-hide" />}
-        </button>
+        <div className="ql-sub">
+          <button type="button" className="ql-cell ql-mn" onClick={tap('mn')} aria-label={vis('mn') ? 'Meaning' : 'Hidden meaning, tap to show'}>
+            {vis('mn') ? <Meaning note={note} className="peek" /> : <span className="ql-hide" />}
+          </button>
+          {answer != null && (
+            <div className="ql-answer" {...own}>
+              {answer}
+            </div>
+          )}
+        </div>
       </div>
       {trail != null && (
         <div className="ql-trail" {...own}>

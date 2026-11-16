@@ -7,11 +7,13 @@ import { pref, setPref } from '../lib/db';
 import { cardId } from '../lib/engine/schedule';
 import { buildQueue } from '../lib/engine/queue';
 import { normMeaning } from '../lib/engine/grade';
+import { checkListAnswer } from '../lib/answer';
 import { sheetRows, STATUS_LABEL, STATUS_MARK, WORD_STATUSES, type SheetRow } from '../lib/status';
 import { formatDate, Icon, LangSwitch, Pinyin, toast, TopBar, useNow } from './common';
 import { WriteLine } from './Microsoft';
 import { HomeNotices, NoWords } from './Today';
 import { LayerBar, QmList, useQmShown } from './qm';
+import { Sheet } from './panel';
 import { StatusChip, StatusIcon, StatusPicker } from './StatusPicker';
 import { FilterMenu, MoreMenu } from './sheets/Menus';
 import { ScratchPanel } from './sheets/Practice';
@@ -122,6 +124,76 @@ function useStuck(...refs: React.RefObject<HTMLElement | null>[]): boolean {
   return stuck;
 }
 
+/** What Hugo typed in a row's answer field and how it was judged (undefined = not checked yet). Session only. */
+type Answer = { text: string; ok?: boolean };
+
+/**
+ * The answer field at the end of a row (D10). Checks on Return or on leaving the field; editing clears the colour.
+ * Nothing is stored: the text goes up to Sheets' state only so that it survives a tab switch.
+ */
+function AnswerField({ row, init, onCommit }: { row: SheetRow; init?: Answer; onCommit: (key: string, a: Answer | undefined) => void }) {
+  const [text, setText] = useState(init?.text ?? '');
+  const [ok, setOk] = useState<boolean | undefined>(init?.ok);
+  const done = useRef(init?.text ?? '');
+  const check = (value: string) => {
+    const r = checkListAnswer(value, row.note);
+    setOk(r ? r.right : undefined);
+    done.current = value;
+    onCommit(row.key, r ? { text: value, ok: r.right } : undefined);
+  };
+  const verdict = ok === undefined ? '' : ok ? 'right' : 'wrong';
+  return (
+    <span className={`ql-ans ${verdict}`}>
+      <input
+        type="text"
+        inputMode="text"
+        value={text}
+        lang="zh-CN"
+        placeholder="汉字 or 1–4"
+        aria-label={`Answer for ${row.note.hanzi}`}
+        aria-invalid={ok === false || undefined}
+        enterKeyHint="next"
+        autoCapitalize="off"
+        autoCorrect="off"
+        autoComplete="off"
+        spellCheck={false}
+        onChange={(e) => {
+          setText(e.target.value);
+          if (ok !== undefined) {
+            setOk(undefined);
+            onCommit(row.key, undefined);
+          }
+        }}
+        onBlur={() => {
+          if (text.trim() && (ok === undefined || done.current !== text)) check(text);
+          else if (!text.trim() && done.current) {
+            done.current = '';
+            onCommit(row.key, undefined);
+          }
+        }}
+        onKeyDown={(e) => {
+          if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
+          e.preventDefault();
+          if (text.trim()) check(text);
+          const next = e.currentTarget.closest('.ql-row')?.nextElementSibling?.querySelector<HTMLInputElement>('.ql-ans input');
+          if (next) {
+            next.focus({ preventScroll: true });
+            next.scrollIntoView({ block: 'nearest' });
+          } else e.currentTarget.blur();
+        }}
+      />
+      {verdict && (
+        <span className="ql-ans-mark" aria-hidden="true">
+          {ok ? '✓' : '✗'}
+        </span>
+      )}
+      <span className="sr" role="status">
+        {verdict === 'right' ? 'Right' : verdict === 'wrong' ? 'Wrong' : ''}
+      </span>
+    </span>
+  );
+}
+
 export function Sheets() {
   const { notes, cards, events, settings, noteMap, marks, meta, lang } = useApp((s) => s);
   const now = useNow(300000);
@@ -136,6 +208,8 @@ export function Sheets() {
   const [panel, setPanel] = useState<{ key: string; tab: PanelTab } | null>(null);
   const [scratch, setScratch] = useState(false);
   const [dlg, setDlg] = useState<'filter' | 'more' | null>(null);
+  const [answers, setAnswers] = useState<Record<string, Answer>>({});
+  const [answerGen, setAnswerGen] = useState(0);
   const [undo, setUndo] = useState<{ id: string; text: string } | null>(null);
   const search = useRef<HTMLInputElement>(null);
   const head = useRef<HTMLDivElement>(null);
@@ -197,6 +271,17 @@ export function Sheets() {
     setPref('sh.paint', s);
   };
 
+  const commitAnswer = useCallback((key: string, a: Answer | undefined) => {
+    setAnswers((cur) => {
+      if (!a) {
+        if (!(key in cur)) return cur;
+        const { [key]: _drop, ...rest } = cur;
+        return rest;
+      }
+      return { ...cur, [key]: a };
+    });
+  }, []);
+
   const apply = useCallback(async (row: SheetRow, s: WordStatus) => {
     if (s === row.status) return;
     try {
@@ -235,7 +320,7 @@ export function Sheets() {
 
   const onRowKey = useCallback(
     (e: KeyboardEvent, row: SheetRow) => {
-      if (dialogOpen) return false;
+      if (dialogOpen || (e.target as HTMLElement)?.tagName === 'INPUT') return false;
       const k = e.key.toLowerCase();
       const s: WordStatus | undefined = k === 'm' ? 'mastered' : k === 'k' ? 'notknown' : k === 's' ? 'studying' : k === 'u' ? 'new' : undefined;
       if (s) {
@@ -384,6 +469,7 @@ export function Sheets() {
               </button>
             </>
           )}
+          answer={(r) => <AnswerField key={`${r.key}:${answerGen}`} row={r} init={answers[r.key]} onCommit={commitAnswer} />}
           onKey={onRowKey}
           onOpen={(r) => setPanel({ key: r.key, tab: 'explain' })}
         />
@@ -435,6 +521,12 @@ export function Sheets() {
           reviewCount={reviewIds.length}
           due={due}
           preset={preset}
+          hasAnswers={Object.keys(answers).length > 0}
+          onClearAnswers={() => {
+            setAnswers({});
+            setAnswerGen((g) => g + 1);
+            setDlg(null);
+          }}
           onPaint={() => {
             setPaint(paint ? null : 'mastered');
             setDlg(null);
@@ -472,19 +564,10 @@ export function Sheets() {
 
 /** Four-choice menu for one row, as a bottom sheet on phones and a centred card on wide screens. */
 function StatusMenu({ row, onPick, onClose }: { row: SheetRow; onPick: (s: WordStatus) => void; onClose: () => void }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const back = document.activeElement as HTMLElement | null;
-    ref.current?.querySelector<HTMLElement>('[aria-checked="true"]')?.focus();
-    return () => back?.focus?.();
-  }, []);
   const onKeyDown = (e: React.KeyboardEvent) => {
-    const items = [...(ref.current?.querySelectorAll<HTMLElement>('[role="menuitemradio"]') ?? [])];
+    const items = [...e.currentTarget.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
     const i = items.indexOf(document.activeElement as HTMLElement);
-    if (e.key === 'Escape') {
-      e.stopPropagation();
-      onClose();
-    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault();
       items[(i + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
     } else if (e.key === 'Tab') {
@@ -494,8 +577,8 @@ function StatusMenu({ row, onPick, onClose }: { row: SheetRow; onPick: (s: WordS
   };
   const own = row.mark && row.mark.t > row.since;
   return (
-    <div className="pop-backdrop" onClick={onClose}>
-      <div ref={ref} className="pop hs-pop" role="dialog" aria-modal="true" aria-label={`Status of ${row.note.hanzi}`} onClick={(e) => e.stopPropagation()} onKeyDown={onKeyDown}>
+    <Sheet variant="menu" size="content" className="hs-pop" label={`Status of ${row.note.hanzi}`} onClose={onClose} onKeyDown={onKeyDown}>
+      <>
         <div className="hs-pop-head">
           <span className="zh hs-pop-hz" lang="zh-CN">
             {row.note.hanzi}
@@ -520,7 +603,7 @@ function StatusMenu({ row, onPick, onClose }: { row: SheetRow; onPick: (s: WordS
         <button type="button" className="btn block" onClick={onClose}>
           Cancel
         </button>
-      </div>
-    </div>
+      </>
+    </Sheet>
   );
 }

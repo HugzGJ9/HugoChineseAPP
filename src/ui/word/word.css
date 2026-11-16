@@ -84,7 +84,7 @@
 .wx-claude .wx-senses { gap: 8px; }
 .wx-claude .tag { margin-right: 2px; }
 .wx-check { padding: 10px 12px; border-radius: var(--radius-m); background: var(--blue-tint); font-size: var(--fs-subhead); }
-.wx-wrong { color: var(--red); }
+.wx-wrong { color: var(--wrong); }
 .wx-right { color: var(--green); }
 .wx-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 12px; }
 .wx-list li { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; max-width: 100%; }
@@ -102,10 +102,10 @@
 .wx-ask-first .wx-foot { text-align: left; }
 .wx-err {
   display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; padding: 12px 14px; border-radius: var(--radius-card);
-  background: var(--accent-tint); color: var(--label); font-size: var(--fs-subhead);
+  background: var(--wrong-tint); color: var(--label); font-size: var(--fs-subhead);
 }
 .wx-err > span { flex: 1 1 200px; }
-.wx-err a { color: var(--accent); font-weight: 600; }
+.wx-err a { color: var(--link); font-weight: 600; }
 .wx-err .btn { background: var(--bg-elev); }
 .wx-link { min-height: 44px; padding: 0; border: 0; background: none; color: var(--accent); font-weight: 500; }
 .wx-link:disabled { opacity: 0.5; }
@@ -133,6 +133,7 @@
 .wx-src {
   display: inline-flex; align-items: center; gap: 3px; min-height: 36px; padding: 0 8px; border-radius: 999px;
   font-size: var(--fs-caption); color: var(--label-3);
+  text-decoration: underline; text-underline-offset: 2px; /* ink link: the underline marks it */
 }
 .wx-src svg { width: 11px; height: 11px; stroke-width: 2; }
 .wx-src:active { background: var(--fill); }

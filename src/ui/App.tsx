@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useState } from 'react';
 import { applyUpdate, onUpdateReady } from '../lib/pwa';
 import { useApp } from '../lib/store';
 import { Icon, Toaster } from './common';
+import { useKeyboardInset } from './keyboard';
 import { Sheets } from './Sheets';
 import { Today } from './Today';
 import { LinkPage } from './Setup';
@@ -62,6 +63,7 @@ function UpdateBanner() {
 export function App() {
   const ready = useApp((s) => s.ready);
   const [page, ...rest] = useRoute();
+  useKeyboardInset();
   const inReview = page === 'review';
   useEffect(() => {
     document.title = page === 'sheets' ? 'Hugo 中文' : `${TITLES[page] ?? 'Hugo 中文'} · Hugo 中文`;

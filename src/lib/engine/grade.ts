@@ -12,7 +12,7 @@ export interface Check {
   expected: string;
 }
 
-function targets(note: Note): Syl[][] {
+export function targets(note: Note): Syl[][] {
   const list = [note.pinyinNum, ...(note.altPinyin ?? [])].filter(Boolean);
   return list.map((p) => syllablesFromNumbered(p.split(' ')));
 }

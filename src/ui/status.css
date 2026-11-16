@@ -1,7 +1,7 @@
 /* Status glyphs, the row chip and the 4-segment status picker (StatusPicker.tsx). Tokens only. */
 .st-new { --st: var(--label-2); --st-tint: var(--fill); --st-solid: var(--gray); }
 .st-studying { --st: var(--blue); --st-tint: var(--blue-tint); --st-solid: var(--badge-blue); }
-.st-notknown { --st: var(--orange); --st-tint: var(--orange-tint); --st-solid: var(--badge-orange); }
+.st-notknown { --st: var(--yellow); --st-tint: var(--yellow-tint); --st-solid: var(--badge-yellow); }
 .st-mastered { --st: var(--green); --st-tint: var(--green-tint); --st-solid: var(--badge-green); }
 
 /* Row chip: the button is a 44px hit area, the visible capsule sits inside it. */
