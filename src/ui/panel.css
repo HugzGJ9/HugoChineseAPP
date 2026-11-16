@@ -6,7 +6,7 @@
   max-height: calc(100dvh - env(safe-area-inset-top) - 10px); overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch; background: var(--bg); color: var(--label);
   border-radius: var(--radius-l) var(--radius-l) 0 0;
-  padding: 0 calc(16px + env(safe-area-inset-right)) calc(20px + env(safe-area-inset-bottom)) calc(16px + env(safe-area-inset-left));
+  padding: 0 calc(16px + env(safe-area-inset-right)) calc(20px + max(var(--kb, 0px), env(safe-area-inset-bottom))) calc(16px + env(safe-area-inset-left));
   display: flex; flex-direction: column; gap: 14px; outline: none; overflow-wrap: anywhere;
 }
 div.pp-panel::before { display: none; }
@@ -15,7 +15,7 @@ div.pp-panel::before { display: none; }
 
 /* Grabber + header: the header stays pinned while the sheet scrolls. */
 .pp-grabber {
-  flex: none; position: sticky; top: 0; z-index: 3; height: 0; margin: 0 -16px; touch-action: none;
+  flex: none; position: sticky; top: 0; z-index: 3; height: 0; margin: 0 -16px;
 }
 .pp-grabber::after {
   content: ''; position: absolute; left: 50%; top: 5px; width: 36px; height: 5px; margin-left: -18px; border-radius: 3px; background: var(--fill-3);
@@ -24,7 +24,7 @@ div.pp-panel::before { display: none; }
   position: sticky; top: 0; z-index: 2; display: flex; align-items: center; gap: 4px; min-height: 56px;
   margin: 0 calc(-16px - env(safe-area-inset-right)) 0 calc(-16px - env(safe-area-inset-left));
   padding: 14px calc(10px + env(safe-area-inset-right)) 6px calc(16px + env(safe-area-inset-left));
-  background: var(--bg); touch-action: none;
+  background: var(--bg);
 }
 @media (prefers-color-scheme: dark) { .pp-head { background: var(--bg-elev); } }
 .pp-title { flex: 1; min-width: 0; margin: 0; font: 600 var(--fs-body) / 1.3 var(--font); }
@@ -55,12 +55,21 @@ div.pp-panel::before { display: none; }
 .pp-card-pad { padding: 14px 16px; }
 .pp-group-f { padding: 7px 16px 0; font-size: var(--fs-footnote); line-height: 1.38; color: var(--label-2); }
 
+/* One sheet (panel.tsx). Phones: a "full" sheet has a fixed height so its top edge never moves between modes; a "content"
+   sheet is sized by content. The page behind is locked while a sheet is open; the keyboard inset (--kb) pads the bottom. */
+html.sheet-open, html.sheet-open body { overflow: hidden; overscroll-behavior: none; }
+.pp-backdrop, .pop-backdrop { touch-action: none; }
+.pp-panel.pp-full { height: calc(100dvh - env(safe-area-inset-top) - 10px); }
+.pop.pp-sheet { max-height: 92dvh; padding-bottom: calc(16px + max(var(--kb, 0px), env(safe-area-inset-bottom))); }
+.pop.pp-sheet:focus { outline: none; }
+
 @media (min-width: 900px) {
+  .pp-panel.pp-full { height: auto; }
   .pp-backdrop { display: none; }
   .pp-panel {
     left: auto; top: 0; bottom: 0; width: 420px; max-height: none; min-height: 0; border-radius: 0;
     padding-bottom: 24px; box-shadow: -0.5px 0 0 var(--separator), var(--shadow-pop) !important;
   }
-  .pp-head { padding-top: 12px; touch-action: auto; }
+  .pp-head { padding-top: 12px; }
   .pp-grabber { display: none; }
 }

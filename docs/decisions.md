@@ -70,3 +70,13 @@
   `hz.qm.answer`): not a shared pref, not backed up, never synced, and never a source of truth. It only restores the deck
   after a tab switch or reload; typed answers record no review events except "Send to reviews". Typed verdicts are right
   or wrong only (`tones` and `near` count as wrong). Source: quick-typed D1–D3.
+
+## Interface
+- **UI-1. One meaning per colour.** Controls are ink (`--accent`: black in light, white in dark, text on it
+  `--on-accent`); red is only `--wrong` (wrong verdicts, Again, leech, mistakes); statuses follow the Excel colours
+  (Mastered green, Not known yellow, Studying blue, Not studied grey); tones 1–4 use orange, cyan, violet and magenta,
+  tone 5 grey. `src/ui/colours.test.ts` enforces WCAG ≥ 4.5:1 for text tokens and CIEDE2000 ≥ 15 between every tone
+  and every status or wrong colour, in both themes. Supersedes the ios-design spec §5 red rule. Source: mobile-ux D1–D2.
+- **UI-2. The list answer field leaves no trace.** Sheets rows check hanzi, tone digits or pinyin (`src/lib/answer.ts`)
+  and turn green or red; nothing is written to marks, events, prefs or storage, and statuses never change.
+  Source: mobile-ux D10.

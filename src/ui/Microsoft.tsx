@@ -10,6 +10,7 @@ import {
   writeBack, type WriteWait,
 } from '../lib/workbook';
 import { Cell, formatAgo, formatDate, Icon, Section, Switch, toast, useNow } from './common';
+import { Sheet } from './panel';
 
 const errText = (e: unknown) => (e instanceof Error ? e.message : 'Something went wrong');
 
@@ -273,11 +274,9 @@ export function WriteLine() {
         </span>
       </div>
       {dlg && (
-        <div className="pop-backdrop" onClick={() => setDlg(false)}>
-          <div className="pop" role="dialog" aria-modal="true" aria-label="Write to workbook" onClick={(e) => e.stopPropagation()} onKeyDown={(e) => e.key === 'Escape' && setDlg(false)}>
-            <WriteConfirmBody onLater={() => setDlg(false)} />
-          </div>
-        </div>
+        <Sheet variant="menu" size="content" label="Write to workbook" onClose={() => setDlg(false)}>
+          <WriteConfirmBody onLater={() => setDlg(false)} />
+        </Sheet>
       )}
     </>
   );

@@ -167,7 +167,8 @@ export function StrokeAnimation({ word, size = 150 }: { word: string; size?: num
           showCharacter: false,
           strokeColor: cssVar('--ink', '#1b231f'),
           outlineColor: cssVar('--line', '#cad6cd'),
-          radicalColor: cssVar('--seal', '#b8322a'),
+          // Neutral grey: red now means "wrong" and the accent is ink, the strokes' own colour.
+          radicalColor: cssVar('--label-2', '#6c6c70'),
           delayBetweenStrokes: 120,
           charDataLoader,
         }),

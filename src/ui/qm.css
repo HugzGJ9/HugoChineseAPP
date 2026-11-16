@@ -5,7 +5,7 @@
 .ql-bar { display: flex; gap: 6px; align-items: center; flex-wrap: nowrap; min-width: 0; }
 .ql-chip {
   display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 34px; min-width: 44px; padding: 0 12px;
-  border: 0; border-radius: 999px; background: var(--accent-tint); color: var(--accent); white-space: nowrap;
+  border: 0; border-radius: 999px; background: var(--accent); color: var(--on-accent); white-space: nowrap; /* on = solid ink */
   font-size: var(--fs-subhead); font-weight: 600; -webkit-user-select: none; user-select: none;
   transition: background-color 0.2s ease, color 0.2s ease, transform 0.15s ease;
 }
@@ -97,4 +97,37 @@
   .ql-lead { align-self: center; padding-top: 0; }
   .ql-hz, .ql-py, .ql-mn { min-height: 44px; padding: 0; }
   .ql-mn > span:not(.ql-hide) { -webkit-line-clamp: 3; line-clamp: 3; }
+}
+
+/* Answer field (Sheets, D10): shares the second line with the meaning on phones, its own column on wide screens. */
+.ql-sub { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.ql-sub .ql-mn { flex: 1 1 0; width: auto; }
+.ql-answer { flex: none; width: 104px; padding-right: 8px; }
+.ql-ans {
+  position: relative; display: block; border-radius: 8px; background: var(--fill); border: 1px solid transparent;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+.ql-ans input {
+  display: block; width: 100%; min-height: 36px; margin: 0; padding: 0 8px; border: 0; border-radius: 8px; background: transparent;
+  color: var(--label); font: inherit; font-size: 16px; line-height: 1.25; text-overflow: ellipsis;
+  -webkit-user-select: text; user-select: text; -webkit-touch-callout: default;
+  scroll-margin-top: var(--ql-top, 120px); scroll-margin-bottom: calc(var(--kb, 0px) + var(--nav-h) + 24px);
+}
+.ql-ans input::placeholder { color: var(--label-3); font-size: 13px; } /* fits the 104 px phone field; typed text stays 16 px */
+.ql-ans:focus-within { border-color: var(--accent); }
+.ql-ans input:focus, .ql-ans input:focus-visible { outline: none; }
+.ql-ans.right { background: var(--green-tint); border-color: var(--green); }
+.ql-ans.wrong { background: var(--wrong-tint); border-color: var(--wrong); }
+.ql-ans.right input, .ql-ans.wrong input { padding-right: 24px; }
+.ql-ans-mark { position: absolute; top: 50%; right: 6px; transform: translateY(-50%); font-size: 15px; font-weight: 700; line-height: 1; pointer-events: none; }
+.ql-ans.right .ql-ans-mark { color: var(--green); }
+.ql-ans.wrong .ql-ans-mark { color: var(--wrong); }
+@media (pointer: coarse) { .ql-ans input { min-height: 44px; } }
+
+@media (min-width: 700px) {
+  .ql-sub { display: contents; }
+  .ql-sub .ql-mn { flex: none; width: 100%; }
+  .ql-answer { width: auto; padding-right: 0; }
+  .ql-row.x.a { grid-template-columns: 32px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr) 130px 158px; }
+  .ql-row.x.a.nopy { grid-template-columns: 32px minmax(0, 1fr) minmax(0, 2.4fr) 130px 158px; }
 }

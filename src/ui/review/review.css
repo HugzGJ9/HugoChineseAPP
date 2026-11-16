@@ -34,7 +34,7 @@
 .rv .answer .btn { min-height: 50px; border-radius: 14px; }
 .rv .modes { gap: 6px; }
 .rv .verdict { align-self: stretch; text-align: center; font-size: var(--fs-body); }
-.rv .verdict.wrong { background: color-mix(in srgb, var(--red) 12%, transparent); color: var(--red); }
+.rv .verdict.wrong { background: var(--wrong-tint); color: var(--wrong); }
 .rv .back { max-width: 520px; padding-top: 18px; border-top: 0.5px solid var(--separator); gap: 12px; }
 .rv .back .zh { font-family: var(--hanzi); }
 .rv .back .small { line-height: 1.45; }
@@ -44,7 +44,7 @@
 .rv .choices { gap: 10px; }
 .rv .choices button { min-height: 60px; background: var(--fill); box-shadow: none; font-size: var(--fs-title2); }
 .rv .choices button.right { background: var(--green-tint); box-shadow: inset 0 0 0 2px var(--green-ui); }
-.rv .choices button.wrong { background: color-mix(in srgb, var(--red) 12%, transparent); box-shadow: inset 0 0 0 2px var(--red); }
+.rv .choices button.wrong { background: var(--wrong-tint); box-shadow: inset 0 0 0 2px var(--wrong); }
 .rv .tile { background: var(--fill); box-shadow: none; min-height: 48px; }
 .rv .tile.placed { background: var(--bg-elev-2); box-shadow: 0 0 0 0.5px var(--separator); }
 .rv .tiles.target { border-bottom-color: var(--separator-opaque); }
@@ -60,10 +60,8 @@
 }
 .rv .grades button small { font-size: var(--fs-caption); font-weight: 500; opacity: 0.85; font-variant-numeric: tabular-nums; }
 .rv .grades button:active { transform: scale(0.96); opacity: 0.75; }
-.rv .grades .g1 { background: color-mix(in srgb, var(--red) 14%, transparent); color: var(--red); }
-.rv .grades .g2 { background: var(--orange-tint); color: var(--orange); }
-.rv .grades .g3 { background: var(--green-tint); color: var(--green); }
-.rv .grades .g4 { background: var(--blue-tint); color: var(--blue); }
+.rv .grades .g1 { background: var(--wrong-tint); color: var(--wrong); }
+.rv .grades .g2, .rv .grades .g3, .rv .grades .g4 { background: var(--fill); color: var(--label); }
 .rv .grades button.picked { box-shadow: inset 0 0 0 2px currentColor; }
 @media (hover: hover) { .rv .grades button:hover { filter: brightness(0.96); } }
 @media (max-width: 340px) { .rv .grades { gap: 6px; } .rv .grades button { font-size: var(--fs-subhead); } }

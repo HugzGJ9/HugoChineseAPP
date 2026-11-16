@@ -1,39 +1,25 @@
 // Small bottom-sheet menus for the compact Sheets toolbar: status filter and the "more" overflow.
-import { useEffect, useRef, type ReactNode } from 'react';
+import type { ReactNode } from 'react';
 import type { WordStatus } from '../../lib/types';
 import { STATUS_LABEL, WORD_STATUSES } from '../../lib/status';
 import { PresetSeg, type Shown } from '../qm';
 import { Icon, LangSwitch } from '../common';
 import { StatusIcon } from '../StatusPicker';
+import { Sheet } from '../panel';
 
 export type Filter = 'all' | WordStatus;
 
 function MenuShell({ label, onClose, children, after }: { label: string; onClose: () => void; children: ReactNode; after?: ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const back = document.activeElement as HTMLElement | null;
-    const first = ref.current?.querySelector<HTMLElement>('[aria-checked="true"], [aria-pressed="true"], .pop-item');
-    first?.focus();
-    return () => back?.focus?.();
-  }, []);
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Escape') {
-      e.stopPropagation();
-      onClose();
-    }
-  };
   return (
-    <div className="pop-backdrop" onClick={onClose}>
-      <div ref={ref} className="pop" role="dialog" aria-modal="true" aria-label={label} onClick={(e) => e.stopPropagation()} onKeyDown={onKeyDown}>
-        <div role="menu" aria-label={label} className="pop-menu">
-          {children}
-        </div>
-        {after}
-        <button type="button" className="btn block" onClick={onClose}>
-          Close
-        </button>
+    <Sheet variant="menu" size="content" label={label} onClose={onClose}>
+      <div role="menu" aria-label={label} className="pop-menu">
+        {children}
       </div>
-    </div>
+      {after}
+      <button type="button" className="btn block" onClick={onClose}>
+        Close
+      </button>
+    </Sheet>
   );
 }
 
@@ -53,10 +39,10 @@ export function FilterMenu({ value, counts, onPick, onClose }: { value: Filter; 
 }
 
 export function MoreMenu({
-  paint, reviewHref, reviewCount, due, preset, onPaint, onScratch, onPreset, onClose,
+  paint, reviewHref, reviewCount, due, preset, hasAnswers = false, onPaint, onScratch, onClearAnswers, onPreset, onClose,
 }: {
-  paint: boolean; reviewHref: string | null; reviewCount: number; due: number; preset: string;
-  onPaint: () => void; onScratch: () => void; onPreset: (s: Shown, name: string) => void; onClose: () => void;
+  paint: boolean; reviewHref: string | null; reviewCount: number; due: number; preset: string; hasAnswers?: boolean;
+  onPaint: () => void; onScratch: () => void; onClearAnswers?: () => void; onPreset: (s: Shown, name: string) => void; onClose: () => void;
 }) {
   return (
     <MenuShell
@@ -97,6 +83,12 @@ export function MoreMenu({
         <Icon name="pen" className="mn-glyph" />
         <span className="grow">Scratch pad</span>
       </button>
+      {hasAnswers && onClearAnswers && (
+        <button type="button" role="menuitem" className="pop-item mn-act" onClick={onClearAnswers}>
+          <Icon name="close" className="mn-glyph" />
+          <span className="grow">Clear answers</span>
+        </button>
+      )}
     </MenuShell>
   );
 }
