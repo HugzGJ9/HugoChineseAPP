@@ -13,9 +13,10 @@
 | 2026-11-09 | [ios-design](2026-11-09-ios-design.md) | Shipped (63facb6) | Native iOS look: tokens, components, every screen; §7 theme colours done | Spec stays the reference for new screens |
 | 2026-11-14 | [safety-tests](2026-11-14-safety-tests.md) | Shipped | 34 unit tests for untested data-writing branches: workbook write-back, held imports, PC copy, sync store switch; each checked against a deliberate break | Not done (medium): sync timers, multi-device convergence with random order, `pwa.ts` update flow |
 | 2026-11-14 | [quick-typed](2026-11-14-quick-typed.md) | Shipped (PR #3) | Quick cards: type hanzi / pinyin (tone numbers) / French, right or wrong only; card session survives tab switch and reload (device-only, QUICK-1); `e2e/quick.py` in CI | Not covered by e2e: Quick list mode (unchanged) |
+| 2026-11-16 | [mobile-ux](2026-11-16-mobile-ux.md) | Proposed | iPhone UX: one meaning per colour (ink controls, Excel status colours, re-picked tone hues), one bottom sheet that swipes closed and follows the keyboard, Quick and Practise merged into one window (List / Cards, Draw added), a synced Wrong label (`flag:wrong` marks) | Batch 1: WP1 colours ∥ WP2 sheet + keyboard. Batch 2: WP7 → WP3 (engineer) ∥ WP4, then WP5, WP6 |
 
 ## Now / next
-- Now: nothing in progress.
+- Now: mobile-ux plan proposed; Batch 1 (WP1 ∥ WP2) next, on branch `mobile-ux/batch-1`.
 - Next candidates: connected-saving WP13; roadmap phase 4 #1 weak-words drill, then #3 HSK level progress (needs its own
   short plan: data source and licence).
 
