@@ -13,10 +13,10 @@
 | 2026-11-09 | [ios-design](2026-11-09-ios-design.md) | Shipped (63facb6) | Native iOS look: tokens, components, every screen; §7 theme colours done | Spec stays the reference for new screens |
 | 2026-11-14 | [safety-tests](2026-11-14-safety-tests.md) | Shipped | 34 unit tests for untested data-writing branches: workbook write-back, held imports, PC copy, sync store switch; each checked against a deliberate break | Not done (medium): sync timers, multi-device convergence with random order, `pwa.ts` update flow |
 | 2026-11-14 | [quick-typed](2026-11-14-quick-typed.md) | Shipped (PR #3) | Quick cards: type hanzi / pinyin (tone numbers) / French, right or wrong only; card session survives tab switch and reload (device-only, QUICK-1); `e2e/quick.py` in CI | Not covered by e2e: Quick list mode (unchanged) |
-| 2026-11-16 | [mobile-ux](2026-11-16-mobile-ux.md) | Batch 1 (WP1, WP2, WP8) in review on `mobile-ux/batch-1` | iPhone UX: one meaning per colour (ink controls, Excel status colours, re-picked tone hues), one bottom sheet that swipes closed and follows the keyboard, Sheets as the one list (All tab, List | Cards switch), Quick tab removed, full-screen Cards with Draw, a synced Wrong label (`flag:wrong` marks), an answer field on every Sheets row (hanzi or tone numbers, green/red, no trace) | Batch 1: WP1 colours ∥ WP2 sheet + keyboard, then WP8 answer field. Batch 2: WP7 → WP3 (engineer) ∥ WP4, then WP5, WP6. |
+| 2026-11-16 | [mobile-ux](2026-11-16-mobile-ux.md) | Shipped (Batch 1 PR #4, Batch 2 PR #5) | iPhone UX: one meaning per colour (ink controls, Excel status colours, re-picked tone hues), one bottom sheet that swipes closed and follows the keyboard, Sheets as the one list (All tab, List | Hugo's real-iPhone check (keyboard, swipes); `WordPanel` still accepts an ignored `tabs` prop (CardView, Cards pass it); `onedrive_writeback.py` timed out once in qa (flaky wait at `od_common.py:97`); open defaults: Review does not set Wrong, neutral Hard/Good/Easy | | Batch 1: WP1 colours ∥ WP2 sheet + keyboard, then WP8 answer field. Batch 2: WP7 → WP3 (engineer) ∥ WP4, then WP5, WP6. |
 
 ## Now / next
-- Now: mobile-ux Batch 1 built and qa-passed, PR from `mobile-ux/batch-1`; Batch 2 (WP7 → WP3 ∥ WP4, WP5, WP6) after Hugo's iPhone check.
+- Now: nothing in progress (mobile-ux shipped: Batch 1 PR #4, Batch 2 PR #5).
 - Next candidates: connected-saving WP13; roadmap phase 4 #1 weak-words drill, then #3 HSK level progress (needs its own
   short plan: data source and licence).
 

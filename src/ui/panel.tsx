@@ -87,9 +87,6 @@ export function Sheet({
   );
 }
 
-/** Temporary alias, removed in WP5. */
-export const Shell = Sheet;
-
 const NO_DRAG = '.pad-cell, .sp-canvas, input[type="range"], [data-sheet-nodrag]';
 
 /** True when the touch starts where a drag would fight the content: a writing surface, a slider, or a scroller. */

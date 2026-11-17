@@ -6,7 +6,7 @@
   --hs-top: calc(var(--bar-h) + env(safe-area-inset-top));
   --ql-top: calc(var(--hs-top) + 72px);
 }
-@media (min-width: 640px) { .sheets { --ql-top: calc(var(--hs-top) + 160px); } }
+@media (min-width: 640px) { .sheets { --ql-top: calc(var(--hs-top) + 210px); } }
 @media (min-width: 900px) { .sheets { --hs-top: calc(var(--bar-h) + 8px); } }
 
 /* Nav bar: the language switch shows from 640px (phones get it in the More menu); "more" is a tinted ellipsis circle. */
@@ -164,3 +164,31 @@
 .mn-col { flex-direction: column; align-items: stretch; gap: 8px; padding: 12px 16px 14px; }
 .mn-col > span { font-size: var(--fs-footnote); color: var(--label-2); text-transform: uppercase; letter-spacing: 0.02em; }
 @media (min-width: 640px) { .mn-group > .pop-lang + .mn-row::before { display: none; } }
+
+/* List | Cards switch under the tabs */
+.hs-view { align-self: flex-start; margin-top: 8px; }
+.hs-view button { min-width: 72px; }
+@media (min-width: 640px) { .hs-view { margin-top: 0; } }
+@media (pointer: coarse) { .hs-view button { min-height: 36px; } }
+
+/* Filters that look at what Hugo did (Wrong, Seen this week, Missed recently) */
+.hs-filter.fl-wrong { --st: var(--wrong); --st-tint: var(--wrong-tint); }
+.hs-filter.fl-week, .hs-filter.fl-missed { --st: var(--accent); --st-tint: var(--accent-tint); }
+.pop-item.mn-wrong { --st: var(--wrong); }
+.pop-item.mn-wrong > .icon.pop-st { color: var(--wrong); }
+
+/* Wrong tag on a row: the whole button is the touch target, the pill is what shows. Tap clears it. */
+.hs-wrong { display: inline-flex; align-items: center; justify-content: center; min-height: 36px; padding: 0 2px; border: 0; background: none; color: var(--wrong); }
+@media (pointer: coarse) { .hs-wrong { min-height: 44px; } }
+.hs-wrong-pill {
+  display: inline-flex; align-items: center; gap: 3px; padding: 2px 8px 2px 5px; border-radius: 999px;
+  background: var(--wrong-tint); font-size: var(--fs-footnote); font-weight: 600; line-height: 1.3;
+}
+.hs-wrong-pill svg { width: 14px; height: 14px; stroke-width: 2; }
+.hs-wrong:active .hs-wrong-pill { opacity: 0.6; }
+
+/* Room for the Wrong tag beside the status chip on wide screens. */
+@media (min-width: 700px) {
+  .sheets .ql-row.x.a { grid-template-columns: 32px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr) 130px 236px; }
+  .sheets .ql-row.x.a.nopy { grid-template-columns: 32px minmax(0, 1fr) minmax(0, 2.4fr) 130px 236px; }
+}

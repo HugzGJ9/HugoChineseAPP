@@ -10,7 +10,7 @@ import { ReconnectBanner } from './Microsoft';
 
 // Screens other than the Sheets home load on demand; the service worker precaches every chunk.
 const Review = lazy(() => import('./Review').then((m) => ({ default: m.Review })));
-const Quick = lazy(() => import('./Quick').then((m) => ({ default: m.Quick })));
+const CardsPage = lazy(() => import('./cards/Cards').then((m) => ({ default: m.CardsPage })));
 const Words = lazy(() => import('./Words').then((m) => ({ default: m.Words })));
 const Grammar = lazy(() => import('./Words').then((m) => ({ default: m.Grammar })));
 const Stats = lazy(() => import('./Stats').then((m) => ({ default: m.Stats })));
@@ -33,10 +33,9 @@ function useRoute(): string[] {
 
 const TABS = [
   { id: 'sheets', label: 'Sheets', icon: 'sheets' },
-  { id: 'quick', label: 'Quick', icon: 'quick' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
 ];
-const TITLES: Record<string, string> = { sheets: 'Sheets', quick: 'Quick memory', settings: 'Settings', today: 'Today', words: 'Words', grammar: 'Grammar', stats: 'Stats', report: 'Import report', link: 'Link', review: 'Review' };
+const TITLES: Record<string, string> = { sheets: 'Sheets', settings: 'Settings', today: 'Today', words: 'Words', grammar: 'Grammar', stats: 'Stats', report: 'Import report', link: 'Link', review: 'Review', cards: 'Cards' };
 // Screens reached from Settings → More keep the Settings tab lit.
 const UNDER_SETTINGS = ['today', 'words', 'grammar', 'stats', 'report'];
 
@@ -64,7 +63,11 @@ export function App() {
   const ready = useApp((s) => s.ready);
   const [page, ...rest] = useRoute();
   useKeyboardInset();
-  const inReview = page === 'review';
+  // Old Quick links (bookmarks, the Home Screen app reopening on them) land on Sheets.
+  useEffect(() => {
+    if (page === 'quick') location.replace('#/sheets');
+  }, [page]);
+  const inReview = page === 'review' || page === 'cards';
   useEffect(() => {
     document.title = page === 'sheets' ? 'Hugo 中文' : `${TITLES[page] ?? 'Hugo 中文'} · Hugo 中文`;
   }, [page]);
@@ -74,11 +77,11 @@ export function App() {
     case 'review':
       view = <Review />;
       break;
+    case 'cards':
+      view = <CardsPage />;
+      break;
     case 'today':
       view = <Today />;
-      break;
-    case 'quick':
-      view = <Quick />;
       break;
     case 'words':
       view = <Words id={rest.join('/') || undefined} />;
@@ -97,6 +100,9 @@ export function App() {
       break;
     case 'link':
       view = <LinkPage keyText={rest.join('/')} />;
+      break;
+    case 'quick':
+      view = null;
       break;
     default:
       view = <Sheets />;

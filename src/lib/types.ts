@@ -99,8 +99,21 @@ export interface CardState {
   leechBase?: number;
 }
 
-/** A status change Hugo made himself. Synced in marks/<device>/<YYYY-MM>.json, never in review event files. */
-export type MarkKind = 'known' | 'relearn' | 'suspend' | 'unsuspend' | 'st:new' | 'st:studying' | 'st:notknown' | 'st:mastered';
+/**
+ * A status change Hugo made himself. Synced in marks/<device>/<YYYY-MM>.json, never in review event files.
+ * `flag:wrong` / `unflag:wrong` are the Wrong label (wrong.ts): no status, no-ops for the engine.
+ */
+export type MarkKind =
+  | 'known'
+  | 'relearn'
+  | 'suspend'
+  | 'unsuspend'
+  | 'st:new'
+  | 'st:studying'
+  | 'st:notknown'
+  | 'st:mastered'
+  | 'flag:wrong'
+  | 'unflag:wrong';
 /** Status Hugo sets himself, shown in Sheets and written into the workbook copy as a fill colour. */
 export type WordStatus = 'new' | 'studying' | 'notknown' | 'mastered';
 /** Columns of a sheet as found at import (letters). */

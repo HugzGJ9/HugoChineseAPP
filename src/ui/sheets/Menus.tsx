@@ -1,13 +1,11 @@
 // Small bottom-sheet menus for the compact Sheets toolbar: status filter and the "more" overflow.
 import type { ReactNode } from 'react';
-import type { WordStatus } from '../../lib/types';
-import { STATUS_LABEL, WORD_STATUSES } from '../../lib/status';
+import type { ListFilter } from '../../lib/quick';
+import { STATUS_LABEL } from '../../lib/status';
 import { PresetSeg, type Shown } from '../qm';
 import { Icon, LangSwitch } from '../common';
 import { StatusIcon } from '../StatusPicker';
 import { Sheet } from '../panel';
-
-export type Filter = 'all' | WordStatus;
 
 function MenuShell({ label, onClose, children, after }: { label: string; onClose: () => void; children: ReactNode; after?: ReactNode }) {
   return (
@@ -23,17 +21,44 @@ function MenuShell({ label, onClose, children, after }: { label: string; onClose
   );
 }
 
-export function FilterMenu({ value, counts, onPick, onClose }: { value: Filter; counts: Record<Filter, number>; onPick: (f: Filter) => void; onClose: () => void }) {
+export const FILTER_LABEL: Record<ListFilter, string> = {
+  all: 'All', new: STATUS_LABEL.new, studying: STATUS_LABEL.studying, notknown: STATUS_LABEL.notknown, mastered: STATUS_LABEL.mastered,
+  wrong: 'Wrong', week: 'Seen this week', missed: 'Missed recently',
+};
+const FILTER_ICON: Partial<Record<ListFilter, string>> = { all: 'list', wrong: 'x-circle', week: 'clock', missed: 'bolt' };
+const FILTER_ORDER: ListFilter[] = ['all', 'new', 'studying', 'notknown', 'mastered', 'wrong', 'week', 'missed'];
+
+/** Status filters first, then the three that look at what Hugo did (Wrong, Seen this week, Missed recently). */
+export function FilterMenu({
+  value, counts, onPick, onClearWrong, onClose,
+}: { value: ListFilter; counts: Record<ListFilter, number>; onPick: (f: ListFilter) => void; onClearWrong?: () => void; onClose: () => void }) {
   return (
-    <MenuShell label="Filter by status" onClose={onClose}>
-      {(['all', ...WORD_STATUSES] as Filter[]).map((f) => (
-        <button key={f} type="button" role="menuitemradio" aria-checked={value === f} className={`pop-item ${f === 'all' ? 'mn-all' : `st-${f}`}`} onClick={() => onPick(f)}>
-          {f === 'all' ? <Icon name="list" className="pop-st" /> : <StatusIcon status={f} className="pop-st" />}
-          {f === 'all' ? 'All' : STATUS_LABEL[f]}
-          <span className="sh-count mn-count">{counts[f]}</span>
-          <span className="mn-check">{value === f && <Icon name="check" />}</span>
+    <MenuShell label="Filter" onClose={onClose}>
+      {FILTER_ORDER.map((f) => {
+        const icon = FILTER_ICON[f];
+        return (
+          <button
+            key={f}
+            type="button"
+            role="menuitemradio"
+            aria-checked={value === f}
+            className={`pop-item ${icon ? `mn-all mn-${f}` : `st-${f}`}`}
+            onClick={() => onPick(f)}
+          >
+            {icon ? <Icon name={icon} className="pop-st" /> : <StatusIcon status={f as 'new'} className="pop-st" />}
+            {FILTER_LABEL[f]}
+            <span className="sh-count mn-count">{counts[f]}</span>
+            <span className="mn-check">{value === f && <Icon name="check" />}</span>
+          </button>
+        );
+      })}
+      {value === 'wrong' && counts.wrong > 0 && onClearWrong && (
+        <button type="button" role="menuitem" className="pop-item mn-act" onClick={onClearWrong}>
+          <Icon name="close" className="mn-glyph" />
+          <span className="grow">Clear Wrong</span>
+          <span className="sh-count mn-count">{counts.wrong}</span>
         </button>
-      ))}
+      )}
     </MenuShell>
   );
 }

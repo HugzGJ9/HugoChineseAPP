@@ -19,8 +19,8 @@ const MODE_LABEL: Record<string, string> = {
   'write-guided': 'written', 'write-free': 'written, free', choice: 'choice', build: 'sentence builder', quick: 'Quick memory',
 };
 
-const MARK_LABEL: Record<string, string> = { known: 'Known', relearn: 'Relearn', suspend: 'Suspended', unsuspend: 'Unsuspended' };
-const MARK_HISTORY: Record<string, string> = { known: 'Set as known', relearn: 'Set to relearn', suspend: 'Suspended', unsuspend: 'Unsuspended' };
+const MARK_LABEL: Record<string, string> = { known: 'Known', relearn: 'Relearn', suspend: 'Suspended', unsuspend: 'Unsuspended', 'flag:wrong': 'Marked wrong', 'unflag:wrong': 'Wrong cleared' };
+const MARK_HISTORY: Record<string, string> = { known: 'Set as known', relearn: 'Set to relearn', suspend: 'Suspended', unsuspend: 'Unsuspended', 'flag:wrong': 'Marked wrong', 'unflag:wrong': 'Wrong cleared' };
 const markLabel = (a: string) => { const s = markStatus(a); return s && a.startsWith('st:') ? STATUS_LABEL[s] : MARK_LABEL[a] ?? a; };
 const markHistory = (a: string) => { const s = markStatus(a); return s && a.startsWith('st:') ? `Status set to ${STATUS_LABEL[s]}` : MARK_HISTORY[a] ?? a; };
 const fmt = (t: number) => new Date(t).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });

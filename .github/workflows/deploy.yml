@@ -83,19 +83,26 @@ jobs:
           npx vite preview --port 4175 &
           for i in $(seq 1 30); do curl -sf http://localhost:4175/HugoChineseAPP/ >/dev/null && exit 0; sleep 1; done
           echo "preview did not start"; exit 1
+      - name: Synthetic workbook
+        run: python e2e/make_sample.py "$RUNNER_TEMP/sample.xlsx"
       - name: Offline check
         run: python e2e/offline.py
         env:
           HUGO_URL: http://localhost:4175/HugoChineseAPP/
-      - name: Quick cards check
-        run: python e2e/quick.py
+      - name: Cards check
+        run: python e2e/cards.py
         env:
           HUGO_URL: http://localhost:4175/HugoChineseAPP/
+          HUGO_XLSX: ${{ runner.temp }}/sample.xlsx
+          E2E_OUT: ${{ runner.temp }}/e2e-out
+      - name: Phone layout check
+        run: python e2e/layout.py
+        env:
+          HUGO_URL: http://localhost:4175/HugoChineseAPP/
+          HUGO_XLSX: ${{ runner.temp }}/sample.xlsx
           E2E_OUT: ${{ runner.temp }}/e2e-out
       - name: Sync check
-        run: |
-          python e2e/make_sample.py "$RUNNER_TEMP/sample.xlsx"
-          python e2e/sync.py
+        run: python e2e/sync.py
         env:
           HUGO_URL: http://localhost:4175/HugoChineseAPP/
           HUGO_XLSX: ${{ runner.temp }}/sample.xlsx

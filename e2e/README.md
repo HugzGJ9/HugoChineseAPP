@@ -7,7 +7,8 @@ don't run `playwright install`.
 npm run build && npx vite preview --port 4173 &   # serves http://localhost:4173/HugoChineseAPP/
 python3 e2e/offline.py                            # service worker, dictionary warm-up, offline reload, update flow
 python3 e2e/sync.py                               # uses a synthetic workbook from make_sample.py
-python3 e2e/quick.py                              # Quick cards: typed answers, deck kept across tab switch and reload
+python3 e2e/cards.py                              # Sheets › Cards: typed answers, tones, Draw, deck kept, the Wrong label
+python3 e2e/layout.py                             # phone layout, light and dark: Check in view, panel top edge, menu drags, colours
 python3 e2e/explain.py                            # word panel, Settings key, "Explain more" (needs LEXICON_SAMPLE=1 build)
 HUGO_XLSX=/path/to/Hugo_chinese_vocab.xlsx python3 e2e/sync.py   # or a real file
 ```
@@ -23,6 +24,15 @@ HUGO_XLSX=/path/to/Hugo_chinese_vocab.xlsx python3 e2e/sync.py   # or a real fil
 
 It fakes the GitHub API in memory, so nothing is sent anywhere. It exits non-zero when the two devices disagree.
 
+- `cards.py` (desktop and iPhone 13) drives Sheets › View › Cards: typed pinyin answers (Right, Wrong, 16 px field, no
+  sideways scroll), the deck kept after Close, a hand-typed `#/cards` and a reload, the end of a round, retry, Shuffle and
+  Start over; then in a fresh browser tone digits ("3" right, "2" wrong for 少 shǎo), the Draw pad, and the Wrong label (a
+  wrong answer tags the row in Sheets, the Wrong filter counts 1, tapping the tag clears it, still cleared after a reload).
+- `layout.py` (iPhone 13 and 390×844, light and dark) fails when the layout breaks on a phone: in Cards, for each answer
+  type, the field or pad and Check (Draw: Show answer) are inside the viewport with no page scroll and no answer text is on
+  screen before Check; the word panel's top edge is the same on two words; the status and filter menus close on a real
+  downward touch drag (CDP `Input.dispatchTouchEvent`); a list answer field is green for 少 and red for 2; a tone-1 pinyin
+  span and a Not known chip have different computed colours.
 - `onedrive.py` plays a computer and an iPhone 13 against a fake Microsoft (`fake_graph.py`: Playwright routes for
   login.microsoftonline.com, graph.microsoft.com and a fake `*.microsoftpersonalcontent.com` download host; PKCE checked,
   tokens and quickXorHash made up in memory). No real credentials or requests; any other Microsoft host is aborted and

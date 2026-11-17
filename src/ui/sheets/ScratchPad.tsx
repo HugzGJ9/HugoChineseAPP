@@ -1,7 +1,8 @@
 // Free scratch pad: a canvas to write on, no grading, optional 田字格 grid.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Icon } from '../common';
-import './practice.css';
+import { Sheet } from '../panel';
+import './scratch.css';
 
 type Pt = [number, number]; // x, y as fractions of the canvas, so a resize keeps the drawing
 
@@ -142,5 +143,14 @@ export function ScratchPad({ grid = true, height = 280 }: { grid?: boolean; heig
         </button>
       </div>
     </div>
+  );
+}
+
+/** The scratch pad in a bottom sheet (Cards, every answer type). */
+export function ScratchPanel({ onClose }: { onClose: () => void }) {
+  return (
+    <Sheet title="Scratch pad" label="Scratch pad" onClose={onClose} className="pp-scratch">
+      <ScratchPad height={320} />
+    </Sheet>
   );
 }

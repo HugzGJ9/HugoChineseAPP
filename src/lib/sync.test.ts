@@ -808,6 +808,70 @@ describe('status marks', () => {
   });
 });
 
+describe('Wrong label (flag:wrong / unflag:wrong marks)', () => {
+  const W = 'v:词1|ci1';
+  const W2 = 'v:词2|ci2';
+  const rowsOf = (s: { notes: Note[]; marks: StatusMark[]; meta: { colourSince?: VocabFile['colourSince'] } | null }) =>
+    sheetRows(s.notes, s.marks, s.meta?.colourSince);
+
+  it('flagged on one device, cleared on the other: both agree after sync, statuses and cards untouched', async () => {
+    const pc = await device();
+    await pc.store.setVocab(vocab(4, T0));
+    await pc.sync.linkRepo(LINK);
+    const phone = await device();
+    await phone.sync.linkRepo(LINK);
+    const { wrongNotes } = await import('./wrong');
+    const cards = snapshot(pc.store.getState().cards);
+    const rows = rowsOf(pc.store.getState());
+
+    expect(await pc.store.setWrong([W, W2], true, T0 + 1000)).toBe(2);
+    await pc.sync.syncNow();
+    expect(JSON.parse(gh.text(`marks/${pc.id}/2026-11.json`)).marks.map((r: unknown[]) => `${r[1]} ${r[2]}`).sort()).toEqual([
+      `${W} flag:wrong`,
+      `${W2} flag:wrong`,
+    ]);
+    await phone.sync.syncNow();
+    expect(wrongNotes(phone.store.getState().marks)).toEqual(new Set([W, W2]));
+
+    // Cleared on the phone: an unflag mark of its own, the computer's marks stay as they are.
+    expect(await phone.store.setWrong([W], false, T0 + 2000)).toBe(1);
+    await phone.sync.syncNow();
+    expect(JSON.parse(gh.text(`marks/${phone.id}/2026-11.json`)).marks.map((r: unknown[]) => [r[1], r[2]])).toEqual([[W, 'unflag:wrong']]);
+    expect(JSON.parse(gh.text(`marks/${pc.id}/2026-11.json`)).marks).toHaveLength(2);
+    await pc.sync.syncNow();
+    for (const d of [pc, phone]) {
+      const s = d.store.getState();
+      expect(wrongNotes(s.marks)).toEqual(new Set([W2]));
+      expect(snapshot(s.cards)).toEqual(cards);
+      expect(rowsOf(s)).toEqual(rows);
+    }
+    // The computer sees W as not Wrong: clearing it again writes nothing.
+    expect(await pc.store.setWrong([W], false, T0 + 3000)).toBe(0);
+  });
+
+  it('both devices change the label before syncing: the later mark wins on both', async () => {
+    const pc = await device();
+    await pc.store.setVocab(vocab(4, T0));
+    await pc.sync.linkRepo(LINK);
+    const phone = await device();
+    await phone.sync.linkRepo(LINK);
+    const { wrongNotes } = await import('./wrong');
+    await pc.store.setWrong([W], true, T0 + 1000);
+    await pc.sync.syncNow();
+    await phone.sync.syncNow();
+
+    await pc.store.setWrong([W2], true, T0 + 4000); // W2 flagged on the computer…
+    await phone.store.setWrong([W], false, T0 + 3000); // …while the phone clears W
+    await phone.store.setWrong([W2], true, T0 + 2000); // and flags W2 too, earlier
+    await pc.store.setWrong([W2], false, T0 + 5000); // then the computer clears W2 again
+    await pc.sync.syncNow();
+    await phone.sync.syncNow();
+    await pc.sync.syncNow();
+    expect(wrongNotes(pc.store.getState().marks)).toEqual(new Set());
+    expect(wrongNotes(phone.store.getState().marks)).toEqual(new Set());
+  });
+});
+
 describe('shared preferences', () => {
   it('the meaning language follows to the other device; per-device prefs do not', async () => {
     const pcLS = new MemStorage();

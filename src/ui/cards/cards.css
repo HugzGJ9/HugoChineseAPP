@@ -1,0 +1,109 @@
+/* Cards (Cards.tsx): a fixed column that follows the keyboard (--kb): top bar, progress, caption, card, answer dock. Tokens only. */
+.cd {
+  position: fixed; top: 0; left: 0; right: 0; bottom: var(--kb, 0px); z-index: 1; display: flex; flex-direction: column; gap: 8px;
+  max-width: 560px; margin: 0 auto; overflow: hidden; overscroll-behavior: contain;
+  padding: calc(6px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) 0 calc(16px + env(safe-area-inset-left));
+}
+.qk-bar { display: flex; align-items: center; justify-content: space-between; flex: none; min-height: 44px; margin: 0 -8px; }
+.qk-count { font-size: var(--fs-subhead); font-weight: 600; color: var(--label); font-variant-numeric: tabular-nums; text-align: center; }
+.qk-progress { flex: none; height: 3px; border-radius: 2px; background: var(--fill); overflow: hidden; }
+.qk-progress > i { display: block; height: 100%; background: var(--accent); border-radius: 2px; transition: width 0.3s var(--ease); }
+.qk-caption { flex: none; margin: 0; text-align: center; font-size: var(--fs-footnote); color: var(--label-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.qk-empty { padding: 32px 16px; border-radius: var(--radius-card); background: var(--bg-elev); color: var(--label-2); text-align: center; }
+
+/* Card, centred in the free space. */
+.qk-stage { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; justify-content: center; }
+.qk-card {
+  position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+  max-height: 100%; min-height: 0; padding: 22px 16px; border-radius: 20px; background: var(--bg-elev); overflow: hidden;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.04), 0 8px 24px rgb(0 0 0 / 0.06);
+  -webkit-user-select: none; user-select: none;
+}
+.qk-card.draw { flex: 1 1 0; justify-content: flex-start; padding-top: 16px; }
+@media (prefers-color-scheme: dark) { .qk-card { box-shadow: none; } }
+.qk-cell {
+  display: flex; align-items: center; justify-content: center; flex: none; min-width: 88px; min-height: 44px; max-width: 100%; padding: 2px 8px;
+  border: 0; border-radius: var(--radius-m); background: none; color: var(--label); text-align: center; cursor: pointer;
+}
+.qk-hz { font-family: var(--kai); font-size: 72px; line-height: 1.12; overflow-wrap: anywhere; }
+.qk-py { font-size: var(--fs-title2); }
+.qk-mn { font-size: var(--fs-body); color: var(--label-2); line-height: 1.35; max-width: 34ch; }
+.qk-in { animation: qk-fade 0.2s ease-out; }
+@keyframes qk-fade { from { opacity: 0; } }
+.qk-hide { display: inline-block; border-radius: 8px; background: var(--fill-3); }
+.qk-hz .qk-hide { width: 128px; height: 72px; border-radius: 12px; }
+.qk-py .qk-hide { width: 96px; height: 22px; }
+.qk-mn .qk-hide { width: 168px; height: 18px; }
+.qk-cell:active .qk-hide { opacity: 0.6; }
+.qk-card-tag { position: absolute; top: 12px; left: 12px; }
+.qk-explain { position: absolute; top: 4px; right: 4px; color: var(--label-2); }
+.qk-wrongtag {
+  display: inline-flex; align-items: center; gap: 4px; flex: none; padding: 2px 8px 2px 6px; border-radius: 999px;
+  background: var(--wrong-tint); color: var(--wrong); font-size: var(--fs-footnote); font-weight: 600; line-height: 1.3;
+}
+.qk-wrongtag svg { width: 14px; height: 14px; stroke-width: 2; }
+
+/* Draw: the square takes what is left of the card. */
+.qk-padbox { flex: 1 1 0; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; }
+.qk-padbox .pad { width: auto; gap: 8px; }
+
+/* Answer dock: pinned to the bottom of the column, above the keyboard and the home indicator. */
+.qk-dock {
+  flex: none; display: flex; flex-direction: column; gap: 8px;
+  padding: 4px 0 max(10px, calc(env(safe-area-inset-bottom) - var(--kb, 0px)));
+}
+.qk-input {
+  width: 100%; min-height: 52px; padding: 0 14px; border: 0; border-radius: var(--radius-card);
+  background: var(--bg-elev); color: var(--label); font-size: max(16px, var(--fs-title3)); text-align: center; /* ≥16px: no zoom on iPhone */
+}
+@media (prefers-color-scheme: dark) { .qk-input { background: var(--bg-elev-2); } }
+.qk-input:focus { box-shadow: 0 0 0 2px var(--accent); outline: none; }
+/* After Check the field takes the verdict colour, like the list's answer field (decisions UI-2). */
+.qk-input.right, .qk-input.right:focus { background: var(--green-tint); box-shadow: 0 0 0 2px var(--green); }
+.qk-input.wrong, .qk-input.wrong:focus { background: var(--wrong-tint); box-shadow: 0 0 0 2px var(--wrong); }
+.qk-result { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 4px 12px; min-height: 40px; }
+.qk-result .verdict { padding: 6px 14px; }
+.qk-expected { font-size: var(--fs-title3); color: var(--label); overflow-wrap: anywhere; text-align: center; }
+.qk-actions { display: flex; gap: 8px; }
+.qk-actions .btn { min-height: 50px; }
+.qk-actions .qk-tool { flex: none; min-width: 56px; padding: 0 14px; }
+.qk-actions .qk-tool.grow { flex: 1 1 0; }
+.qk-tool svg { width: 24px; height: 24px; }
+.qk-tool[aria-pressed='true'] { background: var(--accent-tint); color: var(--accent); box-shadow: inset 0 0 0 1.5px var(--accent); }
+
+/* Settings sheet */
+.cd-set { display: flex; flex-direction: column; gap: 10px; }
+.cd-label { font-size: var(--fs-footnote); font-weight: 600; color: var(--label-2); text-transform: uppercase; letter-spacing: 0.04em; }
+.cd-hint { margin: 0; font-size: var(--fs-footnote); color: var(--label-2); }
+.seg.cd-seg, .cd-set .seg.ql-presets { display: flex; width: 100%; }
+.seg.cd-seg button, .cd-set .seg.ql-presets button { flex: 1 1 0; padding: 0 6px; }
+.cd-set .ql-bar { flex: none; }
+.cd-set .ql-chip { padding: 0 11px; }
+.cd-shuffle { min-height: 50px; display: flex; align-items: center; justify-content: center; gap: 8px; border-radius: var(--radius-card); background: var(--bg-elev); }
+@media (prefers-color-scheme: dark) { .cd-shuffle { background: var(--bg-elev-2); } }
+.cd-shuffle svg { width: 22px; height: 22px; }
+
+/* End of a round: scrolls inside the column. */
+.qk-done {
+  flex: 1 1 0; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; align-items: center; gap: 8px;
+  margin-bottom: max(10px, env(safe-area-inset-bottom)); padding: 24px 16px 16px; border-radius: 20px; background: var(--bg-elev);
+  text-align: center; box-shadow: var(--shadow-card);
+}
+.qk-done > * { flex: none; }
+.qk-done-icon { display: inline-flex; color: var(--green); }
+.qk-done-icon svg { width: 44px; height: 44px; stroke-width: 1.4; }
+.qk-done h2 { font: 700 var(--fs-title2) / 1.2 var(--font-display); }
+.qk-done-sub { color: var(--label-2); }
+.qk-done-actions { display: flex; flex-direction: column; align-items: stretch; gap: 8px; width: 100%; max-width: 360px; margin-top: 8px; }
+.qk-done-actions .btn { min-height: 50px; border-radius: var(--radius-card); }
+.qk-miss { list-style: none; width: 100%; margin: 12px 0 0; padding: 0; text-align: left; border-top: 0.5px solid var(--separator); }
+.qk-miss li + li { border-top: 0.5px solid var(--separator); }
+.qk-miss li { display: flex; align-items: center; gap: 4px; }
+.qk-miss-clear { flex: none; min-height: 44px; padding: 0 2px 0 6px; border: 0; background: none; }
+.qk-miss-row {
+  flex: 1; min-width: 0; display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 2px 10px; width: 100%; min-height: 56px; padding: 8px 0;
+  border: 0; background: none; color: var(--label); text-align: left;
+}
+.qk-miss-hz { font-family: var(--kai); font-size: var(--fs-title2); }
+.qk-miss-py { font-size: var(--fs-subhead); }
+.qk-miss-mn { grid-column: 1 / span 2; font-size: var(--fs-footnote); color: var(--label-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

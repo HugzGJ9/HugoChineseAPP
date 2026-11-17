@@ -1,0 +1,18 @@
+/* Scratch pad (ScratchPad.tsx), inside a Sheet (../panel.css). Tokens only. */
+.sp { display: flex; flex-direction: column; gap: 10px; }
+.sp-box { width: 100%; border-radius: var(--radius-card); background: var(--bg-elev); overflow: hidden; box-shadow: inset 0 0 0 1.5px var(--grid); }
+@media (prefers-color-scheme: dark) { .sp-box { background: var(--bg-elev-2); } }
+.sp-canvas { display: block; width: 100%; touch-action: none; user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; cursor: crosshair; }
+.sp-tools { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.sp-tool {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; min-height: 56px; padding: 6px 4px;
+  border: 0; border-radius: var(--radius-card); background: var(--bg-elev); color: var(--accent); font-size: var(--fs-caption); font-weight: 500;
+  transition: opacity 0.15s ease, transform 0.15s ease;
+}
+@media (prefers-color-scheme: dark) { .sp-tool { background: var(--bg-elev-2); } }
+.sp-tool svg { width: 22px; height: 22px; }
+.sp-tool span { color: var(--label); }
+.sp-tool:active:not(:disabled) { transform: scale(0.96); opacity: 0.7; }
+.sp-tool:disabled { opacity: 0.4; cursor: default; }
+.sp-tool[aria-pressed='true'] { background: var(--accent-tint); }
+.sp-tool[aria-pressed='true'] span { color: var(--accent); font-weight: 600; }

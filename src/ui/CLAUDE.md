@@ -14,9 +14,9 @@
 | Screen | Files |
 |---|---|
 | Shell, routes (default `sheets`) | `App.tsx` |
-| Sheets (home) | `Sheets.tsx`, `sheets/Menus.tsx`, `sheets/Practice.tsx`, `sheets/ScratchPad.tsx` |
+| Sheets (home, the one list) | `Sheets.tsx`, `sheets/Menus.tsx`, `sheets/ScratchPad.tsx` (`ScratchPanel`) |
 | Hide/show list (shared) | `qm.tsx` |
-| Quick | `Quick.tsx` |
+| Cards (`#/cards`, focus shell) | `cards/Cards.tsx` (`CardsPage`) |
 | Review | `review/Session.tsx`, `CardView.tsx`, `GradeBar.tsx`, `VocabBack.tsx`, `OtherCard.tsx` (`Review.tsx` re-exports) |
 | Word panel | `word/WordPanel.tsx`, `word/ExplainView.tsx`, `panel.tsx` (`Sheet`: every bottom sheet and menu) |
 | Keyboard inset | `keyboard.ts` (`useKeyboardInset`, sets `--kb`) |
@@ -32,7 +32,7 @@
 ## Gotchas
 - iPhone Home Screen app has its own storage, separate from Safari: keys and sign-ins must be entered there.
 - No popups (they open outside the Home Screen app) and no iframes for sign-in (Safari blocks them).
-- Buttons swapped in place inside a `<form>` (Quick: Show answer / Check / Next) need distinct `key`s, or React reuses the
+- Buttons swapped in place inside a `<form>` (Cards: Show answer / Check / Next) need distinct `key`s, or React reuses the
   node and a `type=button` click submits the form.
 - Sheet drag uses native touch listeners: iOS fires `pointercancel` as soon as it starts scrolling, so pointer events can't drag a sheet.
 - Add more one-liners at the end of sessions that hit a quirk.

@@ -23,12 +23,18 @@ export function WritePad({
   guided,
   onDone,
   onSkip,
+  size: fixed,
+  bare = false,
 }: {
   word: string;
   guided: boolean;
   onDone: (r: WriteResult) => void;
   /** "I don't know" (caller grades Again) or "Show answer" (caller lets the user grade). */
   onSkip?: (kind: 'unknown' | 'reveal') => void;
+  /** Side of the writing square in px (default: the width of its box). */
+  size?: number;
+  /** No caption, outline button or skip buttons: the caller supplies its own controls. */
+  bare?: boolean;
 }) {
   const chars = [...word].filter((c) => HAN.test(c));
   const [index, setIndex] = useState(0);
@@ -52,7 +58,7 @@ export function WritePad({
     if (!el || index >= chars.length) return;
     el.innerHTML = '';
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const size = el.clientWidth || 220;
+    const size = fixed || el.clientWidth || 220;
     const ch = chars[index];
     const w = HanziWriter.create(el, ch, {
       width: size,
@@ -99,7 +105,7 @@ export function WritePad({
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [index, word, guided]);
+  }, [index, word, guided, fixed]);
 
   const giveHint = () => {
     const w = writer.current;
@@ -120,8 +126,14 @@ export function WritePad({
             </div>
           ))}
       </div>
-      <div className="pad-cell" ref={host} role="application" aria-label={`Write character ${index + 1} of ${chars.length}`} />
-      <div className="row">
+      <div
+        className="pad-cell"
+        ref={host}
+        style={fixed ? { ['--pad' as string]: `${fixed}px` } : undefined}
+        role="application"
+        aria-label={`Write character ${index + 1} of ${chars.length}`}
+      />
+      {!bare && <div className="row">
         <span className="small muted">
           Character {Math.min(index + 1, chars.length)} of {chars.length}
           {mistakes[index] ? ` · ${mistakes[index]} mistake${mistakes[index] > 1 ? 's' : ''}` : ''}
@@ -132,8 +144,8 @@ export function WritePad({
             Show outline
           </button>
         )}
-      </div>
-      {onSkip && (
+      </div>}
+      {!bare && onSkip && (
         <div className="row">
           <button type="button" className="btn grow" onClick={() => onSkip('unknown')}>
             I don't know

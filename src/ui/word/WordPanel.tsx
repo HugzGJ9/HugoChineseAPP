@@ -1,26 +1,27 @@
-// One panel per word: Explain (dictionary, Claude, examples) and Practise tabs, with the status picker when allowed.
-import { lazy, Suspense, useState } from 'react';
+// One panel per word: Explain (dictionary, Claude, examples), "Practise this word" (opens Cards on it) and the status
+// picker when allowed.
+import { lazy, Suspense } from 'react';
 import type { Note, WordStatus } from '../../lib/types';
-import { AudioButton, LangSwitch, Pinyin, Segmented } from '../common';
-import { Shell } from '../panel';
+import { AudioButton, Icon, LangSwitch, Pinyin } from '../common';
+import { Sheet } from '../panel';
 import { StatusPicker } from '../StatusPicker';
-import { PracticeBody } from '../sheets/Practice';
 import './word.css';
 
 const ExplainView = lazy(() => import('./ExplainView').then((m) => ({ default: m.ExplainView })));
 
-export type PanelTab = 'explain' | 'practise';
-const TAB_LABEL: Record<PanelTab, string> = { explain: 'Explain', practise: 'Practise' };
-
 export function WordPanel({
-  note, tab = 'explain', tabs = ['explain', 'practise'], status, onStatus, onClose,
+  note, practiseHref, status, onStatus, onClose,
 }: {
-  note: Note; tab?: PanelTab; tabs?: PanelTab[]; status?: WordStatus; onStatus?: (s: WordStatus) => void; onClose: () => void;
+  note: Note;
+  /** `tabs` is kept for older callers; the panel only has Explain now. */
+  tabs?: string[];
+  /** Where "Practise this word" goes (a `#/cards?…` link); the button is left out without it. */
+  practiseHref?: string;
+  status?: WordStatus; onStatus?: (s: WordStatus) => void; onClose: () => void;
 }) {
-  const [cur, setCur] = useState<PanelTab>(tabs.includes(tab) ? tab : tabs[0]);
   const details = `#/${note.kind === 'grammar' ? 'grammar' : 'words'}/${encodeURIComponent(note.id)}`;
   return (
-    <Shell
+    <Sheet
       className="wp tall"
       label={note.hanzi}
       onClose={onClose}
@@ -33,20 +34,19 @@ export function WordPanel({
       head={<AudioButton text={note.hanzi} />}
     >
       <div className="wp-bar">
-        {tabs.length > 1 ? (
-          <Segmented label="Panel view" className="wp-tabs" value={cur} onChange={setCur} options={tabs.map((t) => ({ value: t, label: TAB_LABEL[t] }))} />
+        {practiseHref ? (
+          <a className="btn small tinted wp-practise" href={practiseHref}>
+            <Icon name="pen" />
+            Practise this word
+          </a>
         ) : (
           <span className="grow" />
         )}
         <LangSwitch />
       </div>
-      {cur === 'explain' ? (
-        <Suspense fallback={<p className="wp-loading" aria-busy="true">Loading…</p>}>
-          <ExplainView note={note} />
-        </Suspense>
-      ) : (
-        <PracticeBody note={note} />
-      )}
+      <Suspense fallback={<p className="wp-loading" aria-busy="true">Loading…</p>}>
+        <ExplainView note={note} />
+      </Suspense>
       {onStatus && status && (
         <section className="pp-group wp-status" aria-labelledby="pp-status-label">
           <h3 className="pp-group-h">
@@ -58,6 +58,6 @@ export function WordPanel({
           <StatusPicker value={status} onChange={onStatus} compact />
         </section>
       )}
-    </Shell>
+    </Sheet>
   );
 }
