@@ -2,25 +2,28 @@
 // and a status per row that Hugo sets himself (menu, or Paint mode for one tap per row).
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import type { Note, WordStatus } from '../lib/types';
-import { clearExcelChanges, setLang, setNoteStatus, undoMark, useApp } from '../lib/store';
+import { clearExcelChanges, setLang, setNoteStatus, setWrong, undoMark, useApp } from '../lib/store';
 import { pref, setPref } from '../lib/db';
 import { cardId } from '../lib/engine/schedule';
 import { buildQueue } from '../lib/engine/queue';
 import { normMeaning } from '../lib/engine/grade';
 import { checkListAnswer } from '../lib/answer';
+import { allRows, cardsHref, filterRows, LIST_FILTERS, readListFilter, recentByNote, type ListFilter } from '../lib/quick';
+import { wrongNotes } from '../lib/wrong';
 import { sheetRows, STATUS_LABEL, STATUS_MARK, WORD_STATUSES, type SheetRow } from '../lib/status';
-import { formatDate, Icon, LangSwitch, Pinyin, toast, TopBar, useNow } from './common';
+import { formatDate, Icon, LangSwitch, Pinyin, Segmented, toast, TopBar, useNow } from './common';
 import { WriteLine } from './Microsoft';
 import { HomeNotices, NoWords } from './Today';
 import { LayerBar, QmList, useQmShown } from './qm';
 import { Sheet } from './panel';
 import { StatusChip, StatusIcon, StatusPicker } from './StatusPicker';
-import { FilterMenu, MoreMenu } from './sheets/Menus';
-import { ScratchPanel } from './sheets/Practice';
-import { WordPanel, type PanelTab } from './word/WordPanel';
+import { FILTER_LABEL, FilterMenu, MoreMenu } from './sheets/Menus';
+import { ScratchPanel } from './sheets/ScratchPad';
+import { WordPanel } from './word/WordPanel';
 import './sheets/sheets.css';
 
-type Filter = 'all' | WordStatus;
+/** The All tab: every sheet, a word once. Not a sheet name anyone would type. */
+const ALL_TAB = '\u0000all';
 const PAGE = 150;
 const HIDDEN_SHEETS = /^exam$/i;
 
@@ -199,13 +202,13 @@ export function Sheets() {
   const now = useNow(300000);
   const { shown, preset, listen, setShown, toggle } = useQmShown('sh');
   const [tab, setTab] = useState<string>(() => pref('sh.tab', ''));
-  const [filter, setFilterState] = useState<Filter>(() => readStatus(pref('sh.filter', 'all')) ?? 'all');
+  const [filter, setFilterState] = useState<ListFilter>(() => readListFilter(pref<unknown>('sh.filter', 'all')));
   const [paint, setPaintState] = useState<WordStatus | null>(() => readStatus(pref<unknown>('sh.paint', null)));
   const [q, setQ] = useState('');
   const dq = useDeferredValue(q);
   const [limit, setLimit] = useState(PAGE);
   const [menu, setMenu] = useState<string | null>(null);
-  const [panel, setPanel] = useState<{ key: string; tab: PanelTab } | null>(null);
+  const [panel, setPanel] = useState<string | null>(null);
   const [scratch, setScratch] = useState(false);
   const [dlg, setDlg] = useState<'filter' | 'more' | null>(null);
   const [answers, setAnswers] = useState<Record<string, Answer>>({});
@@ -218,27 +221,33 @@ export function Sheets() {
   const stuck = useStuck(head, bar);
 
   const bySheet = useMemo(() => sheetRows(notes, marks, meta?.colourSince), [notes, marks, meta]);
-  const tabs = useMemo(() => {
+  const sheetTabs = useMemo(() => {
     const names = (meta?.report.map((r) => r.name) ?? []).filter((n) => bySheet.has(n));
     for (const n of bySheet.keys()) if (!names.includes(n)) names.push(n);
     return names.filter((n) => !HIDDEN_SHEETS.test(n));
   }, [meta, bySheet]);
+  const tabs = useMemo(() => (sheetTabs.length ? [ALL_TAB, ...sheetTabs] : []), [sheetTabs]);
   const current = tabs.includes(tab) ? tab : tabs[0] ?? '';
-  const all = useMemo(() => [...(bySheet.get(current) ?? [])].sort((a, b) => a.ref.row - b.ref.row), [bySheet, current]);
+  const isAll = current === ALL_TAB;
+  const tabName = isAll ? 'All' : current;
+  const allWords = useMemo(() => allRows(new Map(sheetTabs.map((n) => [n, bySheet.get(n) ?? []] as const))), [sheetTabs, bySheet]);
+  const all = useMemo(() => (isAll ? allWords : [...(bySheet.get(current) ?? [])].sort((a, b) => a.ref.row - b.ref.row)), [isAll, allWords, bySheet, current]);
+  const wrong = useMemo(() => wrongNotes(marks), [marks]);
+  const recent = useMemo(() => recentByNote(events, now), [events, now]);
   const hidePinyin = all.length > 0 && all.every((r) => !r.note.pinyin);
 
   const match = useMemo(() => matcher(dq), [dq]);
   const found = useMemo(() => (match ? all.filter((r) => match(r.note)) : all), [all, match]);
   const counts = useMemo(() => {
-    const c: Record<Filter, number> = { all: found.length, new: 0, studying: 0, notknown: 0, mastered: 0 };
-    for (const r of found) c[r.status]++;
+    const c = {} as Record<ListFilter, number>;
+    for (const f of LIST_FILTERS) c[f] = filterRows(found, f, { wrong, recent }).length;
     return c;
-  }, [found]);
-  const list = useMemo(() => (filter === 'all' ? found : found.filter((r) => r.status === filter)), [found, filter]);
+  }, [found, wrong, recent]);
+  const list = useMemo(() => filterRows(found, filter, { wrong, recent }), [found, filter, wrong, recent]);
   const elsewhere = useMemo(() => {
     if (!match) return [];
-    return tabs.filter((t) => t !== current).map((t) => ({ t, n: (bySheet.get(t) ?? []).filter((r) => match(r.note)).length })).filter((x) => x.n > 0);
-  }, [match, tabs, current, bySheet]);
+    return sheetTabs.filter((t) => t !== current).map((t) => ({ t, n: (bySheet.get(t) ?? []).filter((r) => match(r.note)).length })).filter((x) => x.n > 0);
+  }, [match, sheetTabs, current, bySheet]);
 
   const due = useMemo(() => {
     if (!notes.length) return 0;
@@ -262,7 +271,7 @@ export function Sheets() {
     setTab(t);
     setPref('sh.tab', t);
   };
-  const setFilter = (f: Filter) => {
+  const setFilter = (f: ListFilter) => {
     setFilterState(f);
     setPref('sh.filter', f);
   };
@@ -281,6 +290,19 @@ export function Sheets() {
       return { ...cur, [key]: a };
     });
   }, []);
+
+  const cardsLink = useCallback(
+    (at?: string) => cardsHref({ sheet: isAll ? 'all' : current, status: filter, at }),
+    [isAll, current, filter],
+  );
+  const clearWrong = async (ids: string[], text: string) => {
+    try {
+      await setWrong(ids, false);
+      toast(text);
+    } catch (err) {
+      toast(`Couldn't clear that: ${(err as Error).message}`);
+    }
+  };
 
   const apply = useCallback(async (row: SheetRow, s: WordStatus) => {
     if (s === row.status) return;
@@ -327,13 +349,17 @@ export function Sheets() {
         void apply(row, s);
         return true;
       }
-      if (k === 'w' || k === 'e') {
-        setPanel({ key: row.key, tab: k === 'w' ? 'practise' : 'explain' });
+      if (k === 'w') {
+        location.hash = cardsLink(row.note.id);
+        return true;
+      }
+      if (k === 'e') {
+        setPanel(row.key);
         return true;
       }
       return false;
     },
-    [apply, dialogOpen],
+    [apply, dialogOpen, cardsLink],
   );
 
   if (!notes.length) {
@@ -346,7 +372,7 @@ export function Sheets() {
   }
 
   const menuRow = menu ? all.find((r) => r.key === menu) : undefined;
-  const panelRow = panel ? all.find((r) => r.key === panel.key) : undefined;
+  const panelRow = panel ? all.find((r) => r.key === panel) : undefined;
   const reviewIds = [...new Set(list.map((r) => r.note))]
     .slice(0, 100)
     .map((n) => cardId(n.id, n.kind === 'vocab' ? 'recog' : n.kind))
@@ -374,10 +400,24 @@ export function Sheets() {
           <div className="hs-tabs" role="tablist" aria-label="Sheets" ref={tabBox}>
             {tabs.map((t) => (
               <button key={t} type="button" role="tab" aria-selected={t === current} className="hs-tab" onClick={() => pickTab(t)}>
-                {t} <span className="hs-tab-n">{bySheet.get(t)?.length ?? 0}</span>
+                {t === ALL_TAB ? 'All' : t} <span className="hs-tab-n">{t === ALL_TAB ? allWords.length : bySheet.get(t)?.length ?? 0}</span>
               </button>
             ))}
           </div>
+        )}
+        {tabs.length > 0 && (
+          <Segmented
+            label="View"
+            className="hs-view"
+            value="list"
+            onChange={(v) => {
+              if (v === 'cards') location.hash = cardsLink();
+            }}
+            options={[
+              { value: 'list', label: 'List' },
+              { value: 'cards', label: 'Cards' },
+            ]}
+          />
         )}
         <div className="hs-search">
           <input
@@ -391,8 +431,8 @@ export function Sheets() {
                 setQ('');
               }
             }}
-            placeholder={`Search ${current}`}
-            aria-label={`Search ${current}`}
+            placeholder={`Search ${tabName}`}
+            aria-label={`Search ${tabName}`}
             autoCapitalize="off"
             autoCorrect="off"
             spellCheck={false}
@@ -416,9 +456,15 @@ export function Sheets() {
         <div className="hs-sticky" ref={bar}>
           <div className="hs-bar">
             <LayerBar shown={shown} lang={lang} onToggle={toggle} noPinyin={hidePinyin} compact />
-            <button type="button" className={`hs-filter${filter !== 'all' ? ` st-${filter}` : ''}`} aria-haspopup="menu" aria-pressed={filter !== 'all'} onClick={() => setDlg('filter')}>
-              {filter === 'all' ? <Icon name="filter" /> : <StatusIcon status={filter} />}
-              <span className="hs-filter-l">{filter === 'all' ? 'All' : STATUS_LABEL[filter]}</span>
+            <button type="button" className={`hs-filter${filter !== 'all' ? ` ${WORD_STATUSES.includes(filter as WordStatus) ? `st-${filter}` : `fl-${filter}`}` : ''}`} aria-haspopup="menu" aria-pressed={filter !== 'all'} onClick={() => setDlg('filter')}>
+              {filter === 'all' ? (
+                <Icon name="filter" />
+              ) : WORD_STATUSES.includes(filter as WordStatus) ? (
+                <StatusIcon status={filter as WordStatus} />
+              ) : (
+                <Icon name={filter === 'wrong' ? 'x-circle' : filter === 'week' ? 'clock' : 'bolt'} />
+              )}
+              <span className="hs-filter-l">{FILTER_LABEL[filter]}</span>
               <span className="hs-count">{counts[filter]}</span>
               <Icon name="chevron-down" className="hs-filter-chev" />
               <span className="sr">, filter by status</span>
@@ -451,7 +497,7 @@ export function Sheets() {
       {list.length === 0 ? (
         <div className="hs-empty">
           <Icon name={all.length === 0 ? 'sheets' : 'search'} />
-          <p>{all.length === 0 ? 'No rows on this sheet.' : 'No rows match.'}</p>
+          <p>{all.length === 0 ? 'No rows on this sheet.' : filter === 'wrong' && !match ? 'Nothing marked Wrong.' : 'No rows match.'}</p>
         </div>
       ) : (
         <QmList
@@ -463,15 +509,29 @@ export function Sheets() {
           lead={(r) => <span className="hs-id">{r.ref.id ?? r.ref.row}</span>}
           trail={(r) => (
             <>
+              {wrong.has(r.note.id) && (
+                <button
+                  type="button"
+                  className="hs-wrong"
+                  aria-label={`Wrong: ${r.note.hanzi}. Tap to clear`}
+                  title="Tap to clear Wrong"
+                  onClick={() => void clearWrong([r.note.id], `Wrong cleared: ${r.note.hanzi}`)}
+                >
+                  <span className="hs-wrong-pill">
+                    <Icon name="x-circle" />
+                    Wrong
+                  </span>
+                </button>
+              )}
               <StatusChip status={r.status} onClick={() => (paint ? void apply(r, paint) : setMenu(r.key))} />
-              <button type="button" className="icon-btn" onClick={() => setPanel({ key: r.key, tab: 'practise' })} aria-label={`Practise ${r.note.hanzi}`} title="Practise (W)">
+              <button type="button" className="icon-btn" onClick={() => (location.hash = cardsLink(r.note.id))} aria-label={`Practise ${r.note.hanzi}`} title="Practise (W)">
                 <Icon name="pen" />
               </button>
             </>
           )}
           answer={(r) => <AnswerField key={`${r.key}:${answerGen}`} row={r} init={answers[r.key]} onCommit={commitAnswer} />}
           onKey={onRowKey}
-          onOpen={(r) => setPanel({ key: r.key, tab: 'explain' })}
+          onOpen={(r) => setPanel(r.key)}
         />
       )}
       {list.length > limit && (
@@ -495,9 +555,9 @@ export function Sheets() {
       )}
       {panel && panelRow && (
         <WordPanel
-          key={`${panelRow.key}:${panel.tab}`}
+          key={panelRow.key}
           note={panelRow.note}
-          tab={panel.tab}
+          practiseHref={cardsLink(panelRow.note.id)}
           status={panelRow.status}
           onStatus={(s) => void apply(panelRow, s)}
           onClose={() => setPanel(null)}
@@ -510,6 +570,11 @@ export function Sheets() {
           onPick={(f) => {
             setFilter(f);
             setDlg(null);
+          }}
+          onClearWrong={() => {
+            setDlg(null);
+            const ids = list.map((r) => r.note.id);
+            void clearWrong(ids, `Wrong cleared on ${ids.length} ${ids.length === 1 ? 'word' : 'words'}`);
           }}
           onClose={() => setDlg(null)}
         />

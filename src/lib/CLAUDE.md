@@ -13,7 +13,7 @@
 ## Map
 | Area | Files | Notes |
 |---|---|---|
-| Types | `types.ts` | Note, VocabFile (aliases, colourSince), ReviewEvent (mo), StatusMark/MarkKind (`st:*`), WordStatus… |
+| Types | `types.ts` | Note, VocabFile (aliases, colourSince), ReviewEvent (mo), StatusMark/MarkKind (`st:*`, `flag:wrong`/`unflag:wrong`), WordStatus… |
 | Storage | `db.ts` | tables: notes, events, kv (settings, sync state, dirty months, marks, folderHandle, copySig, msAuth…) |
 | State | `store.ts` | init (migrations), setVocab, recordReview/undoReview, setNoteStatus/undoMark, BroadcastChannel `hz` |
 | Status | `status.ts` | colour → status rules, labels/fills/marks, `sheetRows` |
@@ -26,6 +26,7 @@
 | Sync | `sync.ts`, `syncstore.ts`, `github.ts` | Web-Lock sync, per-file error isolation; same files on GitHub and OneDrive |
 | Dictionary | `lexicon.ts`, `french.ts` | shards in public/dict/w (built in CI; `LEXICON_SAMPLE=1` locally) |
 | Explain | `explain/` | Claude client, key in kv `claudeKey` (never synced/backed up), cache, prompt |
+| Drill | `quick.ts` (Cards targets, session, deep link, `filterRows`/`allRows`), `wrong.ts` (Wrong label), `answer.ts` (list answer field) | ENG-5, QUICK-1/2, UI-2 |
 | Other | `backup.ts`, `stats.ts`, `pinyin.ts`, `speech.ts`, `strokes.ts`, `pwa.ts` | `progress.ts` = legacy, not written |
 
 `progress.ts` is dormant (only its test imports it); deleting it is connected-saving WP13.

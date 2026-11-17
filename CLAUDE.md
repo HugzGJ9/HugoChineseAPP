@@ -44,7 +44,8 @@ Statuses reach Excel two ways:
   edits, backup first).
 - No Microsoft sign-in → PC only, a copy `Hugo_chinese_vocab (app).xlsx` next to the original (`folder.ts`); the original
   is never written from there.
-Nav: Sheets · Quick · Settings (Today, Stats, Words under Settings › More). Tapping a word opens a panel: Explain and Practise.
+Nav: Sheets · Settings (Today, Stats, Words under Settings › More). Sheets is the one list (All tab, answer field per row)
+with a List | Cards switch; Cards (`#/cards`) is the full-screen drill. Tapping a word opens a panel: Explain, status, Practise this word.
 
 ## Top-level map
 - `src/main.tsx` boot order · `src/lib/` logic, storage, sync (→ `src/lib/CLAUDE.md`) · `src/ui/` screens (→ `src/ui/CLAUDE.md`)

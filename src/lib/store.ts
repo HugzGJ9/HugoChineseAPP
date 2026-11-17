@@ -24,6 +24,7 @@ import {
 import type { CardState, Grade, MarkKind, Note, PendingImport, ReviewEvent, StatusChange, StatusMark, VocabFile, WordStatus } from './types';
 import { addDays, applyReview, dayStart, deriveCards, noteOfCard, resolveEventCards, resolveMarkNotes } from './engine/schedule';
 import { noteStatuses, sheetRows } from './status';
+import { latestWrongMarks, WRONG_OFF, WRONG_ON } from './wrong';
 
 export type Lang = 'en' | 'fr';
 
@@ -629,6 +630,42 @@ export async function setNoteStatus(noteId: string, a: MarkKind, t = Date.now())
   broadcast('mark');
   notifyLocalChange();
   return mark;
+}
+
+/**
+ * Set or clear the Wrong label (wrong.ts, plan mobile-ux D6) on words: one `flag:wrong` / `unflag:wrong` mark per note
+ * whose current state differs, judged on the alias-resolved marks shown (state.marks), so a renamed word is not marked
+ * twice. Unknown note ids are skipped. A mark's time is at least 1 ms after the note's latest Wrong mark, so it wins
+ * even when another device's clock ran ahead. All marks and their dirty months are saved in one transaction.
+ * Returns the number of marks written. Wrong marks change no card, so only the marks view is rebuilt.
+ */
+export async function setWrong(noteIds: string[], on: boolean, t = Date.now()): Promise<number> {
+  const latest = latestWrongMarks(state.marks);
+  const a: MarkKind = on ? WRONG_ON : WRONG_OFF;
+  const marks: StatusMark[] = [];
+  for (const id of new Set(noteIds)) {
+    if (!state.noteMap.has(id)) continue;
+    const cur = latest.get(id);
+    if ((cur?.a === WRONG_ON) === on) continue;
+    const mt = cur && cur.t >= t ? cur.t + 1 : t;
+    marks.push({ id: uid(), note: id, a, t: mt, dev: state.device, mo: monthKey(mt) });
+  }
+  if (!marks.length) return 0;
+  const byMonth = new Map<string, StatusMark[]>();
+  for (const m of marks) byMonth.set(m.mo!, [...(byMonth.get(m.mo!) ?? []), m]);
+  await db.transaction('rw', db.kv, async () => {
+    for (const [mo, list] of byMonth) {
+      const row = await markRow(state.device, mo);
+      await kvSet(markKey(state.device, mo), [...row, ...list]);
+      await markMarksDirty(mo);
+    }
+  });
+  gen++;
+  rawMarks = [...rawMarks, ...marks];
+  set({ marks: marksView(rawMarks, state.notes, state.meta) });
+  broadcast('mark');
+  notifyLocalChange();
+  return marks.length;
 }
 
 /** Undo a mark set on this device. Marks of other devices are never changed here. */

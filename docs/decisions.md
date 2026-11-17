@@ -21,6 +21,10 @@
   a status; status marks (`st:*`) are no-ops in the engine, so the golden snapshot is unchanged. Source: sheets D1, D2.
 - **ENG-4. ts-fsrs is pinned (6.0.0) and guarded by a golden replay test.** Any bump that changes scheduling fails CI.
   Source: roadmap D8.
+- **ENG-5. The Wrong label is two mark kinds, `flag:wrong` and `unflag:wrong`,** in the marks stream (ENG-2): per note
+  the latest by (t, id) wins; set by a wrong Cards answer, cleared only by Hugo (an `unflag` mark, never `undoMark`).
+  It never changes a status or a card and never reaches the workbook. No format bump: older versions keep unknown kinds
+  (`decodeMarks`) and ignore them (`applyMark`, `latestMarks`, `markStatus`). Source: mobile-ux D6.
 
 ## Sync
 - **SYNC-1. Each device writes only its own monthly files; a file is authoritative for its device and month.** Every
@@ -70,6 +74,10 @@
   `hz.qm.answer`): not a shared pref, not backed up, never synced, and never a source of truth. It only restores the deck
   after a tab switch or reload; typed answers record no review events except "Send to reviews". Typed verdicts are right
   or wrong only (`tones` and `near` count as wrong). Source: quick-typed D1–D3.
+- **QUICK-2. Sheets is the one list; Cards is the drill.** The Quick tab and screen and the word panel's Practise tab are
+  gone (`#/quick` redirects to `#/sheets`). Cards runs at `#/cards?sheet=&status=&at=` on the focus shell, built from the
+  same `filterRows`/`allRows` as the list, with Hanzi, Pinyin (tone digits or full), French or Draw answers. QUICK-1 still
+  holds for its session. Source: mobile-ux D5, D11.
 
 ## Interface
 - **UI-1. One meaning per colour.** Controls are ink (`--accent`: black in light, white in dark, text on it
