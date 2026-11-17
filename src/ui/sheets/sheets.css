@@ -192,3 +192,12 @@
   .sheets .ql-row.x.a { grid-template-columns: 32px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr) 130px 236px; }
   .sheets .ql-row.x.a.nopy { grid-template-columns: 32px minmax(0, 1fr) minmax(0, 2.4fr) 130px 236px; }
 }
+
+/* Phones: the Wrong tag is an icon badge (the label stays in aria-label) and the Practise pen leaves the row —
+   the word panel's "Practise this word" and the List | Cards switch remain. */
+@media (max-width: 699px) {
+  .sheets .hs-wrong { min-width: 36px; }
+  .sheets .hs-wrong-pill { width: 28px; height: 28px; padding: 0; justify-content: center; font-size: 0; gap: 0; }
+  .sheets .hs-wrong-pill svg { width: 16px; height: 16px; }
+  .sheets .hs-practise { display: none; }
+}

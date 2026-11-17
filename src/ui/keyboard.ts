@@ -12,6 +12,7 @@ export function useKeyboardInset(): number {
     const update = () => {
       const px = vv ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0;
       root.style.setProperty('--kb', `${px}px`);
+      root.classList.toggle('kb-open', px > 80);
       setKb(px);
     };
     update();
@@ -21,7 +22,21 @@ export function useKeyboardInset(): number {
       vv?.removeEventListener('resize', update);
       vv?.removeEventListener('scroll', update);
       root.style.removeProperty('--kb');
+      root.classList.remove('kb-open');
     };
   }, []);
   return kb;
+}
+
+/**
+ * Scroll the page so `el` sits inside the visible area: below its scroll-margin-top (the sticky header) and above the
+ * keyboard. Works on the visual viewport, which iOS pans instead of resizing the page, unlike scrollIntoView.
+ */
+export function revealAboveKeyboard(el: HTMLElement, margin = 16): void {
+  const vv = window.visualViewport;
+  const r = el.getBoundingClientRect();
+  const visTop = (vv?.offsetTop ?? 0) + (parseFloat(getComputedStyle(el).scrollMarginTop) || 0);
+  const visBottom = (vv ? vv.offsetTop + vv.height : window.innerHeight) - margin;
+  const dy = r.bottom > visBottom ? r.bottom - visBottom : r.top < visTop ? r.top - visTop : 0;
+  if (dy) window.scrollBy({ top: dy, behavior: 'auto' });
 }

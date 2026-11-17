@@ -120,6 +120,25 @@ async def sheets_checks(pg, ctx, word):
     cdp = await ctx.new_cdp_session(pg)
     check(await pg.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'Sheets: no sideways scroll')
 
+    # Two-line phone rows (plan 2026-11-17): no id column, tags on line 1, meaning + answer on line 2.
+    row = pg.locator('.ql-row').first
+    check(not await row.locator('.ql-lead').is_visible(), 'phone rows hide the id column')
+    check(not await row.locator('.hs-practise').is_visible(), 'phone rows hide the Practise pencil')
+    hz, trail, mn, ans = [await row.locator(c).bounding_box() for c in ('.ql-hz', '.ql-trail', '.ql-mn', '.ql-answer')]
+    rbox = await row.bounding_box()
+    mid = lambda b: b['y'] + b['height'] / 2
+    check(abs(mid(trail) - mid(hz)) < 10, f'row tags on the hanzi line (trail mid {mid(trail):.0f}, hanzi mid {mid(hz):.0f})')
+    check(mn['width'] >= 180, f'meaning cell {mn["width"]:.0f} px wide (>= 180)')
+    check(ans['width'] >= 112, f'answer field {ans["width"]:.0f} px wide (>= 112)')
+    check(rbox['height'] <= 100, f'row {rbox["height"]:.0f} px tall (<= 100)')
+
+    # Typing: the tab bar hides while a field has focus, and comes back after.
+    field = row.locator('.ql-ans input')
+    await field.focus()
+    check(not await pg.locator('nav.nav').is_visible(), 'tab bar hidden while typing')
+    await field.evaluate('e => e.blur()')
+    check(await pg.locator('nav.nav').is_visible(), 'tab bar back after typing')
+
     # Word panel: the same top edge for two different words.
     tops = []
     for idx in (0, 5):

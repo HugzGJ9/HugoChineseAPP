@@ -216,11 +216,20 @@ async def tones_draw_wrong(p, name, ctx_args):
     b, pg, errs = await boot(p, ctx_args)
     tab = pg.get_by_role('tab', name='HSK五级')
     await tab.click()
-    practise = pg.get_by_role('button', name='Practise 少')
+    pen = pg.get_by_role('button', name='Practise 少')
+
+    class practise:  # the row pencil on wide screens; on phones (no pencil, plan 2026-11-17 D3) the word panel's link
+        @staticmethod
+        async def click():
+            if await pen.is_visible():
+                await pen.click()
+            else:
+                await pg.get_by_role('button', name='少', exact=True).first.click()
+                await pg.get_by_role('link', name='Practise this word').click()
     wrong_tag = pg.locator('.hs-wrong')
 
     async def to_shao():
-        """Open Cards on 少 shǎo (the pencil on its row) with pinyin answers."""
+        """Open Cards on 少 shǎo (row pencil, or the word panel on phones) with pinyin answers."""
         await pg.get_by_role('tab', name='HSK五级').click()
         await practise.click()
         await pg.locator('.qk-count').wait_for()

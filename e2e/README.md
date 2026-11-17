@@ -32,7 +32,8 @@ It fakes the GitHub API in memory, so nothing is sent anywhere. It exits non-zer
   type, the field or pad and Check (Draw: Show answer) are inside the viewport with no page scroll and no answer text is on
   screen before Check; the word panel's top edge is the same on two words; the status and filter menus close on a real
   downward touch drag (CDP `Input.dispatchTouchEvent`); a list answer field is green for 少 and red for 2; a tone-1 pinyin
-  span and a Not known chip have different computed colours.
+  span and a Not known chip have different computed colours; Sheets rows are two lines on phones (no id or pen, tags on
+  the hanzi line, meaning ≥ 180 px, row ≤ 100 px) and the tab bar hides while an answer field has focus.
 - `onedrive.py` plays a computer and an iPhone 13 against a fake Microsoft (`fake_graph.py`: Playwright routes for
   login.microsoftonline.com, graph.microsoft.com and a fake `*.microsoftpersonalcontent.com` download host; PKCE checked,
   tokens and quickXorHash made up in memory). No real credentials or requests; any other Microsoft host is aborted and
