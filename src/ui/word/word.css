@@ -140,3 +140,6 @@
 @media (pointer: coarse) { .wx-src { min-height: 44px; margin: -4px 0 -6px; } }
 
 .wx.inline { gap: 20px; }
+
+/* Excel row id beside the title (phone rows hide the id column). */
+.wp-id { font-size: var(--fs-footnote); font-weight: 400; color: var(--label-3); font-variant-numeric: tabular-nums; }

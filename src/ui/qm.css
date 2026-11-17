@@ -102,7 +102,7 @@
 /* Answer field (Sheets, D10): shares the second line with the meaning on phones, its own column on wide screens. */
 .ql-sub { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .ql-sub .ql-mn { flex: 1 1 0; width: auto; }
-.ql-answer { flex: none; width: 104px; padding-right: 8px; }
+.ql-answer { flex: none; width: 112px; padding-right: 8px; }
 .ql-ans {
   position: relative; display: block; border-radius: 8px; background: var(--fill); border: 1px solid transparent;
   transition: background-color 0.2s ease, border-color 0.2s ease;
@@ -111,9 +111,9 @@
   display: block; width: 100%; min-height: 36px; margin: 0; padding: 0 8px; border: 0; border-radius: 8px; background: transparent;
   color: var(--label); font: inherit; font-size: 16px; line-height: 1.25; text-overflow: ellipsis;
   -webkit-user-select: text; user-select: text; -webkit-touch-callout: default;
-  scroll-margin-top: var(--ql-top, 120px); scroll-margin-bottom: calc(var(--kb, 0px) + var(--nav-h) + 24px);
+  scroll-margin-top: var(--ql-top, 120px); scroll-margin-bottom: calc(var(--kb, 0px) + 24px); /* the tab bar hides while typing */
 }
-.ql-ans input::placeholder { color: var(--label-3); font-size: 13px; } /* fits the 104 px phone field; typed text stays 16 px */
+.ql-ans input::placeholder { color: var(--label-3); font-size: 13px; } /* fits the 112 px phone field; typed text stays 16 px */
 .ql-ans:focus-within { border-color: var(--accent); }
 .ql-ans input:focus, .ql-ans input:focus-visible { outline: none; }
 .ql-ans.right { background: var(--green-tint); border-color: var(--green); }
@@ -130,4 +130,21 @@
   .ql-answer { width: auto; padding-right: 0; }
   .ql-row.x.a { grid-template-columns: 32px minmax(0, 1fr) minmax(0, 1fr) minmax(0, 2fr) 130px 158px; }
   .ql-row.x.a.nopy { grid-template-columns: 32px minmax(0, 1fr) minmax(0, 2.4fr) 130px 158px; }
+}
+
+/* Phones, rows with slots (Sheets): two lines. Line 1 = hanzi · pinyin, tags on the right; line 2 = meaning · answer.
+   The id column goes (the word panel shows it); the trail no longer steals width from the meaning. */
+@media (max-width: 699px) {
+  .ql-row.x {
+    --sep-left: 16px; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'top trail' 'sub sub';
+    column-gap: 4px; padding: 4px 4px 4px 16px;
+  }
+  .ql-row.x .ql-lead { display: none; }
+  .ql-row.x .ql-main { display: contents; }
+  .ql-row.x .ql-top { grid-area: top; }
+  .ql-row.x .ql-sub { grid-area: sub; }
+  .ql-row.x .ql-trail { grid-area: trail; align-self: center; }
+  /* Status as a 28 px dot; the button keeps its 44 px target. */
+  .ql-trail .sc-pill { width: 28px; padding: 0; justify-content: center; }
+  .ql-trail .sc-pill .sc-label { display: none; }
 }

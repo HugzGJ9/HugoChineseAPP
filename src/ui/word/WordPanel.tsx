@@ -10,13 +10,15 @@ import './word.css';
 const ExplainView = lazy(() => import('./ExplainView').then((m) => ({ default: m.ExplainView })));
 
 export function WordPanel({
-  note, practiseHref, status, onStatus, onClose,
+  note, practiseHref, rowId, status, onStatus, onClose,
 }: {
   note: Note;
   /** `tabs` is kept for older callers; the panel only has Explain now. */
   tabs?: string[];
   /** Where "Practise this word" goes (a `#/cards?…` link); the button is left out without it. */
   practiseHref?: string;
+  /** The Excel row id; shown in the title because phone rows hide the id column. */
+  rowId?: string | number;
   status?: WordStatus; onStatus?: (s: WordStatus) => void; onClose: () => void;
 }) {
   const details = `#/${note.kind === 'grammar' ? 'grammar' : 'words'}/${encodeURIComponent(note.id)}`;
@@ -29,6 +31,7 @@ export function WordPanel({
         <span className="wp-title">
           <span className="zh wp-hz" lang="zh-CN">{note.hanzi}</span>
           {note.kind !== 'grammar' && note.pinyin && <Pinyin text={note.pinyin} className="wp-py" />}
+          {rowId != null && <span className="wp-id">#{rowId}</span>}
         </span>
       }
       head={<AudioButton text={note.hanzi} />}

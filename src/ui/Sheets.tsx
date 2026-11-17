@@ -14,6 +14,7 @@ import { sheetRows, STATUS_LABEL, STATUS_MARK, WORD_STATUSES, type SheetRow } fr
 import { formatDate, Icon, LangSwitch, Pinyin, Segmented, toast, TopBar, useNow } from './common';
 import { WriteLine } from './Microsoft';
 import { HomeNotices, NoWords } from './Today';
+import { revealAboveKeyboard } from './keyboard';
 import { LayerBar, QmList, useQmShown } from './qm';
 import { Sheet } from './panel';
 import { StatusChip, StatusIcon, StatusPicker } from './StatusPicker';
@@ -152,7 +153,7 @@ function AnswerField({ row, init, onCommit }: { row: SheetRow; init?: Answer; on
         inputMode="text"
         value={text}
         lang="zh-CN"
-        placeholder="汉字 or 1–4"
+        placeholder="汉字·1–4"
         aria-label={`Answer for ${row.note.hanzi}`}
         aria-invalid={ok === false || undefined}
         enterKeyHint="next"
@@ -181,7 +182,7 @@ function AnswerField({ row, init, onCommit }: { row: SheetRow; init?: Answer; on
           const next = e.currentTarget.closest('.ql-row')?.nextElementSibling?.querySelector<HTMLInputElement>('.ql-ans input');
           if (next) {
             next.focus({ preventScroll: true });
-            next.scrollIntoView({ block: 'nearest' });
+            requestAnimationFrame(() => revealAboveKeyboard(next));
           } else e.currentTarget.blur();
         }}
       />
@@ -524,7 +525,7 @@ export function Sheets() {
                 </button>
               )}
               <StatusChip status={r.status} onClick={() => (paint ? void apply(r, paint) : setMenu(r.key))} />
-              <button type="button" className="icon-btn" onClick={() => (location.hash = cardsLink(r.note.id))} aria-label={`Practise ${r.note.hanzi}`} title="Practise (W)">
+              <button type="button" className="icon-btn hs-practise" onClick={() => (location.hash = cardsLink(r.note.id))} aria-label={`Practise ${r.note.hanzi}`} title="Practise (W)">
                 <Icon name="pen" />
               </button>
             </>
@@ -558,6 +559,7 @@ export function Sheets() {
           key={panelRow.key}
           note={panelRow.note}
           practiseHref={cardsLink(panelRow.note.id)}
+          rowId={panelRow.ref.id ?? panelRow.ref.row}
           status={panelRow.status}
           onStatus={(s) => void apply(panelRow, s)}
           onClose={() => setPanel(null)}
