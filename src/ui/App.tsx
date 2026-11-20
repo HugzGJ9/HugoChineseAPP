@@ -12,7 +12,7 @@ import { ReconnectBanner } from './Microsoft';
 const Review = lazy(() => import('./Review').then((m) => ({ default: m.Review })));
 const CardsPage = lazy(() => import('./cards/Cards').then((m) => ({ default: m.CardsPage })));
 const Words = lazy(() => import('./Words').then((m) => ({ default: m.Words })));
-const Grammar = lazy(() => import('./Words').then((m) => ({ default: m.Grammar })));
+const GrammarPage = lazy(() => import('./grammar/GrammarPage').then((m) => ({ default: m.GrammarPage })));
 const Stats = lazy(() => import('./Stats').then((m) => ({ default: m.Stats })));
 const Report = lazy(() => import('./Stats').then((m) => ({ default: m.Report })));
 const Settings = lazy(() => import('./Settings').then((m) => ({ default: m.Settings })));
@@ -33,11 +33,12 @@ function useRoute(): string[] {
 
 const TABS = [
   { id: 'sheets', label: 'Sheets', icon: 'sheets' },
+  { id: 'grammar', label: 'Grammar', icon: 'grammar' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
 ];
 const TITLES: Record<string, string> = { sheets: 'Sheets', settings: 'Settings', today: 'Today', words: 'Words', grammar: 'Grammar', stats: 'Stats', report: 'Import report', link: 'Link', review: 'Review', cards: 'Cards' };
 // Screens reached from Settings → More keep the Settings tab lit.
-const UNDER_SETTINGS = ['today', 'words', 'grammar', 'stats', 'report'];
+const UNDER_SETTINGS = ['today', 'words', 'stats', 'report'];
 
 function UpdateBanner() {
   const [on, setOn] = useState(false);
@@ -87,7 +88,7 @@ export function App() {
       view = <Words id={rest.join('/') || undefined} />;
       break;
     case 'grammar':
-      view = <Grammar id={rest.join('/') || undefined} />;
+      view = <GrammarPage id={rest.join('/') || undefined} />;
       break;
     case 'stats':
       view = <Stats />;

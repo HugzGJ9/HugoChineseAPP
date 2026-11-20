@@ -262,6 +262,3 @@ export function NoteDetail({ note }: { note: Note }) {
   );
 }
 
-export function Grammar({ id }: { id?: string }) {
-  return <Words id={id} kinds={['grammar']} title="Grammar" base="#/grammar" />;
-}
