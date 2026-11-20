@@ -1,6 +1,6 @@
 ---
 name: qa
-description: Independently checks a batch of changes before it is pushed — type-check, unit tests, build, browser runs at desktop and iPhone sizes, diff review for regressions, data compatibility and personal-data leaks. Use proactively after builders finish. Reports problems; does not fix code.
+description: Independently checks a batch of changes before it is pushed — type-check, unit tests, build, browser runs at desktop and iPhone sizes, diff review for regressions, data compatibility and personal-data leaks. Use proactively after builders finish; run it on opus when the batch touches src/lib, sync files or stored shapes. Reports problems; does not fix code.
 tools: Read, Grep, Glob, Bash, Write
 disallowedTools: Agent
 model: sonnet
@@ -20,6 +20,8 @@ against the request or plan you are given, not against the builders' reports.
    - an offline reload still works;
    - nothing personal is in the diff or staged (`*.xlsx`, word lists, progress, tokens, screenshots).
 4. Write your scripts and screenshots outside the repo (your scratchpad), never in `src/`. Don't edit app code.
+5. Re-check after a FAIL: verify only the problems listed in your prompt, plus `npx tsc --noEmit -p .` and `npm test`.
+   Read only the diff of the fixes; don't repeat browser flows the fixes don't touch.
 
 Report in at most 12 lines: PASS or FAIL for each check. For each problem give file:line and how to reproduce it. Give
 screenshot paths instead of describing them.

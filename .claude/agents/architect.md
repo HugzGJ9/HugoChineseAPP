@@ -4,7 +4,7 @@ description: Plans features and changes that span several modules, touch data or
 tools: Read, Grep, Glob, Bash, Write
 disallowedTools: Agent
 model: opus
-effort: max
+effort: high
 maxTurns: 90
 color: purple
 ---

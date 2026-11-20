@@ -88,3 +88,12 @@
 - **UI-2. The list answer field leaves no trace.** Sheets rows check hanzi, tone digits or pinyin (`src/lib/answer.ts`)
   and turn green or red; nothing is written to marks, events, prefs or storage, and statuses never change.
   Source: mobile-ux D10.
+
+## Agent team
+- **AGENT-1. Review strength follows data risk.** qa runs on opus for batches that touch `src/lib`, sync files or
+  stored shapes, and on sonnet otherwise; the architect runs at max effort only for data, sync or stored-format plans
+  (high otherwise). Opus-written data code was being checked by a weaker model than the one that wrote it.
+  Source: CLAUDE.md "How work is run", 2026-11-20.
+- **AGENT-2. Fable is an escalation step, never a default:** only for architect or engineer on data/sync/format work,
+  after opus fails twice. The app is small; the top tier pays off only where a mistake could lose Hugo's data.
+  Source: CLAUDE.md "How work is run", 2026-11-20.
