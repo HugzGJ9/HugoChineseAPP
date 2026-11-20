@@ -1,6 +1,6 @@
 ---
 name: release
-description: Fixes deployment and build problems — failed GitHub Actions runs, GitHub Pages, service worker and PWA updates or caching, Vite config, dependency upgrades, iPhone install issues. Use proactively when a deploy fails or the live app does not update.
+description: Fixes deployment and build problems — failed GitHub Actions runs and the workflows themselves (deploy.yml, data.yml; the data build scripts belong to engineer), GitHub Pages, service worker and PWA updates or caching, Vite config, dependency upgrades, iPhone install issues. Use proactively when a deploy fails or the live app does not update.
 tools: Read, Edit, Write, Bash, Grep, Glob
 disallowedTools: Agent
 model: sonnet
