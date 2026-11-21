@@ -3,6 +3,7 @@
 import type { XRow, XSheet } from '../xlsx/read';
 import { indexToCol, rgbToHsl } from '../xlsx/read';
 import type { Example, ImportIssue, Note, NoteKind, SheetCols, SheetReport, SourceRef, VocabFile } from '../types';
+import { GRAMMAR_ALIASES, grammarFromCells, type GrammarField } from '../grammar/excel';
 import { HAN, hanCount, numberedToMarked, parsePinyin, syllablesFromNumbered, toMarked, toNumbered, toToneless, type Syl } from '../pinyin';
 
 export interface BuildOptions {
@@ -38,7 +39,8 @@ export function sheetTag(name: string): string {
 
 type Field =
   | 'id' | 'hanzi' | 'pinyin' | 'en' | 'fr' | 'example' | 'exampleFr'
-  | 'core' | 'tone' | 'related' | 'exZh' | 'exPy' | 'exEn' | 'tip';
+  | 'core' | 'tone' | 'related' | 'exZh' | 'exPy' | 'exEn' | 'tip'
+  | GrammarField;
 
 interface Layout {
   kind: NoteKind | 'skipped';
@@ -64,6 +66,8 @@ const ALIASES: Record<Field, string[]> = {
   exPy: ['sentence example (pinyin)'],
   exEn: ['english translation'],
   tip: ['key grammar / tip', 'tip', 'key grammar'],
+  // Extra columns of the 语法 sheet (Note.grammar, GRAM-1)
+  ...GRAMMAR_ALIASES,
 };
 
 function detectLayout(sheet: XSheet): Layout {
@@ -321,6 +325,9 @@ export function buildVocab(sheets: XSheet[], opts: BuildOptions): VocabFile {
           ...(colour ? { colour } : {}),
           examples,
         };
+        const g = grammarFromCells((f) => cellText(row, cols[f]), (zh) => examplePinyin(zh));
+        if (g.info) note.grammar = g.info;
+        for (const p of g.problems) issue('info', p.problem, { col: cols[p.field], hanzi: lines[0] });
         if (!en) issue('fix', 'No explanation', { col: cols.en, hanzi: lines[0] });
       } else {
         const forms = splitForms(hanziRaw);

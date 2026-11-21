@@ -56,9 +56,11 @@ for i, (h, p, e) in enumerate(HSK5, 1):
             w5.cell(row=i + 1, column=col).fill = f
 
 g = wb.create_sheet('Grammar')
-g.append(['Pattern', 'English', 'Example'])
-g.append(['不 + verb', 'negation', '我不吃肉。'])
-g.append(['是……的', 'emphasis on how or when', '我是昨天来的。'])
+g.append(['Pattern', 'English', 'Example', 'HSK', 'Family', 'Title EN', 'Title FR', 'Definition EN', 'Definition FR', 'Use EN', 'Use FR', 'Register', 'Sentences'])
+g.append(['不 + verb', 'negation', '我不吃肉。', '1', 'Emphasis', 'Not + verb', 'Ne pas + verbe', 'Negates a verb or adjective.', 'Nie un verbe ou un adjectif.',
+          '不 before the verb\nUse 没 for the past', '不 devant le verbe\nOn dit 没 pour le passé', 'neutral',
+          '我不喝茶。 | Je ne bois pas de thé. | I don\'t drink tea.\n他不是我朋友。 | Ce n\'est pas mon ami. | He is not my friend.'])
+g.append(['是……的', 'emphasis on how or when', '我是昨天来的。', '2', 'Emphasis', 'Stress when or how', 'Insister sur quand ou comment', '', '', '', '', 'spoken', ''])
 g.append(['有 + noun', 'to have', '我有一个朋友。'])
 
 wb.save(sys.argv[1] if len(sys.argv) > 1 else 'sample.xlsx')

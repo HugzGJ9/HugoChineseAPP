@@ -77,6 +77,46 @@ function build(prevSeeds = {}) {
   });
 }
 
+describe('grammar columns (GRAM-1)', () => {
+  const sheet: XSheet = {
+    name: '语法',
+    rows: [
+      row(1, { A: 'HANZI', B: 'ENGLISH', C: 'Exemple', D: 'HSK', E: 'Family', F: 'Title EN', G: 'Title FR', H: 'Definition EN', I: 'Definition FR', J: 'Use EN', K: 'Use FR', L: 'Register', M: 'Sentences' }),
+      row(2, {
+        A: 'A+不如+B', B: 'A not as good as B', C: '今天不如昨天热', D: '4', E: 'Comparing', F: 'A is not as good as B', G: 'A ne vaut pas B',
+        H: 'A is less … than B.', I: 'A est moins … que B.', J: 'A 不如 B + adj\n不如 + verb = better to', K: '• A 不如 B + adj\n• 不如 + verbe = mieux vaut', L: 'neutral',
+        M: '坐车不如走路快。 | La voiture est moins rapide. | Driving is slower.\n我不如他高。',
+      }),
+      row(3, { A: '于', B: 'at', D: 'HSK 7-9', E: 'Bizarre', L: 'soutenu' }),
+      row(4, { A: '比如说', B: 'for example' }),
+    ],
+  };
+  const vf = buildVocab([sheet], { source: { name: 't.xlsx', modified: 1, size: 1 }, now: 1, pinyinOf });
+  const get = (id: string) => vf.notes.find((n) => n.id === id)!;
+  it('reads every column into note.grammar, keeps them out of the notes and keeps the Excel example', () => {
+    const g = get('g:A+不如+B');
+    expect(g.notes).toEqual([]);
+    expect(g.examples[0].zh).toBe('今天不如昨天热');
+    expect(g.grammar).toMatchObject({
+      hsk: 4, family: 'compare', register: 'neutral',
+      title: { en: 'A is not as good as B', fr: 'A ne vaut pas B' },
+      def: { en: 'A is less … than B.', fr: 'A est moins … que B.' },
+      use: { en: ['A 不如 B + adj', '不如 + verb = better to'], fr: ['A 不如 B + adj', '不如 + verbe = mieux vaut'] },
+    });
+    expect(g.grammar!.sentences).toHaveLength(2);
+    expect(g.grammar!.sentences![0]).toMatchObject({ zh: '坐车不如走路快。', fr: 'La voiture est moins rapide.', en: 'Driving is slower.' });
+    expect(g.grammar!.sentences![0].pinyin).toContain('bùrú');
+    expect(g.grammar!.sentences![1]).toEqual({ zh: '我不如他高。', pinyin: expect.any(String) });
+  });
+  it('accepts loose HSK and register spellings and reports an unknown family', () => {
+    expect(get('g:于').grammar).toEqual({ hsk: 7, register: 'formal' });
+    expect(vf.issues.some((i) => i.problem.includes('Unknown family "Bizarre"'))).toBe(true);
+  });
+  it('leaves rows without the columns as before', () => {
+    expect(get('g:比如说').grammar).toBeUndefined();
+  });
+});
+
 describe('buildVocab', () => {
   const vf = build();
   const byId = (id: string) => vf.notes.find((n) => n.id === id)!;

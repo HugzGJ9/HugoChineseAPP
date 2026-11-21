@@ -1,17 +1,17 @@
 // Grammar window (#/grammar, #/grammar/<note id>): every point of the 语法 sheet, titled in 中/FR/EN, grouped by family
-// or HSK level; tapping one opens its lesson. Plan: .claude/plans/2026-11-20-grammar-window.md.
-// Skeleton: labels and lessons are in memory only (lib/grammar/store.ts); "Explain more" (existing) already works.
+// or HSK level; tapping one opens its page (formula, meaning, when to use, examples). Content comes from the 语法 sheet's
+// extra columns (GRAM-1, plan .claude/plans/2026-11-21-grammar-content.md).
 import { useMemo, useState } from 'react';
-import type { WordStatus } from '../../lib/types';
+import type { Note, WordStatus } from '../../lib/types';
 import { setNoteStatus, useApp } from '../../lib/store';
 import { noteStatuses, sheetRows, STATUS_MARK } from '../../lib/status';
-import { family as familyOf, FAMILIES, hskLabel, HSK_LEVELS } from '../../lib/grammar/families';
-import { formulaParts, grammarItems, groupItems, itemSubtitle, itemTitle, matchItem, type GrammarItem } from '../../lib/grammar/list';
-import { LESSONS_READY, readTitleLang, saveTitleLang, setLabel, useGrammar } from '../../lib/grammar/store';
-import type { FamilyId, GroupBy, HskLevel, TitleLang } from '../../lib/grammar/types';
+import { family as familyOf, hskLabel, REGISTER_LABEL } from '../../lib/grammar/families';
+import { formulaParts, grammarItems, groupItems, itemSubtitle, itemTitle, matchItem, segmentSentence, vocabIndex, type GrammarItem } from '../../lib/grammar/list';
+import { readTitleLang, saveTitleLang } from '../../lib/grammar/titleLang';
+import type { GroupBy, TitleLang } from '../../lib/grammar/types';
 import { AudioButton, Icon, Section, Segmented, TopBar } from '../common';
 import { StatusIcon, StatusPicker } from '../StatusPicker';
-import { ExplainView } from '../word/ExplainView';
+import { WordPanel } from '../word/WordPanel';
 import '../screens.css';
 import './grammar.css';
 
@@ -20,7 +20,6 @@ const href = (id: string) => `${BASE}/${encodeURIComponent(id)}`;
 
 export function GrammarPage({ id }: { id?: string }) {
   const { notes, marks, meta } = useApp((s) => s);
-  const { labels, lessons } = useGrammar();
   const [lang, setLangState] = useState<TitleLang>(readTitleLang);
   const setLang = (l: TitleLang) => {
     setLangState(l);
@@ -28,11 +27,12 @@ export function GrammarPage({ id }: { id?: string }) {
   };
   const [q, setQ] = useState('');
   const [by, setBy] = useState<GroupBy>('family');
-  const items = useMemo(() => grammarItems(notes, labels, lessons), [notes, labels, lessons]);
-  const statuses = useMemo(() => noteStatuses(sheetRows(notes.filter((n) => n.kind === 'grammar'), marks, meta?.colourSince)), [notes, marks, meta]);
+  const items = useMemo(() => grammarItems(notes), [notes]);
+  const statuses = useMemo(() => noteStatuses(sheetRows(notes, marks, meta?.colourSince)), [notes, marks, meta]);
   const shown = useMemo(() => items.filter((i) => matchItem(i, q)), [items, q]);
   const groups = useMemo(() => groupItems(shown, by, lang), [shown, by, lang]);
   const selected = id ? items.find((i) => i.note.id === id) : undefined;
+  const filled = items.filter((i) => i.note.grammar).length;
 
   return (
     <div className={`main wide gr${selected ? ' has-sel' : ''}`}>
@@ -62,9 +62,12 @@ export function GrammarPage({ id }: { id?: string }) {
               { value: 'excel', label: 'Excel order' },
             ]}
           />
-          <p className="small muted" aria-live="polite">
-            {shown.length === items.length ? `${items.length} points` : `${shown.length} of ${items.length} points`}
-          </p>
+          {items.length > 0 && filled === 0 && (
+            <p className="notice small">
+              Families, levels, short titles and examples come from extra columns of your 语法 sheet (HSK, Family, Title EN, Title FR…). Add them in
+              Excel to fill this page.
+            </p>
+          )}
           {groups.map((g) => (
             <Section key={g.key} title={`${g.title} · ${g.items.length}`}>
               {g.items.map((it) => (
@@ -77,9 +80,9 @@ export function GrammarPage({ id }: { id?: string }) {
         </div>
         <div className="detail">
           {selected ? (
-            <GrammarDetail key={selected.note.id} item={selected} items={items} lang={lang} status={statuses.get(selected.note.id) ?? 'new'} />
+            <GrammarDetail key={selected.note.id} item={selected} items={items} lang={lang} statuses={statuses} />
           ) : (
-            <p className="muted wd-empty gr-pick">Pick a grammar point to see its lesson.</p>
+            <p className="muted wd-empty gr-pick">Pick a grammar point.</p>
           )}
         </div>
       </div>
@@ -92,7 +95,7 @@ function GrammarRow({ item, lang, status, by, sel }: { item: GrammarItem; lang: 
   const fam = familyOf(item.family);
   return (
     <a className={`cell tap gr-row${sel ? ' sel' : ''}`} href={href(item.note.id)} aria-current={sel ? 'true' : undefined}>
-      <span className={`st-${status} gr-st`} title={status}>
+      <span className={`st-${status} gr-st`}>
         <StatusIcon status={status} />
       </span>
       <span className="cell-body">
@@ -134,13 +137,32 @@ export function Formula({ pattern, className = '' }: { pattern: string; classNam
   );
 }
 
-function GrammarDetail({ item, items, lang, status }: { item: GrammarItem; items: GrammarItem[]; lang: TitleLang; status: WordStatus }) {
-  const { note, lesson, label } = item;
-  const x = lesson?.x;
-  const tr = lang === 'fr' ? 'fr' : 'en';
-  const title = itemTitle(item, lang === 'zh' ? 'en' : lang);
+function GrammarDetail({ item, items, lang, statuses }: { item: GrammarItem; items: GrammarItem[]; lang: TitleLang; statuses: Map<string, WordStatus> }) {
+  const { note, info } = item;
+  const notes = useApp((s) => s.notes);
+  const index = useMemo(() => vocabIndex(notes), [notes]);
+  const [open, setOpen] = useState<Note | null>(null);
+  // Reading language for bullets and translations: French unless the switch says English.
+  const rl: 'fr' | 'en' = lang === 'en' ? 'en' : 'fr';
+  const other: 'fr' | 'en' = rl === 'fr' ? 'en' : 'fr';
+  const titles = [info.title?.[rl], info.title?.[other]].filter((t): t is string => !!t);
+  const defs = (
+    [
+      [rl, info.def?.[rl]],
+      [other, info.def?.[other]],
+    ] as const
+  ).filter((d): d is readonly ['fr' | 'en', string] => !!d[1]);
+  const use = info.use?.[rl]?.length ? info.use[rl]! : (info.use?.[other] ?? []);
+  const fam = familyOf(item.family);
   const sameFamily = item.family ? items.filter((i) => i.family === item.family && i.note.id !== note.id) : [];
-  const findPoint = (pattern: string) => items.find((i) => i.note.hanzi === pattern || i.note.alts.includes(pattern));
+  const skip = [note.hanzi, ...note.alts].join('');
+  const examples = [
+    ...note.examples.map((e) => ({ zh: e.zh, pinyin: e.pinyin, tr: e.en, excel: true })),
+    ...(info.sentences ?? [])
+      .filter((s) => !note.examples.some((e) => e.zh.replace(/[。.]$/, '') === s.zh.replace(/[。.]$/, '')))
+      .map((s) => ({ zh: s.zh, pinyin: s.pinyin, tr: s[rl] || s[other], excel: false })),
+  ];
+  const status = statuses.get(note.id) ?? 'new';
 
   return (
     <div className="stack-l wd-detail gr-detail">
@@ -150,115 +172,78 @@ function GrammarDetail({ item, items, lang, status }: { item: GrammarItem; items
       </a>
 
       <div className="panel stack">
-        <Formula pattern={x?.formula || note.hanzi} />
-        {x?.formula && x.formula !== note.hanzi && <p className="small faint zh">Excel: {note.hanzi}</p>}
-        <p className="gr-head">{title.text}</p>
-        <Labels item={item} />
-        {label?.src === 'claude' && <p className="small faint">Labels suggested by Claude. Change them anytime.</p>}
+        <Formula pattern={note.hanzi} />
+        <p className="gr-head">{titles[0] ?? note.en}</p>
+        {titles[1] && <p className="small muted">{titles[1]}</p>}
+        {(item.hsk || fam || info.register) && (
+          <div className="row wrap gr-labels">
+            {item.hsk && <span className="tag">{hskLabel(item.hsk)}</span>}
+            {fam && <span className="tag">{rl === 'fr' ? fam.fr : fam.en}</span>}
+            {info.register && <span className="tag">{REGISTER_LABEL[info.register][rl]}</span>}
+          </div>
+        )}
       </div>
 
-      <Section title="Meaning">
-        <div className="cell cell-pad stack">
-          <p>
-            <span className="tag">EN</span> {x?.meaning.en || note.en}
-          </p>
-          {(x?.meaning.fr || note.fr) && (
-            <p>
-              <span className="tag">FR</span> {x?.meaning.fr || note.fr}
-            </p>
+      <Section title={rl === 'fr' ? 'Sens' : 'Meaning'}>
+        <div className="cell cell-pad stack gr-meaning">
+          {defs.length ? (
+            defs.map(([l, t]) => (
+              <p key={l}>
+                <span className="tag">{l.toUpperCase()}</span> {t}
+              </p>
+            ))
+          ) : (
+            <p>{note.en}</p>
           )}
-          {x && <p className="small muted">Register: {x.register}</p>}
+          {use.length > 0 && (
+            <>
+              <h3 className="gr-h">{rl === 'fr' ? 'Quand l’utiliser' : 'When to use'}</h3>
+              <ul className="gr-use">
+                {use.map((u, i) => (
+                  <li key={i}>{u}</li>
+                ))}
+              </ul>
+            </>
+          )}
         </div>
       </Section>
 
-      {x ? (
-        <>
-          {x.rules.length > 0 && (
-            <Section title="How to use it">
-              {x.rules.map((r, i) => (
-                <div key={i} className="cell cell-pad">{r[tr]}</div>
-              ))}
-            </Section>
-          )}
-          {x.tip && (
-            <Section title="Tip">
-              <div className="cell cell-pad">{x.tip[tr]}</div>
-            </Section>
-          )}
-        </>
-      ) : (
-        <Section title="Lesson" footer={LESSONS_READY ? undefined : 'Lesson generation comes in the next step (plan WP3). Explain more, below, already works.'}>
-          <div className="cell cell-pad stack">
-            <p className="muted">No lesson yet: formula, rules, tip, French and English examples, common mistakes and related points.</p>
-            <button type="button" className="btn tinted" disabled={!LESSONS_READY}>
-              Write the lesson with Claude
-            </button>
+      <Section
+        title={rl === 'fr' ? 'Exemples' : 'Examples'}
+        footer={examples.length ? (rl === 'fr' ? 'Soulignés : tes mots, dans la couleur de leur statut. Touche un mot pour l’ouvrir.' : 'Underlined: your words, in their status colour. Tap one to open it.') : undefined}
+      >
+        {examples.map((e, i) => (
+          <div key={i} className="cell cell-pad gr-ex">
+            <div className="cell-body">
+              <span className="zh gr-ex-zh" lang="zh-CN">
+                {segmentSentence(e.zh, index, skip).map((s, j) =>
+                  s.note ? (
+                    <button key={j} type="button" className={`gr-w st-${statuses.get(s.note) ?? 'new'}`} onClick={() => setOpen(notes.find((n) => n.id === s.note) ?? null)}>
+                      {s.s}
+                    </button>
+                  ) : (
+                    <span key={j}>{s.s}</span>
+                  ),
+                )}
+                {e.excel && <span className="tag gr-ex-tag">Excel</span>}
+              </span>
+              {e.pinyin && <span className="small muted">{e.pinyin}</span>}
+              {e.tr && <span className="small">{e.tr}</span>}
+            </div>
+            <AudioButton text={e.zh} label="Play sentence" />
           </div>
-        </Section>
-      )}
-
-      <Section title="Examples">
-        {note.examples.map((e, i) => (
-          <Example key={`x${i}`} zh={e.zh} pinyin={e.pinyin} tr={e.en} source="Excel" />
         ))}
-        {x?.examples.map((e, i) => <Example key={`l${i}`} zh={e.zh} pinyin={e.pinyin} tr={e[tr]} />)}
-        {!note.examples.length && !x?.examples.length && <div className="cell cell-pad muted">No example in Excel yet.</div>}
+        {examples.length === 0 && <div className="cell cell-pad muted">No example yet: add a Sentences column to your 语法 sheet.</div>}
       </Section>
 
-      {x && x.mistakes.length > 0 && (
-        <Section title="Common mistakes">
-          {x.mistakes.map((m, i) => (
-            <div key={i} className="cell cell-pad stack gr-mistake">
-              <p className="zh">
-                <span className="gr-wrong">✕ {m.wrong}</span>
-              </p>
-              <p className="zh">✓ {m.right}</p>
-              <p className="small muted">{m.why[tr]}</p>
-            </div>
-          ))}
-        </Section>
-      )}
-
-      {x && x.related.length > 0 && (
-        <Section title="Don't confuse with">
-          {x.related.map((r, i) => {
-            const target = findPoint(r.pattern);
-            const body = (
-              <span className="cell-body">
-                <span className="zh">{r.pattern}</span>
-                <span className="small muted">{r.diff[tr]}</span>
-              </span>
-            );
-            return target ? (
-              <a key={i} className="cell tap" href={href(target.note.id)}>
-                {body}
-                <Icon name="chevron" className="cell-chev" />
-              </a>
-            ) : (
-              <div key={i} className="cell">
-                {body}
-              </div>
-            );
-          })}
-        </Section>
-      )}
-
-      {x?.excelNotes && x.excelNotes.length > 0 && (
-        <Section title="Check your Excel row" footer="Suggestions only: nothing is changed in Excel.">
-          {x.excelNotes.map((n, i) => (
-            <div key={i} className="cell cell-pad stack">
-              <p>{n.text}</p>
-              {n.suggestion && <p className="zh small">→ {n.suggestion}</p>}
-            </div>
-          ))}
-        </Section>
-      )}
-
-      {sameFamily.length > 0 && (
-        <Section title={`Same family · ${familyOf(item.family)?.[tr] ?? ''}`}>
+      {sameFamily.length > 0 && fam && (
+        <Section title={`${rl === 'fr' ? 'Même famille' : 'Same family'} · ${rl === 'fr' ? fam.fr : fam.en}`}>
           {sameFamily.map((i) => (
             <a key={i.note.id} className="cell tap" href={href(i.note.id)}>
-              <span className="cell-body zh">{i.note.hanzi}</span>
+              <span className="cell-body">
+                <span className="zh">{i.note.hanzi}</span>
+                <span className="small muted">{itemTitle(i, rl).text}</span>
+              </span>
               <Icon name="chevron" className="cell-chev" />
             </a>
           ))}
@@ -266,58 +251,19 @@ function GrammarDetail({ item, items, lang, status }: { item: GrammarItem; items
       )}
 
       <div className="panel stack">
-        <h3>Your status</h3>
+        <h3 className="gr-h">{rl === 'fr' ? 'Ton statut' : 'Your status'}</h3>
         <StatusPicker value={status} onChange={(st) => void setNoteStatus(note.id, STATUS_MARK[st])} />
       </div>
 
-      <div className="panel stack">
-        <h3>Explain more</h3>
-        <ExplainView note={note} inline />
-      </div>
+      {open && (
+        <WordPanel
+          key={open.id}
+          note={open}
+          status={statuses.get(open.id) ?? 'new'}
+          onStatus={(st) => void setNoteStatus(open.id, STATUS_MARK[st])}
+          onClose={() => setOpen(null)}
+        />
+      )}
     </div>
   );
 }
-
-function Example({ zh, pinyin, tr, source }: { zh: string; pinyin?: string; tr?: string; source?: string }) {
-  return (
-    <div className="cell cell-pad gr-ex">
-      <div className="cell-body">
-        <span className="zh gr-ex-zh">
-          {zh} {source && <span className="tag">{source}</span>}
-        </span>
-        {pinyin && <span className="small muted">{pinyin}</span>}
-        {tr && <span className="small muted">{tr}</span>}
-      </div>
-      <AudioButton text={zh} label="Play sentence" />
-    </div>
-  );
-}
-
-function Labels({ item }: { item: GrammarItem }) {
-  const id = item.note.id;
-  return (
-    <div className="row wrap gr-labels">
-      <label className="gr-select">
-        <select aria-label="HSK level" value={item.hsk ?? ''} onChange={(e) => setLabel(id, { hsk: e.target.value ? (Number(e.target.value) as HskLevel) : undefined, family: item.label?.family ?? item.family })}>
-          <option value="">HSK ?</option>
-          {HSK_LEVELS.map((h) => (
-            <option key={h} value={h}>
-              {hskLabel(h)}
-            </option>
-          ))}
-        </select>
-      </label>
-      <label className="gr-select">
-        <select aria-label="Family" value={item.family ?? ''} onChange={(e) => setLabel(id, { family: (e.target.value || undefined) as FamilyId | undefined, hsk: item.label?.hsk ?? item.hsk })}>
-          <option value="">Family ?</option>
-          {FAMILIES.map((f) => (
-            <option key={f.id} value={f.id}>
-              {f.en}
-            </option>
-          ))}
-        </select>
-      </label>
-    </div>
-  );
-}
-

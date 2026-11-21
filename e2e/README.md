@@ -9,7 +9,7 @@ python3 e2e/offline.py                            # service worker, dictionary w
 python3 e2e/sync.py                               # uses a synthetic workbook from make_sample.py
 python3 e2e/cards.py                              # Sheets › Cards: typed answers, tones, Draw, deck kept, the Wrong label
 python3 e2e/layout.py                             # phone layout, light and dark: Check in view, panel top edge, menu drags, colours
-python3 e2e/grammar.py                            # Grammar tab: 中/FR/EN titles, search, grouping, lesson page, phone back link
+python3 e2e/grammar.py                            # Grammar tab: 中/FR/EN titles, families, search, meaning card, underlined words, phone back
 python3 e2e/explain.py                            # word panel, Settings key, "Explain more" (needs LEXICON_SAMPLE=1 build)
 HUGO_XLSX=/path/to/Hugo_chinese_vocab.xlsx python3 e2e/sync.py   # or a real file
 ```
