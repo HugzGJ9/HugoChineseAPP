@@ -69,6 +69,12 @@
 - **EXP-2. Explanations are cached per (note, language) in kv `ex:*` and synced as `explain/<dev>/<YYYY-MM>.json.gz`**,
   with their own dirty queue so old versions never touch it. Source: word-explain D6.
 
+## Grammar
+- **GRAM-1. Grammar content comes from extra columns of the 语法 sheet** (HSK, Family, Title EN/FR, Definition EN/FR,
+  Use EN/FR, Register, Sentences) into the additive `Note.grammar`; Excel is the only source, nothing grammar-specific
+  is stored or synced apart from the notes themselves. Header names avoid "Meaning FR" and "Examples", which map to
+  other fields. Source: grammar-content D1–D2 (supersedes grammar-window D1, D3).
+
 ## Quick memory
 - **QUICK-1. The Quick card session is device-only UI state** (localStorage `hz.qm.cards`, plus `hz.qm.seed` and
   `hz.qm.answer`): not a shared pref, not backed up, never synced, and never a source of truth. It only restores the deck

@@ -1,3 +1,4 @@
+import type { GrammarInfo } from './grammar/types';
 export type NoteKind = 'vocab' | 'grammar' | 'measure' | 'synonym';
 
 export interface Example {
@@ -50,6 +51,8 @@ export interface Note {
   /** Near-synonym set (Suddently sheet). */
   set?: string;
   extra?: Record<string, string>;
+  /** Grammar points only: what the 语法 sheet's extra columns say (GRAM-1). Optional and additive. */
+  grammar?: GrammarInfo;
 }
 
 export type CardType = 'recog' | 'recall' | 'listen' | 'grammar' | 'measure' | 'synonym';
