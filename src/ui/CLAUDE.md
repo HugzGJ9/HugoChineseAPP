@@ -20,6 +20,7 @@
 | Review | `review/Session.tsx`, `CardView.tsx`, `GradeBar.tsx`, `VocabBack.tsx`, `OtherCard.tsx` (`Review.tsx` re-exports) |
 | Word panel | `word/WordPanel.tsx`, `word/ExplainView.tsx`, `panel.tsx` (`Sheet`: every bottom sheet and menu) |
 | Keyboard inset | `keyboard.ts` (`useKeyboardInset`, sets `--kb`) |
+| Grammar (`#/grammar`, `#/grammar/<id>`) | `grammar/GrammarPage.tsx`, `grammar/grammar.css` |
 | Status | `StatusPicker.tsx` |
 | Writing | `WritePad.tsx` |
 | Settings and setup | `Settings.tsx`, `Setup.tsx` (folder, sync, QR/key, link page), `Microsoft.tsx` |

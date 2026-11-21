@@ -1,0 +1,45 @@
+/* Grammar window. Tokens only; colours follow UI-1: ink for controls and fixed words, neutral outline for slots,
+   status colours only on the status glyph, red only for wrong sentences. */
+
+.gr .gr-by { align-self: flex-start; }
+.gr .group-h { text-transform: none; font-size: var(--fs-footnote); }
+
+/* Rows */
+.gr-row { gap: 12px; padding-top: 9px; padding-bottom: 9px; --inset: 48px; }
+.gr-row.sel { background: var(--press); }
+.gr-row .gr-st { flex: none; display: flex; color: var(--st); }
+.gr-row .gr-st .st-icon { width: 20px; height: 20px; }
+.gr-row .cell-body { gap: 2px; }
+.gr-title { font-size: var(--fs-body); line-height: 1.3; overflow-wrap: anywhere; }
+.gr-title.zh { font-size: 19px; }
+.gr-title .tag { margin-left: 6px; }
+.gr-sub { font-size: var(--fs-subhead); color: var(--label-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gr-tags { display: flex; flex-direction: column; align-items: flex-end; gap: 3px; flex: none; }
+
+/* Detail */
+.gr-back { display: none; align-items: center; gap: 4px; color: var(--accent); text-decoration: none; font-size: var(--fs-body); }
+.gr-back svg { width: 20px; height: 20px; }
+.gr-head { font-size: var(--fs-title3); font-weight: 600; }
+.gr-formula { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font-size: var(--fs-title1); line-height: 1.35; margin: 0; }
+.gf-fixed { font-weight: 600; color: var(--label); }
+.gf-slot {
+  font-size: var(--fs-subhead); font-weight: 600; color: var(--label-2); padding: 2px 9px; border-radius: 8px;
+  border: 1.5px dashed var(--fill-3); background: var(--fill); letter-spacing: 0.01em;
+}
+.gf-gap { color: var(--label-3); }
+.gr-labels select {
+  appearance: none; font: inherit; font-size: var(--fs-subhead); font-weight: 600; color: var(--label); background: var(--fill);
+  border: 0; border-radius: 999px; padding: 6px 14px; min-height: 32px;
+}
+.gr-ex { display: flex; align-items: center; gap: 12px; }
+.gr-ex .cell-body { gap: 3px; }
+.gr-ex-zh { font-size: 19px; line-height: 1.4; }
+.gr-wrong { color: var(--wrong); text-decoration: line-through; text-decoration-thickness: 1px; }
+
+/* Phone: the list and the lesson are two pages (list at #/grammar, lesson at #/grammar/<id>). */
+@media (max-width: 999px) {
+  .gr.has-sel .gr-list, .gr.has-sel .topbar { display: none; }
+  .gr:not(.has-sel) .detail { display: none; }
+  .gr-back { display: inline-flex; padding: 12px 0 0; }
+  .gr-labels select { min-height: 44px; }
+}

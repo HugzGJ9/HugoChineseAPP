@@ -26,6 +26,7 @@
 | Sync | `sync.ts`, `syncstore.ts`, `github.ts` | Web-Lock sync, per-file error isolation; same files on GitHub and OneDrive |
 | Dictionary | `lexicon.ts`, `french.ts` | shards in public/dict/w (built in CI; `LEXICON_SAMPLE=1` locally) |
 | Explain | `explain/` | Claude client, key in kv `claudeKey` (never synced/backed up), cache, prompt |
+| Grammar | `grammar/` (types, families, list, store) | labels + lessons; store is in memory until grammar-window WP2 |
 | Drill | `quick.ts` (Cards targets, session, deep link, `filterRows`/`allRows`), `wrong.ts` (Wrong label), `answer.ts` (list answer field) | ENG-5, QUICK-1/2, UI-2 |
 | Other | `backup.ts`, `stats.ts`, `pinyin.ts`, `speech.ts`, `strokes.ts`, `pwa.ts` | `progress.ts` = legacy, not written |
 

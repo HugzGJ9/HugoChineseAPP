@@ -15,9 +15,10 @@
 | 2026-11-14 | [quick-typed](2026-11-14-quick-typed.md) | Shipped (PR #3) | Quick cards: type hanzi / pinyin (tone numbers) / French, right or wrong only; card session survives tab switch and reload (device-only, QUICK-1); `e2e/quick.py` in CI | Not covered by e2e: Quick list mode (unchanged) |
 | 2026-11-16 | [mobile-ux](2026-11-16-mobile-ux.md) | Shipped (Batch 1 PR #4, Batch 2 PR #5) | iPhone UX: one meaning per colour (ink controls, Excel status colours, re-picked tone hues), one bottom sheet that swipes closed and follows the keyboard, Sheets as the one list (All tab, List | Hugo's real-iPhone check (keyboard, swipes); `WordPanel` still accepts an ignored `tabs` prop (CardView, Cards pass it); `onedrive_writeback.py` timed out once in qa (flaky wait at `od_common.py:97`); open defaults: Review does not set Wrong, neutral Hard/Good/Easy | | Batch 1: WP1 colours ∥ WP2 sheet + keyboard, then WP8 answer field. Batch 2: WP7 → WP3 (engineer) ∥ WP4, then WP5, WP6. |
 | 2026-11-17 | [sheets-phone-row](2026-11-17-sheets-phone-row.md) | Shipped (PR #6) | iPhone Sheets rows on two lines (no id column or pen on phones, compact status and Wrong badge, wider meaning); tab bar hides while typing, Return → next field scrolls above the keyboard | Hugo's real-iPhone check (keyboard, Return walk); optional swipe-left Practise |
+| 2026-11-20 | [grammar-window](2026-11-20-grammar-window.md) | In progress (WP1 skeleton) | Grammar tab: 语法 points titled 中/FR/EN with search, grouped by family or HSK; lesson page; labels by Claude, edited by Hugo; lessons by Claude, saved and synced | WP2 store + sync (in-memory today), WP3 Claude lessons and labels, WP4 buttons, WP5 qa |
 
 ## Now / next
-- Now: nothing in progress (mobile-ux shipped: Batch 1 PR #4, Batch 2 PR #5).
+- Now: grammar-window — WP1 skeleton on branch `feat/grammar-window`; next WP2 ∥ WP3, then WP4.
 - Next candidates: connected-saving WP13; roadmap phase 4 #1 weak-words drill, then #3 HSK level progress (needs its own
   short plan: data source and licence).
 
