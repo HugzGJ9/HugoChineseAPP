@@ -1,9 +1,9 @@
 import { lazy, startTransition, Suspense, useEffect, useState, ViewTransition } from 'react';
-import { pref } from '../lib/db';
 import { applyUpdate, onUpdateReady } from '../lib/pwa';
 import { useApp } from '../lib/store';
 import { Icon, Toaster } from './common';
 import { useKeyboardInset } from './keyboard';
+import { motionOn, syncMotionClass } from './motion';
 import { Sheets } from './Sheets';
 import { Today } from './Today';
 import { LinkPage } from './Setup';
@@ -34,8 +34,7 @@ function useRoute(): string[] {
   return route;
 }
 
-/** Device-only probe flag (`hz.motion`, never synced or backed up), see plan 2026-11-22-ui-polish D1. */
-export const motionOn = () => pref<boolean>('motion', false);
+syncMotionClass();
 
 const TABS = [
   { id: 'sheets', label: 'Sheets', icon: 'sheets' },

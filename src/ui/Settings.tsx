@@ -9,6 +9,7 @@ import { dictUrl } from '../lib/import';
 import { claudeKeyHint, ClaudeError, explainUsage, EXPLAIN_MODEL, onExplainChange, removeClaudeKey, setClaudeKey, testClaudeKey } from '../lib/explain';
 import { LEXICON_SHARDS, lexiconCached, lexiconMeta, prefetchLexicon } from '../lib/lexicon';
 import { Cell, formatAgo, Icon, LangSwitch, Row, Section, SwitchRow, toast, TopBar } from './common';
+import { motionOn, setMotion } from './motion';
 import { FileImportButton } from './Today';
 import { SourceSettings, SyncSettings } from './Setup';
 import { MicrosoftDiagnostics } from './Microsoft';
@@ -62,7 +63,7 @@ export function Settings() {
         </Section>
 
         <Section title="Look and feel" footer="This device only. A trial of smoother screen changes and, on iPhone, a light tap feel on status buttons.">
-          <PrefSwitch k="motion" def={false} label="Try new animations" />
+          <MotionSwitch />
         </Section>
 
         <ClaudeSettings />
@@ -214,6 +215,11 @@ function NumberRow({ label, unit, value, min, max, onChange }: { label: string; 
       </span>
     </label>
   );
+}
+
+function MotionSwitch() {
+  const [on, setOn] = useState(motionOn);
+  return <SwitchRow label="Try new animations" checked={on} onChange={(v) => (setOn(v), setMotion(v))} />;
 }
 
 function PrefSwitch({ k, def, label, detail }: { k: string; def: boolean; label: string; detail?: string }) {
