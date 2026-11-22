@@ -74,6 +74,9 @@
   Use EN/FR, Register, Sentences) into the additive `Note.grammar`; Excel is the only source, nothing grammar-specific
   is stored or synced apart from the notes themselves. Header names avoid "Meaning FR" and "Examples", which map to
   other fields. Source: grammar-content D1–D2 (supersedes grammar-window D1, D3).
+- **GRAM-2. Grammar reads in one language, the app-wide EN | FR** (`store.lang`, same switch as the word panel); no
+  中/FR/EN switch, nothing shown twice, the other language only as a tagged fallback. List filters (HSK, family, status)
+  are device-only (`hz.gr.f`, never synced). Source: plan 2026-11-22-grammar-v3 D1, D3.
 
 ## Quick memory
 - **QUICK-1. The Quick card session is device-only UI state** (localStorage `hz.qm.cards`, plus `hz.qm.seed` and

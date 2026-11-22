@@ -136,6 +136,12 @@ jobs:
           HUGO_URL: http://localhost:4175/HugoChineseAPP/
           HUGO_XLSX: ${{ runner.temp }}/sample.xlsx
           E2E_OUT: ${{ runner.temp }}/e2e-out
+      - name: Grammar check
+        run: python e2e/grammar.py
+        env:
+          HUGO_URL: http://localhost:4175/HugoChineseAPP/
+          HUGO_XLSX: ${{ runner.temp }}/sample.xlsx
+          E2E_OUT: ${{ runner.temp }}/e2e-out
 
   deploy:
     needs: [build, e2e]

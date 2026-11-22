@@ -34,8 +34,5 @@ export interface GrammarInfo {
   sentences?: GrammarSentence[];
 }
 
-/** Title language of the list: hanzi pattern, French or English. */
-export type TitleLang = 'zh' | 'fr' | 'en';
-
-/** How the list is grouped. */
-export type GroupBy = 'family' | 'hsk' | 'excel';
+/** Reading language of the Grammar window: the app-wide EN | FR choice (store `lang`, GRAM-2). */
+export type ReadLang = 'en' | 'fr';
