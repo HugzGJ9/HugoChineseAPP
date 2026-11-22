@@ -65,6 +65,7 @@ The main session is the lead: it talks to Hugo, routes work, integrates, commits
 |---|---|---|
 | Tiny, obvious change (≤ ~30 lines, 1–2 files) | lead, no agent | — |
 | Find code, trace calls, summarise a failed CI log | scout | haiku |
+| Review libraries, repos, browser support or licences on the web | researcher | sonnet |
 | Feature across modules, unclear design | architect → plan + INDEX.md row | opus, high effort |
 | Data, sync or stored-format change | architect → plan + INDEX.md row | opus, max effort |
 | Logic in `src/lib`, data builds in `scripts/`, refactors | engineer | opus |

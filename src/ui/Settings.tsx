@@ -61,6 +61,10 @@ export function Settings() {
           <PrefSwitch k="acceptBoth" def={true} label="Accept English or French" detail="For typed meanings" />
         </Section>
 
+        <Section title="Look and feel" footer="This device only. A trial of smoother screen changes and, on iPhone, a light tap feel on status buttons.">
+          <PrefSwitch k="motion" def={false} label="Try new animations" />
+        </Section>
+
         <ClaudeSettings />
         <AudioSettings />
         <OfflineSettings />

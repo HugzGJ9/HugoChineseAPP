@@ -1,4 +1,5 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
+import { lazy, startTransition, Suspense, useEffect, useState, ViewTransition } from 'react';
+import { pref } from '../lib/db';
 import { applyUpdate, onUpdateReady } from '../lib/pwa';
 import { useApp } from '../lib/store';
 import { Icon, Toaster } from './common';
@@ -22,7 +23,9 @@ function useRoute(): string[] {
   const [route, setRoute] = useState(read);
   useEffect(() => {
     const on = () => {
-      setRoute(read());
+      // Plan 2026-11-22-ui-polish WP0: with "Try new animations" on (device only), screens change in a transition.
+      if (motionOn()) startTransition(() => setRoute(read()));
+      else setRoute(read());
       window.scrollTo(0, 0);
     };
     window.addEventListener('hashchange', on);
@@ -30,6 +33,9 @@ function useRoute(): string[] {
   }, []);
   return route;
 }
+
+/** Device-only probe flag (`hz.motion`, never synced or backed up), see plan 2026-11-22-ui-polish D1. */
+export const motionOn = () => pref<boolean>('motion', false);
 
 const TABS = [
   { id: 'sheets', label: 'Sheets', icon: 'sheets' },
@@ -127,7 +133,15 @@ export function App() {
           })}
         </nav>
       )}
-      <Suspense fallback={<main className="page" aria-busy="true" />}>{view}</Suspense>
+      <Suspense fallback={<main className="page" aria-busy="true" />}>
+        {motionOn() ? (
+          <ViewTransition key={page} default="vt-fade">
+            {view}
+          </ViewTransition>
+        ) : (
+          view
+        )}
+      </Suspense>
       <div className="banners">
         <ReconnectBanner />
         <UpdateBanner />

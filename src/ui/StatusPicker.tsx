@@ -1,7 +1,17 @@
 // The four word statuses: a one-tap picker (segmented, coloured by status), the row chip and the status glyph.
 import type { WordStatus } from '../lib/types';
 import { STATUS_LABEL, WORD_STATUSES } from '../lib/status';
+import { hapticTrigger } from 'ios-haptics';
+import { pref } from '../lib/db';
 import './status.css';
+
+/**
+ * Ref for a button that should give a light haptic tick on iPhone (real taps only). Probe behind "Try new animations"
+ * (plan 2026-11-22-ui-polish WP0); does nothing on other devices.
+ */
+const haptic = (el: HTMLElement | null) => {
+  if (el && pref<boolean>('motion', false)) hapticTrigger(el);
+};
 
 /** Text glyphs, kept for screens that print a status inline. New UI uses StatusIcon. */
 export const STATUS_GLYPH: Record<WordStatus, string> = { new: '○', studying: '◐', notknown: '✕', mastered: '✓' };
@@ -37,7 +47,7 @@ export function StatusPicker({ value, onChange, compact = false }: { value: Word
   return (
     <div className={`st-seg ${compact ? 'compact' : ''}`} role="radiogroup" aria-label="Status">
       {WORD_STATUSES.map((s) => (
-        <button key={s} type="button" role="radio" aria-checked={value === s} className={`st-${s}`} onClick={() => onChange(s)}>
+        <button key={s} ref={haptic} type="button" role="radio" aria-checked={value === s} className={`st-${s}`} onClick={() => onChange(s)}>
           <StatusIcon status={s} />
           <span>{STATUS_LABEL[s]}</span>
         </button>
@@ -49,7 +59,7 @@ export function StatusPicker({ value, onChange, compact = false }: { value: Word
 /** The status of one row: a 44px button holding a tinted capsule (icon, and the label when there is room). */
 export function StatusChip({ status, onClick }: { status: WordStatus; onClick: () => void }) {
   return (
-    <button type="button" className="status-chip" onClick={onClick} aria-label={`Status: ${STATUS_LABEL[status]}`} aria-haspopup="menu">
+    <button ref={haptic} type="button" className="status-chip" onClick={onClick} aria-label={`Status: ${STATUS_LABEL[status]}`} aria-haspopup="menu">
       <span className={`sc-pill st-${status}`}>
         <StatusIcon status={status} />
         <span className="sc-label">{STATUS_LABEL[status]}</span>
