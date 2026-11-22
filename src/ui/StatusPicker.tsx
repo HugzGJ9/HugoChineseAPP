@@ -2,7 +2,7 @@
 import type { WordStatus } from '../lib/types';
 import { STATUS_LABEL, WORD_STATUSES } from '../lib/status';
 import { hapticTrigger } from 'ios-haptics';
-import { pref } from '../lib/db';
+import { motionOn } from './motion';
 import './status.css';
 
 /**
@@ -10,7 +10,7 @@ import './status.css';
  * (plan 2026-11-22-ui-polish WP0); does nothing on other devices.
  */
 const haptic = (el: HTMLElement | null) => {
-  if (el && pref<boolean>('motion', false)) hapticTrigger(el);
+  if (el && motionOn()) hapticTrigger(el);
 };
 
 /** Text glyphs, kept for screens that print a status inline. New UI uses StatusIcon. */

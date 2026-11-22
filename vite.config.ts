@@ -36,9 +36,9 @@ export default defineConfig({
       },
       workbox: {
         globPatterns: ['**/*.{js,css,html,png,svg,json,webmanifest}'],
-        globIgnores: ['hw/**', 'dict/**'],
+        globIgnores: ['hw/**', 'dict/**', 'kai/*.woff2'], // kai/kai.css (223 KB, mostly unicode-range text) is precached so the link in index.html works offline; the 315 font chunks load on demand
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
-        navigateFallbackDenylist: [/\/hw\//, /\/dict\//],
+        navigateFallbackDenylist: [/\/hw\//, /\/dict\//, /\/kai\//],
         clientsClaim: true,
         skipWaiting: true,
         runtimeCaching: [
@@ -51,6 +51,11 @@ export default defineConfig({
             urlPattern: ({ url }) => url.pathname.includes('/dict/'),
             handler: 'StaleWhileRevalidate',
             options: { cacheName: 'dictionary' },
+          },
+          {
+            urlPattern: ({ url }) => url.pathname.includes('/kai/'),
+            handler: 'CacheFirst',
+            options: { cacheName: 'fonts', expiration: { maxEntries: 400 } },
           },
         ],
       },

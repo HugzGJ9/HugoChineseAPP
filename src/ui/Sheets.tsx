@@ -21,11 +21,14 @@ import { StatusChip, StatusIcon, StatusPicker } from './StatusPicker';
 import { FILTER_LABEL, FilterMenu, MoreMenu } from './sheets/Menus';
 import { ScratchPanel } from './sheets/ScratchPad';
 import { WordPanel } from './word/WordPanel';
+import { motionOn } from './motion';
 import './sheets/sheets.css';
 
 /** The All tab: every sheet, a word once. Not a sheet name anyone would type. */
 const ALL_TAB = '\u0000all';
-const PAGE = 150;
+const PAGE_OLD = 150;
+const PAGE_MOTION = 400; // plan 2026-11-22-ui-polish D6: with content-visibility rows, a bigger page is cheap
+const pageSize = () => (motionOn() ? PAGE_MOTION : PAGE_OLD);
 const HIDDEN_SHEETS = /^exam$/i;
 
 function matcher(q: string): ((n: Note) => boolean) | null {
@@ -207,7 +210,7 @@ export function Sheets() {
   const [paint, setPaintState] = useState<WordStatus | null>(() => readStatus(pref<unknown>('sh.paint', null)));
   const [q, setQ] = useState('');
   const dq = useDeferredValue(q);
-  const [limit, setLimit] = useState(PAGE);
+  const [limit, setLimit] = useState(pageSize);
   const [menu, setMenu] = useState<string | null>(null);
   const [panel, setPanel] = useState<string | null>(null);
   const [scratch, setScratch] = useState(false);
@@ -256,7 +259,7 @@ export function Sheets() {
     return c.due + c.learning;
   }, [notes.length, cards, noteMap, events, settings, now]);
 
-  useEffect(() => setLimit(PAGE), [current, filter, dq]);
+  useEffect(() => setLimit(pageSize()), [current, filter, dq]);
 
   // Keep the selected sheet tab in view inside the scrolling tab strip (without scrolling the page).
   useEffect(() => {
@@ -536,7 +539,7 @@ export function Sheets() {
         />
       )}
       {list.length > limit && (
-        <button type="button" className="btn tinted block hs-showmore" onClick={() => setLimit(limit + 200)}>
+        <button type="button" className="btn tinted block hs-showmore" onClick={() => setLimit(limit + (motionOn() ? 400 : 200))}>
           Show more
         </button>
       )}

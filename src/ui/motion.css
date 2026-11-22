@@ -1,0 +1,25 @@
+/* Route transitions (plan 2026-11-22-ui-polish D2/D5/D10). Only used while "Try new animations" is on: the
+   <ViewTransition> in App.tsx exists only then, and every rule is scoped under html.motion. Classes: vt-fwd (deeper),
+   vt-back (shallower), vt-fade (tab switch, Cards, Review). The tab bar has its own name, so it stays still. */
+html.motion .nav { view-transition-name: nav; }
+@keyframes vt-fade-in { from { opacity: 0; } }
+@keyframes vt-fade-out { to { opacity: 0; } }
+@keyframes vt-in-right { from { opacity: 0; transform: translateX(32px); } }
+@keyframes vt-out-left { to { opacity: 0; transform: translateX(-32px); } }
+@keyframes vt-in-left { from { opacity: 0; transform: translateX(-32px); } }
+@keyframes vt-out-right { to { opacity: 0; transform: translateX(32px); } }
+
+html.motion::view-transition-old(.vt-fade) { animation: vt-fade-out 0.2s var(--ease) both; }
+html.motion::view-transition-new(.vt-fade) { animation: vt-fade-in 0.2s var(--ease) both; }
+html.motion::view-transition-old(.vt-fwd) { animation: vt-out-left 0.3s var(--ease) both; }
+html.motion::view-transition-new(.vt-fwd) { animation: vt-in-right 0.3s var(--ease) both; }
+html.motion::view-transition-old(.vt-back) { animation: vt-out-right 0.3s var(--ease) both; }
+html.motion::view-transition-new(.vt-back) { animation: vt-in-left 0.3s var(--ease) both; }
+
+/* Reduced motion: slides become short fades. */
+@media (prefers-reduced-motion: reduce) {
+  html.motion::view-transition-old(.vt-fwd), html.motion::view-transition-old(.vt-back) { animation: vt-fade-out 0.15s linear both; }
+  html.motion::view-transition-new(.vt-fwd), html.motion::view-transition-new(.vt-back) { animation: vt-fade-in 0.15s linear both; }
+  html.motion::view-transition-old(.vt-fade) { animation: vt-fade-out 0.15s linear both; }
+  html.motion::view-transition-new(.vt-fade) { animation: vt-fade-in 0.15s linear both; }
+}
