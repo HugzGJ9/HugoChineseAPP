@@ -201,3 +201,8 @@
   .sheets .hs-wrong-pill svg { width: 16px; height: 16px; }
   .sheets .hs-practise { display: none; }
 }
+
+/* Plan 2026-11-22-ui-polish D6, behind html.motion (D10): rows far off screen are skipped; they stay in the DOM.
+   Intrinsic sizes match the row heights: two-line phone row 60px, one-line desktop row 52px. */
+html.motion .sheets .ql-row { content-visibility: auto; contain-intrinsic-size: auto 60px; }
+@media (min-width: 700px) { html.motion .sheets .ql-row { contain-intrinsic-size: auto 52px; } }

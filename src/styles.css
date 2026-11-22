@@ -645,13 +645,30 @@ code { font-family: var(--mono); font-size: 0.88em; background: var(--fill); pad
 @media (min-width: 900px) { .undo-bar { bottom: 24px; } }
 
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after { animation: none !important; transition: none !important; }
-  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+  *, *::before, *::after { transition: none !important; }
+  /* With "Try new animations" on, reduced motion keeps short fades instead (plan 2026-11-22-ui-polish D5). */
+  html:not(.motion) *, html:not(.motion) *::before, html:not(.motion) *::after { animation: none !important; }
 }
-/* View Transitions probe (plan 2026-11-22-ui-polish WP0, behind "Try new animations"): a short cross-fade between
-   screens; the tab bar has its own name so it stays still. */
-.nav { view-transition-name: nav; }
-::view-transition-old(.vt-fade), ::view-transition-new(.vt-fade) { animation-duration: 0.2s; }
+
+/* Plan 2026-11-22-ui-polish WP3, all under html.motion (D10). D4: a critically damped spring as a linear() curve
+   (about 0.45 s, 33 points, slight overshoot); replaces --spring on the switch knob, nav icons and chips. */
+html.motion {
+  --spring-ios: linear(0, 0.016, 0.059, 0.122, 0.199, 0.284, 0.374, 0.465, 0.553, 0.637, 0.715, 0.786, 0.848, 0.903, 0.949, 0.987,
+    1.018, 1.042, 1.06, 1.072, 1.079, 1.083, 1.083, 1.081, 1.077, 1.071, 1.064, 1.057, 1.049, 1.042, 1.034, 1.027, 1);
+  /* D7: the Kai webfont first (WP4 supplies it; until then the stack falls through to today's fonts). */
+  --kai: 'LXGW WenKai Medium', 'Kaiti SC', STKaiti, KaiTi, '楷体', 'PingFang SC', 'Microsoft YaHei', serif;
+}
+html.motion .switch::after, html.motion label.check input[type='checkbox']::after { transition-duration: 0.45s; transition-timing-function: var(--spring-ios); }
+html.motion .nav a svg { transition: transform 0.45s var(--spring-ios); }
+html.motion .seg button { transition-timing-function: var(--spring-ios); }
+
+/* D5: reduced motion keeps fades (0.15 s) instead of slides and scales (transitions stay off). Opening only: the
+   closing exits are in panel.css, screen changes in motion.css. */
+@media (prefers-reduced-motion: reduce) {
+  html.motion .pp-backdrop:not(.closing), html.motion .pop-backdrop:not(.closing),
+  html.motion .pp-panel:not(.closing), html.motion .pop:not(.closing),
+  html.motion .banners > *, html.motion .toast, html.motion .undo-bar { animation: fade-in 0.15s linear; }
+}
 
 /* ============ 8. Screen styles (wave 2 restyles these with the tokens above) ============ */
 

@@ -73,3 +73,21 @@ html.sheet-open, html.sheet-open body { overflow: hidden; overscroll-behavior: n
   .pp-head { padding-top: 12px; }
   .pp-grabber { display: none; }
 }
+
+/* Exits (plan 2026-11-22-ui-polish D3/D5), only while the "Try new animations" switch is on (html.motion). Panel.tsx adds
+   .closing, then calls onClose after 0.25 s at most. The phone sheet goes down, the desktop side panel goes right, the
+   centred menu scales out, the scrim fades. Reduced motion: everything is a short fade. */
+@keyframes pp-sheet-down { to { transform: translateY(100%); } }
+@keyframes pp-side-out { to { transform: translateX(100%); } }
+@keyframes pp-pop-out { to { opacity: 0; transform: scale(0.96); } }
+@keyframes pp-fade-out { to { opacity: 0; } }
+html.motion .pp-panel.closing { animation: pp-sheet-down 0.22s cubic-bezier(0.5, 0, 0.75, 0) forwards; pointer-events: none; }
+html.motion .pop.closing { animation: pp-pop-out 0.18s ease-in forwards; pointer-events: none; }
+html.motion .pp-backdrop.closing, html.motion .pop-backdrop.closing { animation: pp-fade-out 0.22s ease-in forwards; pointer-events: none; }
+@media (min-width: 900px) {
+  html.motion .pp-panel.closing { animation-name: pp-side-out; }
+}
+@media (prefers-reduced-motion: reduce) {
+  html.motion .pp-panel.closing, html.motion .pop.closing { animation: pp-fade-out 0.15s linear forwards; }
+  html.motion .pp-backdrop.closing, html.motion .pop-backdrop.closing { animation-duration: 0.15s; animation-timing-function: linear; }
+}

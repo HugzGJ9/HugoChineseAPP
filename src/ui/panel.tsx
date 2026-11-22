@@ -1,8 +1,9 @@
 // One bottom sheet for every dialog on phones (grabber, drag down to close from anywhere), a side panel (variant
 // "panel") or a centred card (variant "menu") from 900px. Esc closes the top sheet, focus moves in and returns on close,
 // the page behind does not scroll while a sheet is open.
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { Icon } from './common';
+import { motionOn } from './motion';
 import './panel.css';
 
 const open: symbol[] = []; // open sheets, last = top: only the top one handles Escape
@@ -19,6 +20,31 @@ export function Sheet({
   const ref = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
   close.current = onClose;
+  // D3 (behind the motion switch): play a short exit, then call onClose. A timeout backs up a missed animationend.
+  const [closing, setClosing] = useState(false);
+  // One pending close at a time, whatever asked for it (button, backdrop, Esc, drag): a second request while one is
+  // pending is ignored, so onClose runs once. Once it has run the sheet can be closed again (a parent may keep it).
+  const timer = useRef<number>(0);
+  const later = useCallback((ms: number) => {
+    timer.current = window.setTimeout(() => {
+      timer.current = 0;
+      setClosing(false);
+      close.current();
+    }, ms);
+  }, []);
+  const request = useCallback(() => {
+    if (timer.current) return;
+    if (!motionOn()) return close.current();
+    setClosing(true);
+    later(250);
+  }, [later]);
+  // The drag animates the sheet away itself, then closes after 200 ms (as before), through the same guard.
+  const dragClose = useRef(() => {
+    if (!timer.current) later(200);
+  });
+  const requestRef = useRef(request);
+  requestRef.current = request;
+  useEffect(() => () => window.clearTimeout(timer.current), []);
   useEffect(() => {
     const before = document.activeElement as HTMLElement | null;
     const el = ref.current;
@@ -30,7 +56,7 @@ export function Sheet({
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && open[open.length - 1] === me) {
         e.preventDefault();
-        close.current();
+        requestRef.current();
       }
     };
     document.addEventListener('keydown', key);
@@ -41,10 +67,10 @@ export function Sheet({
       before?.focus?.({ preventScroll: true });
     };
   }, [menu]);
-  useSheetDrag(ref, close);
+  useSheetDrag(ref, dragClose);
   const body = (
     <div
-      className={`${menu ? 'pop pp-sheet' : 'pp-panel'} ${full ? 'pp-full' : 'pp-content'} ${className}`}
+      className={`${menu ? 'pop pp-sheet' : 'pp-panel'} ${full ? 'pp-full' : 'pp-content'} ${closing ? 'closing' : ''} ${className}`}
       role="dialog"
       aria-modal={menu ? true : undefined}
       aria-label={label}
@@ -58,7 +84,7 @@ export function Sheet({
           <div className="pp-head">
             <h2 className="pp-title">{title}</h2>
             {head}
-            <button type="button" className="pp-close" onClick={onClose} aria-label="Close" title="Close (Esc)">
+            <button type="button" className="pp-close" onClick={request} aria-label="Close" title="Close (Esc)">
               <span aria-hidden="true">
                 <Icon name="close" />
               </span>
@@ -71,7 +97,7 @@ export function Sheet({
   );
   if (menu) {
     return (
-      <div className="pop-backdrop" onClick={onClose}>
+      <div className={`pop-backdrop${closing ? ' closing' : ''}`} onClick={request}>
         {/* clicks inside must not reach the backdrop */}
         <div style={{ display: 'contents' }} onClick={(e) => e.stopPropagation()}>
           {body}
@@ -81,7 +107,7 @@ export function Sheet({
   }
   return (
     <>
-      <div className="pp-backdrop" onClick={onClose} aria-hidden="true" />
+      <div className={`pp-backdrop${closing ? ' closing' : ''}`} onClick={request} aria-hidden="true" />
       {body}
     </>
   );
@@ -108,6 +134,10 @@ function useSheetDrag(ref: React.RefObject<HTMLDivElement | null>, close: React.
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
+    const scrim = () =>
+      el.classList.contains('pp-panel')
+        ? (el.previousElementSibling as HTMLElement | null)
+        : (el.closest('.pop-backdrop') as HTMLElement | null);
     let s: { x: number; y: number; t: number; dy: number; on: boolean } | null = null;
     const start = (e: TouchEvent) => {
       s = null;
@@ -132,7 +162,19 @@ function useSheetDrag(ref: React.RefObject<HTMLDivElement | null>, close: React.
         return;
       }
       if (e.cancelable) e.preventDefault();
-      s.dy = Math.max(0, e.touches[0].clientY - s.y);
+      const raw = e.touches[0].clientY - s.y;
+      if (motionOn()) {
+        // Rubber band when pulled up; the scrim fades as the sheet goes down.
+        s.dy = raw < 0 ? raw * 0.2 : raw;
+        el.style.transform = s.dy ? `translateY(${s.dy}px)` : '';
+        const b = scrim();
+        if (b) {
+          b.style.transition = 'none';
+          b.style.opacity = String(Math.max(0, 1 - Math.max(0, s.dy) / Math.max(1, el.offsetHeight)));
+        }
+        return;
+      }
+      s.dy = Math.max(0, raw);
       el.style.transform = s.dy ? `translateY(${s.dy}px)` : '';
     };
     const end = () => {
@@ -143,10 +185,20 @@ function useSheetDrag(ref: React.RefObject<HTMLDivElement | null>, close: React.
       if (d.dy > 110 || (d.dy > 40 && v > 0.6)) {
         el.style.transition = 'transform 0.22s ease-in';
         el.style.transform = 'translateY(100%)';
-        setTimeout(() => close.current(), 200);
+        const b = motionOn() ? scrim() : null;
+        if (b) {
+          b.style.transition = 'opacity 0.22s ease-in';
+          b.style.opacity = '0';
+        }
+        close.current();
       } else {
         el.style.transition = 'transform 0.35s var(--ease)';
         el.style.transform = '';
+        const b = motionOn() ? scrim() : null;
+        if (b) {
+          b.style.transition = 'opacity 0.35s var(--ease)';
+          b.style.opacity = '';
+        }
       }
     };
     el.addEventListener('touchstart', start, { passive: true });

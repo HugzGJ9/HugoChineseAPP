@@ -2,6 +2,7 @@ node_modules
 dist
 public/hw
 public/dict
+public/kai
 *.local
 .DS_Store
 # never commit personal data

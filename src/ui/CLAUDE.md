@@ -37,3 +37,6 @@
   node and a `type=button` click submits the form.
 - Sheet drag uses native touch listeners: iOS fires `pointercancel` as soon as it starts scrolling, so pointer events can't drag a sheet.
 - Add more one-liners at the end of sessions that hit a quirk.
+- "Try new animations" (`motion.ts`, `hz.motion`, device only): new motion and the WenKai font are scoped under `html.motion`
+  (CSS) or `motionOn()` (scripts); off = the app as before. Route transitions in `motion.css`, sheet exits (`.closing`) in
+  `panel.css`. Font chunks: `scripts/copy-kai.mjs` → `public/kai/` (only `kai.css` is precached).
