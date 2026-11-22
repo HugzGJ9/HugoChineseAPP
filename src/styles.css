@@ -646,7 +646,12 @@ code { font-family: var(--mono); font-size: 0.88em; background: var(--fill); pad
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
 }
+/* View Transitions probe (plan 2026-11-22-ui-polish WP0, behind "Try new animations"): a short cross-fade between
+   screens; the tab bar has its own name so it stays still. */
+.nav { view-transition-name: nav; }
+::view-transition-old(.vt-fade), ::view-transition-new(.vt-fade) { animation-duration: 0.2s; }
 
 /* ============ 8. Screen styles (wave 2 restyles these with the tokens above) ============ */
 
