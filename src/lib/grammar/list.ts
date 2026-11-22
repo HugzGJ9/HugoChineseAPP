@@ -1,8 +1,9 @@
-// Pure helpers for the Grammar window: one item per grammar note, titles in 中/FR/EN, search, grouping, the pattern
-// split into fixed words and slots, and example sentences split on Hugo's vocabulary. No storage, no React.
+// Pure helpers for the Grammar window: one item per grammar note, texts in the reading language (EN | FR, GRAM-2),
+// search, the pattern split into fixed words and slots, and example sentences split into tappable words with Hugo's own
+// words laid over them. No storage, no React.
 import type { Note } from '../types';
-import { family, FAMILIES, hskLabel, HSK_LEVELS } from './families';
-import type { FamilyId, GrammarInfo, GroupBy, HskLevel, TitleLang } from './types';
+import { family, hskLabel } from './families';
+import type { FamilyId, GrammarInfo, HskLevel, ReadLang } from './types';
 
 export interface GrammarItem {
   note: Note;
@@ -21,22 +22,33 @@ export function grammarItems(notes: Note[]): GrammarItem[] {
     });
 }
 
-/** Title in the chosen language. `fallback` is true when that language is missing and another is shown. */
-export function itemTitle(item: GrammarItem, lang: TitleLang): { text: string; fallback: boolean } {
-  const { note, info } = item;
-  if (lang === 'zh') return { text: note.hanzi, fallback: false };
-  if (lang === 'fr') {
-    const fr = info.title?.fr || note.fr;
-    if (fr) return { text: fr, fallback: false };
-  }
-  const en = info.title?.en || note.en;
-  return en ? { text: en, fallback: lang === 'fr' } : { text: note.hanzi, fallback: true };
+/**
+ * A text in the reading language. `fallback` names the language actually shown when the chosen one is missing, so the
+ * screen can tag it; undefined when there is nothing in either language.
+ */
+export function pick(pair: { en?: string; fr?: string } | undefined, lang: ReadLang): { text: string; fallback?: ReadLang } | undefined {
+  const other: ReadLang = lang === 'fr' ? 'en' : 'fr';
+  if (pair?.[lang]) return { text: pair[lang]! };
+  if (pair?.[other]) return { text: pair[other]!, fallback: other };
+  return undefined;
 }
 
-/** The line under the title: the pattern when the title is a translation; the French or English title under 中. */
-export function itemSubtitle(item: GrammarItem, lang: TitleLang): string {
-  if (lang !== 'zh') return item.note.hanzi;
-  return item.info.title?.fr || item.info.title?.en || item.note.en;
+/** "When to use" bullets in the reading language, or the other one, tagged. */
+export function pickList(pair: { en?: string[]; fr?: string[] } | undefined, lang: ReadLang): { items: string[]; fallback?: ReadLang } {
+  const other: ReadLang = lang === 'fr' ? 'en' : 'fr';
+  if (pair?.[lang]?.length) return { items: pair[lang]! };
+  if (pair?.[other]?.length) return { items: pair[other]!, fallback: other };
+  return { items: [] };
+}
+
+/**
+ * Short title in the reading language: the Title column, then the Excel meaning (French column or the English cell).
+ * `fallback` is set when the text is in the other language.
+ */
+export function itemTitle(item: GrammarItem, lang: ReadLang): { text: string; fallback?: ReadLang } {
+  const { note, info } = item;
+  const t = pick({ en: info.title?.en || note.en, fr: info.title?.fr || note.fr }, lang);
+  return t ?? { text: '' };
 }
 
 /** Lower case, accents and punctuation folded, so "regle" finds "règle" and "as soon" finds "As soon as". */
@@ -66,24 +78,6 @@ export function matchItem(item: GrammarItem, query: string): boolean {
   return fold(q)
     .split(' ')
     .every((w) => hay.includes(w));
-}
-
-export interface ItemGroup {
-  key: string;
-  title: string;
-  items: GrammarItem[];
-}
-
-/** Groups in display order; points without the label go last. 'excel' is one group in sheet order. */
-export function groupItems(items: GrammarItem[], by: GroupBy, lang: TitleLang): ItemGroup[] {
-  if (by === 'excel') return items.length ? [{ key: 'all', title: '语法', items }] : [];
-  const groups: ItemGroup[] =
-    by === 'family'
-      ? FAMILIES.map((f) => ({ key: f.id, title: lang === 'fr' ? f.fr : lang === 'zh' ? `${f.zh} · ${f.en}` : f.en, items: items.filter((i) => i.family === f.id) }))
-      : HSK_LEVELS.map((h) => ({ key: `hsk${h}`, title: hskLabel(h), items: items.filter((i) => i.hsk === h) }));
-  const none = items.filter((i) => (by === 'family' ? !i.family : !i.hsk));
-  groups.push({ key: 'none', title: lang === 'fr' ? (by === 'family' ? 'Sans famille' : 'Sans niveau') : by === 'family' ? 'No family' : 'No level', items: none });
-  return groups.filter((g) => g.items.length);
 }
 
 export type FormulaPart = { t: 'fixed'; s: string } | { t: 'slot'; s: string } | { t: 'gap' };
@@ -130,38 +124,113 @@ export function vocabIndex(notes: Note[]): { forms: Map<string, string>; max: nu
   return { forms, max };
 }
 
+export interface Token {
+  s: string;
+  /** Offset of the token in the sentence, in characters (code points). */
+  start: number;
+  /** Hugo's word (note id) when the token is one of his words. */
+  note?: string;
+  /** Every character belongs to the grammar pattern itself (就 in an 一…就 example). */
+  pattern?: boolean;
+  /** Has Chinese characters, so it can be tapped; punctuation and Latin can't. */
+  word: boolean;
+}
+
+const HAN_CHAR = /[\u3400-\u9fff]/;
+
+/** Word segmentation of the browser (ICU dictionary); one character per word without Intl.Segmenter. */
+export function browserSegments(zh: string): string[] {
+  if (typeof Intl !== 'undefined' && 'Segmenter' in Intl) {
+    return [...new Intl.Segmenter('zh', { granularity: 'word' }).segment(zh)].map((x) => x.segment);
+  }
+  return [...zh];
+}
+
+/** The fixed Chinese characters of a pattern and its alternative forms (除非A，才B → 除非才). */
+export function patternChars(note: Pick<Note, 'hanzi' | 'alts'>): string {
+  return [note.hanzi, ...note.alts]
+    .flatMap((p) => formulaParts(p))
+    .map((p) => (p.t === 'fixed' ? p.s : ''))
+    .join('')
+    .replace(/[^\u3400-\u9fff]/g, '');
+}
+
 /**
- * Split a sentence into Hugo's words and the rest, greedy longest match. Single characters that belong to the grammar
- * pattern itself (`skip`) are not marked, so 就 in an 一…就 example stays plain.
+ * Split an example sentence into tappable words (D4 of plan 2026-11-22-grammar-v3): the browser's segmentation, with
+ * Hugo's own words laid over it by longest match (his words win where boundaries disagree; a one-character word of his
+ * only where the segmenter also cuts there). Pattern characters are flagged; a segment mixing pattern and other
+ * characters is split between them.
  */
-export function segmentSentence(zh: string, index: { forms: Map<string, string>; max: number }, skip = ''): Segment[] {
-  const out: Segment[] = [];
-  const plain = (c: string) => {
-    const last = out[out.length - 1];
-    if (last && !last.note) last.s += c;
-    else out.push({ s: c });
-  };
+export function sentenceTokens(
+  zh: string,
+  index: { forms: Map<string, string>; max: number },
+  pattern = '',
+  segments: (s: string) => string[] = browserSegments,
+): Token[] {
   const chars = [...zh];
-  let i = 0;
-  while (i < chars.length) {
-    let hit: string | undefined;
-    let len = 0;
+  const cut = new Set<number>([0, chars.length]);
+  let at = 0;
+  for (const seg of segments(zh)) {
+    at += [...seg].length;
+    cut.add(at);
+  }
+  // His words, greedy left to right.
+  const mine = new Map<number, { len: number; id: string }>();
+  for (let i = 0; i < chars.length; ) {
+    let found = 0;
     for (let l = Math.min(index.max, chars.length - i); l >= 1; l--) {
-      const w = chars.slice(i, i + l).join('');
-      const id = index.forms.get(w);
-      if (id && !(l === 1 && skip.includes(w))) {
-        hit = id;
-        len = l;
+      const id = index.forms.get(chars.slice(i, i + l).join(''));
+      if (id && (l > 1 || (cut.has(i) && cut.has(i + 1)))) {
+        mine.set(i, { len: l, id });
+        found = l;
         break;
       }
     }
-    if (hit) {
-      out.push({ s: chars.slice(i, i + len).join(''), note: hit });
-      i += len;
-    } else {
-      plain(chars[i]);
-      i += 1;
+    i += found || 1;
+  }
+  const inPattern = (c: string) => HAN_CHAR.test(c) && pattern.includes(c);
+  const out: Token[] = [];
+  const push = (start: number, end: number, note?: string) => {
+    const s = chars.slice(start, end).join('');
+    const han = [...s].filter((c) => HAN_CHAR.test(c));
+    out.push({
+      s, start, word: han.length > 0,
+      ...(note ? { note } : {}),
+      ...(han.length && han.every(inPattern) ? { pattern: true } : {}),
+    });
+  };
+  let i = 0;
+  while (i < chars.length) {
+    const m = mine.get(i);
+    if (m) {
+      push(i, i + m.len, m.id);
+      i += m.len;
+      continue;
     }
+    // Rest of the segmenter word, stopped at the next word of his.
+    let end = i + 1;
+    while (end < chars.length && !cut.has(end) && !mine.has(end)) end++;
+    // Split runs of pattern / non-pattern characters inside a segment.
+    let s = i;
+    for (let k = i + 1; k <= end; k++) {
+      if (k === end || inPattern(chars[k]) !== inPattern(chars[k - 1]) || !HAN_CHAR.test(chars[k]) !== !HAN_CHAR.test(chars[k - 1])) {
+        push(s, k);
+        s = k;
+      }
+    }
+    i = end;
   }
   return out;
+}
+
+/** Hugo's words that contain `word` or are inside it (学 → 学习, 留学), longest first, at most `max`. */
+export function vocabLinks(word: string, index: { forms: Map<string, string> }, max = 8): string[] {
+  const hits: [string, string][] = [];
+  for (const [form, id] of index.forms) {
+    if (form !== word && (form.includes(word) || word.includes(form))) hits.push([form, id]);
+  }
+  hits.sort((a, b) => b[0].length - a[0].length || a[0].localeCompare(b[0]));
+  const ids: string[] = [];
+  for (const [, id] of hits) if (!ids.includes(id) && ids.push(id) >= max) break;
+  return ids;
 }

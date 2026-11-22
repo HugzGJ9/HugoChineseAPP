@@ -17,10 +17,10 @@
 | 2026-11-17 | [sheets-phone-row](2026-11-17-sheets-phone-row.md) | Shipped (PR #6) | iPhone Sheets rows on two lines (no id column or pen on phones, compact status and Wrong badge, wider meaning); tab bar hides while typing, Return → next field scrolls above the keyboard | Hugo's real-iPhone check (keyboard, Return walk); optional swipe-left Practise |
 | 2026-11-20 | [grammar-window](2026-11-20-grammar-window.md) | WP1 shipped (PR #8); WP2–WP5 superseded by grammar-content | Grammar tab: 语法 points titled 中/FR/EN with search, grouped by family or HSK; lesson page; labels by Claude, edited by Hugo; lessons by Claude, saved and synced | WP2 store + sync (in-memory today), WP3 Claude lessons and labels, WP4 buttons, WP5 qa |
 | 2026-11-21 | [grammar-content](2026-11-21-grammar-content.md) | App shipped; content pending in Hugo's Excel | Grammar content from extra 语法 columns (HSK, Family, titles, definitions, use, register, sentences) → Note.grammar; page rebuilt: meaning card, examples with his words underlined; lesson box, Explain more and in-app store removed | Hugo pastes the columns into his Excel; later: studying-word examples, "don't confuse" column, grammar practice |
-| 2026-11-22 | [grammar-v3](2026-11-22-grammar-v3.md) | Proposed (skeleton) | Grammar: tick-box filters (HSK, family, status) replace grouping; one app-wide EN/FR language; any word in examples tappable (dictionary-only panel); Same family removed | Hugo's answers Q1–Q3; then WP1 ∥ WP3 → WP2 → WP4 |
+| 2026-11-22 | [grammar-v3](2026-11-22-grammar-v3.md) | Shipped | Grammar: tick-box filters (HSK, family, status) replace grouping; one app-wide EN/FR language; any word in examples tappable (dictionary-only panel, tap to widen/narrow, links to his words); translations hidden until tapped; Previous/Next; Same family removed; grammar.py now in CI | Hugo pastes the regenerated 语法 columns (all EN + FR); grammar practice (E5) later |
 
 ## Now / next
-- Now: grammar-content — app side merged; Hugo pastes the new 语法 columns into his Excel (sheet sent in chat, never in the repo).
+- Now: grammar-v3 shipped; Hugo pastes the regenerated 语法 columns into his Excel (file sent in chat, never in the repo).
   `onedrive_writeback.py` flaked again in CI at `od_common.py:97` (passed on rerun): worth fixing the wait.
 - Next candidates: connected-saving WP13; roadmap phase 4 #1 weak-words drill, then #3 HSK level progress (needs its own
   short plan: data source and licence).

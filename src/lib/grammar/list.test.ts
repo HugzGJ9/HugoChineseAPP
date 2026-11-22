@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { Note } from '../types';
 import { parseFamily, parseHsk, parseRegister } from './families';
-import { fold, formulaParts, grammarItems, groupItems, itemSubtitle, itemTitle, matchItem, segmentSentence, vocabIndex } from './list';
+import { fold, formulaParts, grammarItems, itemTitle, matchItem, patternChars, pick, pickList, sentenceTokens, vocabIndex, vocabLinks } from './list';
 import type { GrammarInfo } from './types';
 
 // Generic textbook patterns only: no personal data in this public repo.
@@ -27,21 +27,21 @@ describe('grammarItems', () => {
   });
 });
 
-describe('itemTitle', () => {
+describe('itemTitle and pick', () => {
   const [u, a, n] = grammarItems([unless, asSoon, notAs]);
-  it('shows the pattern, the French or the English title', () => {
-    expect(itemTitle(u, 'zh').text).toBe('除非A，才B');
-    expect(itemTitle(u, 'fr')).toEqual({ text: 'À moins que A', fallback: false });
-    expect(itemTitle(u, 'en').text).toBe('Unless A, only then B');
+  it('shows the title in the reading language', () => {
+    expect(itemTitle(u, 'fr')).toEqual({ text: 'À moins que A' });
+    expect(itemTitle(u, 'en')).toEqual({ text: 'Unless A, only then B' });
   });
-  it('falls back to English, flagged, when there is no French title', () => {
-    expect(itemTitle(n, 'fr')).toEqual({ text: 'A is not as good as B', fallback: true });
-    expect(itemTitle(a, 'fr')).toEqual({ text: 'As soon as', fallback: true });
+  it('falls back to the other language, tagged', () => {
+    expect(itemTitle(n, 'fr')).toEqual({ text: 'A is not as good as B', fallback: 'en' });
+    expect(itemTitle(a, 'fr')).toEqual({ text: 'As soon as', fallback: 'en' });
   });
-  it('puts the pattern under a translated title, and the French title under the pattern', () => {
-    expect(itemSubtitle(u, 'en')).toBe('除非A，才B');
-    expect(itemSubtitle(u, 'zh')).toBe('À moins que A');
-    expect(itemSubtitle(a, 'zh')).toBe('As soon as');
+  it('picks texts and bullet lists', () => {
+    expect(pick({ fr: 'Seul' }, 'en')).toEqual({ text: 'Seul', fallback: 'fr' });
+    expect(pick(undefined, 'en')).toBeUndefined();
+    expect(pickList({ en: ['a'], fr: [] }, 'fr')).toEqual({ items: ['a'], fallback: 'en' });
+    expect(pickList(undefined, 'fr')).toEqual({ items: [] });
   });
 });
 
@@ -67,19 +67,6 @@ describe('matchItem', () => {
   });
 });
 
-describe('groupItems', () => {
-  const items = grammarItems([unless, asSoon, notAs]);
-  it('groups by family in family order, unlabelled last', () => {
-    expect(groupItems(items, 'family', 'en').map((x) => [x.key, x.items.length])).toEqual([['condition', 1], ['compare', 1], ['none', 1]]);
-  });
-  it('groups by HSK level', () => {
-    expect(groupItems(items, 'hsk', 'fr').map((x) => x.title)).toEqual(['HSK 4', 'HSK 5', 'Sans niveau']);
-  });
-  it('keeps the sheet order as one group', () => {
-    expect(groupItems(items, 'excel', 'zh')[0].items).toHaveLength(3);
-  });
-});
-
 describe('formulaParts', () => {
   const show = (p: string) => formulaParts(p).map((x) => (x.t === 'slot' ? `[${x.s}]` : x.t === 'gap' ? '…' : x.s)).join(' ');
   it('splits Latin slots from fixed Chinese', () => {
@@ -99,19 +86,46 @@ describe('formulaParts', () => {
   });
 });
 
-describe('segmentSentence', () => {
+describe('sentenceTokens', () => {
   const index = vocabIndex([word('学习'), word('学'), word('中文'), word('就'), word('喝', ['喝酒']), unless]);
-  const show = (zh: string, skip = '') => segmentSentence(zh, index, skip).map((s) => (s.note ? `[${s.s}]` : s.s)).join('');
-  it('marks his words, longest first', () => {
-    expect(show('我在学习中文。')).toBe('我在[学习][中文]。');
-    expect(show('他学得很快。')).toBe('他[学]得很快。');
-    expect(show('他一喝酒就脸红。')).toBe('他一[喝酒][就]脸红。');
+  // A fixed segmenter so the tests don't depend on the ICU dictionary of the machine.
+  const seg = (cuts: string) => () => cuts.split(' ');
+  const show = (zh: string, cuts: string, pattern = '') =>
+    sentenceTokens(zh, index, pattern, seg(cuts))
+      .map((t) => (t.note ? `[${t.s}]` : t.word ? `{${t.s}}` : t.s) + (t.pattern ? '*' : ''))
+      .join('');
+  it('lays his words over the segmenter, longest first', () => {
+    expect(show('我在学习中文。', '我 在 学习 中文 。')).toBe('{我}{在}[学习][中文]。');
+    expect(show('他一喝酒就脸红。', '他 一 喝酒 就 脸红 。')).toBe('{他}{一}[喝酒][就]{脸红}。');
   });
-  it('leaves single characters of the pattern itself plain', () => {
-    expect(show('他一喝酒就脸红。', '一就')).toBe('他一[喝酒]就脸红。');
+  it('his words win over segmenter boundaries; one-character words only where the segmenter cuts', () => {
+    expect(show('学习者', '学 习者')).toBe('[学习]{者}');
+    expect(show('学校很大', '学校 很 大')).toBe('{学校}{很}{大}');
+    expect(show('他学得快', '他 学 得 快')).toBe('{他}[学]{得}{快}');
   });
-  it('ignores grammar notes', () => {
-    expect(show('除非A，才B')).toBe('除非A，才B');
+  it('flags pattern characters and splits mixed segments', () => {
+    expect(show('他一听就懂', '他 一听 就 懂', '一就')).toBe('{他}{一}*{听}[就]*{懂}');
+  });
+  it('keeps punctuation and Latin untappable, with offsets', () => {
+    const t = sentenceTokens('好，OK', index, '', seg('好 ， OK'));
+    expect(t.map((x) => [x.s, x.start, x.word])).toEqual([['好', 0, true], ['，', 1, false], ['OK', 2, false]]);
+  });
+  it('works with the browser segmenter or without it', () => {
+    expect(sentenceTokens('我在学习中文。', index).map((t) => t.s).join('')).toBe('我在学习中文。');
+    expect(sentenceTokens('我在学习', index).find((t) => t.note)?.s).toBe('学习');
+  });
+});
+
+describe('patternChars and vocabLinks', () => {
+  it('keeps the fixed Chinese of the pattern and its alts', () => {
+    expect(patternChars({ hanzi: '除非A，才（会/能）B', alts: [] })).toBe('除非才会能');
+    expect(patternChars({ hanzi: '一+V+就+Result', alts: ['一…就'] })).toBe('一就一就');
+  });
+  it('links a dictionary word to his words around it', () => {
+    const index = vocabIndex([word('学习'), word('学'), word('留学'), word('中文')]);
+    expect(vocabLinks('学', index)).toEqual(['v:学习', 'v:留学']);
+    expect(vocabLinks('学习者', index)).toEqual(['v:学习', 'v:学']);
+    expect(vocabLinks('猫', index)).toEqual([]);
   });
 });
 

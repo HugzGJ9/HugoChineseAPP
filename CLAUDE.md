@@ -45,7 +45,7 @@ Statuses reach Excel two ways:
 - No Microsoft sign-in → PC only, a copy `Hugo_chinese_vocab (app).xlsx` next to the original (`folder.ts`); the original
   is never written from there.
 Nav: Sheets · Grammar · Settings (Today, Stats, Words under Settings › More). Grammar (`#/grammar`) lists the 语法
-points with lessons. Sheets is the one list (All tab, answer field per row) with a List | Cards switch; Cards (`#/cards`) is the full-screen drill. Tapping a word opens a panel: Explain, status, Practise this word.
+points (filters, EN|FR, tap any word in examples). Sheets is the one list (All tab, answer field per row) with a List | Cards switch; Cards (`#/cards`) is the full-screen drill. Tapping a word opens a panel: Explain, status, Practise this word.
 
 ## Top-level map
 - `src/main.tsx` boot order · `src/lib/` logic, storage, sync (→ `src/lib/CLAUDE.md`) · `src/ui/` screens (→ `src/ui/CLAUDE.md`)

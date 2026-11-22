@@ -18,7 +18,7 @@
 | Hide/show list (shared) | `qm.tsx` |
 | Cards (`#/cards`, focus shell) | `cards/Cards.tsx` (`CardsPage`) |
 | Review | `review/Session.tsx`, `CardView.tsx`, `GradeBar.tsx`, `VocabBack.tsx`, `OtherCard.tsx` (`Review.tsx` re-exports) |
-| Word panel | `word/WordPanel.tsx`, `word/ExplainView.tsx`, `panel.tsx` (`Sheet`: every bottom sheet and menu) |
+| Word panel | `word/WordPanel.tsx`, `word/ExplainView.tsx` (`mine={false}`: dictionary only), `word/SentenceWord.tsx` (word tapped in a grammar sentence), `panel.tsx` (`Sheet`: every bottom sheet and menu) |
 | Keyboard inset | `keyboard.ts` (`useKeyboardInset`, sets `--kb`) |
 | Grammar (`#/grammar`, `#/grammar/<id>`) | `grammar/GrammarPage.tsx`, `grammar/grammar.css` |
 | Status | `StatusPicker.tsx` |

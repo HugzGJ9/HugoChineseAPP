@@ -47,7 +47,11 @@ function useOnline(): boolean {
   return on;
 }
 
-export function ExplainView({ note, inline = false }: { note: Note; inline?: boolean }) {
+/**
+ * `mine={false}`: a word that is not in his list (tapped in a grammar sentence): no "Your list" block and no Claude,
+ * only the offline dictionary and its examples.
+ */
+export function ExplainView({ note, inline = false, mine = true }: { note: Note; inline?: boolean; mine?: boolean }) {
   const lang = useApp((s) => s.lang);
   const online = useOnline();
   const [lookup, setLookup] = useState<Lookup | null>(null);
@@ -71,14 +75,16 @@ export function ExplainView({ note, inline = false }: { note: Note; inline?: boo
 
   return (
     <div className={`wx ${inline ? 'inline' : ''}`}>
-      <section className="wx-sec" aria-label="Your list">
-        <h3 className="wx-h">Your list</h3>
-        <div className="wx-card wx-pad wx-mine">
-          <Meaning note={note} />
-        </div>
-      </section>
+      {mine && (
+        <section className="wx-sec" aria-label="Your list">
+          <h3 className="wx-h">Your list</h3>
+          <div className="wx-card wx-pad wx-mine">
+            <Meaning note={note} />
+          </div>
+        </section>
+      )}
       <DictionarySection lookup={lookup} lang={lang} />
-      <ClaudeSection note={note} lang={lang} online={online} lookup={lookup} py={py} setPy={setPy} />
+      {mine && <ClaudeSection note={note} lang={lang} online={online} lookup={lookup} py={py} setPy={setPy} />}
       <ExamplesSection lookup={lookup} lang={lang} py={py} setPy={setPy} />
     </div>
   );

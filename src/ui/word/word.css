@@ -143,3 +143,19 @@
 
 /* Excel row id beside the title (phone rows hide the id column). */
 .wp-id { font-size: var(--fs-footnote); font-weight: 400; color: var(--label-3); font-variant-numeric: tabular-nums; }
+
+/* Word tapped in a grammar sentence (SentenceWord.tsx): the sentence with the word highlighted, tap to widen/narrow. */
+.sw-strip { display: flex; flex-wrap: wrap; gap: 2px 0; padding: 4px 0 0; font-size: 22px; line-height: 1.5; }
+.sw-c { font: inherit; color: var(--label-2); background: none; border: 0; margin: 0; padding: 2px 3px; min-width: 30px; min-height: 40px; cursor: pointer; }
+.sw-c.punct { color: var(--label-3); min-width: 0; padding: 2px 1px; cursor: default; display: inline-flex; align-items: center; }
+.sw-c.on { color: var(--label); background: var(--accent-tint); font-weight: 600; }
+.sw-c.on.first { border-radius: 8px 0 0 8px; }
+.sw-c.on.last { border-radius: 0 8px 8px 0; }
+.sw-c.on.first.last { border-radius: 8px; }
+.sw-c:active { opacity: 0.6; }
+.sw-hint { margin: 2px 0 0; font-size: var(--fs-footnote); color: var(--label-2); }
+.sw-tag { flex: 1 1 auto; font-size: var(--fs-subhead); color: var(--label-2); }
+.sw-link-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.sw-link { color: var(--label); }
+.sw-link .st-icon { color: var(--st); }
+.sw-link .zh { font-size: 17px; }
