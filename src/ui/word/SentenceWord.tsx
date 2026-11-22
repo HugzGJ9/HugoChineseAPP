@@ -3,6 +3,7 @@
 // only that one (fixes a bad cut without a long-press). One of his words → his meaning, dictionary, Claude, status;
 // any other word → the offline dictionary only, plus links to his words that contain it or sit inside it.
 import { lazy, Suspense, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { Note, WordStatus } from '../../lib/types';
 import { setNoteStatus, useApp } from '../../lib/store';
 import { STATUS_MARK } from '../../lib/status';
@@ -15,7 +16,7 @@ import './word.css';
 
 const ExplainView = lazy(() => import('./ExplainView').then((m) => ({ default: m.ExplainView })));
 
-const HAN = /[㐀-鿿]/;
+const HAN = /[\u3400-\u9fff\u{20000}-\u{2ffff}]/u;
 
 /** A lookup target for a word that is not in his list. Never stored. */
 export function dictNote(word: string): Note {
@@ -58,7 +59,9 @@ export function SentenceWord({
   );
   const status = note ? (statuses.get(note.id) ?? 'new') : undefined;
 
-  return (
+  // Portal: the grammar page renders this inside its sticky detail pane, which would trap the sheet under the top bar
+  // on desktop (qa 2026-11-22).
+  return createPortal(
     <>
     <Sheet
       className="wp tall sw"
@@ -128,6 +131,7 @@ export function SentenceWord({
           onClose={() => setOpen(null)}
         />
       )}
-    </>
+    </>,
+    document.body,
   );
 }

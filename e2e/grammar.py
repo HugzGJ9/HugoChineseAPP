@@ -159,7 +159,8 @@ async def run(p, name, ctx_args, phone):
     await pg.wait_for_function("!document.querySelector('.sw .wp-hz')?.textContent.startsWith('我')", timeout=3000)
     hz = (await pg.locator('.sw .wp-hz').inner_text()).strip()
     check(hz == '不' + first, f'{name}: tapping its first character narrows it again ({hz})')
-    await pg.keyboard.press('Escape')
+    # A real click on Close (not Escape): the sheet must sit above the top bar on desktop too.
+    await pg.locator('.sw .pp-close').click(timeout=3000)
     await pg.locator('.sw').wait_for(state='detached')
 
     check(await pg.locator('.gr-nav-a.prev').count() == 0 and await pg.locator('.gr-nav-a.next').count() == 1, f'{name}: first point has Next only')

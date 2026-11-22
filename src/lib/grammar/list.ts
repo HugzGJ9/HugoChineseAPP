@@ -136,7 +136,7 @@ export interface Token {
   word: boolean;
 }
 
-const HAN_CHAR = /[\u3400-\u9fff]/;
+const HAN_CHAR = /[\u3400-\u9fff\u{20000}-\u{2ffff}]/u;
 
 /** Word segmentation of the browser (ICU dictionary); one character per word without Intl.Segmenter. */
 export function browserSegments(zh: string): string[] {
