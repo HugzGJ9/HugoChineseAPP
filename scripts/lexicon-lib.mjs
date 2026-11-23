@@ -469,8 +469,13 @@ export function buildCharIndex({ cedict, cfdict = new Map(), freq = new Map(), s
 
 // ---------- similar meaning: `n` in public/dict/c (plan 2026-11-23-word-panel-v2, D11) ----------
 
-/** maxDf/minDf: a meaning counts when 2–40 common words share it; perWord: similar words kept per word. */
-export const SIMILAR_DEFAULTS = { maxDf: 40, minDf: 2, perWord: 4, properMin: CHAR_DEFAULTS.properMin };
+/**
+ * maxDf/minDf: a meaning counts when 2–40 common words share it; perWord: similar words kept per word; freqWeight: the
+ * Tatoeba bonus that settles near-ties (rank = score × (1 + freqWeight × log2(1 + count)): +3 % for 1 sentence, +20 %
+ * for 100, +30 % for 1,000), so a common word passes a rare one with a slightly rarer shared meaning, but not one that
+ * shares more meanings.
+ */
+export const SIMILAR_DEFAULTS = { maxDf: 40, minDf: 2, perWord: 4, properMin: CHAR_DEFAULTS.properMin, freqWeight: 0.03 };
 
 // Placeholders and leading words that don't change a meaning: "to help sb" = "help", "un ami" = "ami".
 const GLOSS_NOISE = /(?:^|\s)(?:sb|sth|qqn|qqch|qn|qch|qc)(?:'s)?(?=\s|$)|\betc\b\.?/gu;
@@ -519,18 +524,20 @@ export function glossKeys(enSenses, frSenses) {
  * Words that share a dictionary meaning (D11), for each common word: the D9 rules (a CC-CEDICT entry; a Tatoeba count or
  * a CFDICT entry; rare proper nouns out), single characters included. English senses come from every CC-CEDICT reading,
  * French from every CFDICT row. A meaning counts when minDf–maxDf words share it; score = Σ 1/log2(1 + df) over the
- * shared meanings; ties by Tatoeba count, then code point. Returns Map<word, string[]> (≤ perWord, best first), only
+ * shared meanings, times the Tatoeba bonus (freqWeight); ties by Tatoeba count, then code point. A word of 2 or more
+ * characters gets no single-character candidates: those are mostly bound morphemes (朋, 识, 始) that the Characters
+ * section already shows; a single character keeps them. Returns Map<word, string[]> (≤ perWord, best first), only
  * for words with at least one similar word; deterministic.
  */
 export function buildSimilar({ cedict, cfdict = new Map(), freq = new Map(), options = {} }) {
   const opt = { ...SIMILAR_DEFAULTS, ...options };
-  const words = []; // { w, n, keys }
+  const words = []; // { w, n, keys, one: a single character }
   for (const [w, ce] of groupCedict(cedict)) {
     const n = freq.get(w) ?? 0;
     const cf = cfdict.get(w) ?? [];
     if (!isCommon(w, ce, n, cf, opt.properMin)) continue;
     const keys = glossKeys(ce.flatMap((x) => x.senses), cf.flatMap((x) => sensesOf(x[1])));
-    if (keys.length) words.push({ w, n, keys });
+    if (keys.length) words.push({ w, n, keys, one: [...w].length === 1 });
   }
   words.sort((a, b) => cmpCp(a.w, b.w));
   const post = new Map(); // key → word indexes
@@ -544,15 +551,16 @@ export function buildSimilar({ cedict, cfdict = new Map(), freq = new Map(), opt
   const out = new Map();
   words.forEach((x, i) => {
     const score = new Map();
+    const one = x.one;
     for (const k of [...x.keys].sort()) {
       const l = post.get(k);
       if (l.length < opt.minDf || l.length > opt.maxDf) continue;
       const wgt = 1 / Math.log2(1 + l.length);
-      for (const j of l) if (j !== i) score.set(j, (score.get(j) ?? 0) + wgt);
+      for (const j of l) if (j !== i && (one || !words[j].one)) score.set(j, (score.get(j) ?? 0) + wgt);
     }
     if (!score.size) return;
     // rounded, so sums of the same weights in another order still tie
-    const ranked = [...score].map(([j, s]) => ({ j, s: Math.round(s * 1e9) }));
+    const ranked = [...score].map(([j, s]) => ({ j, s: Math.round(s * (1 + opt.freqWeight * Math.log2(1 + words[j].n)) * 1e9) }));
     ranked.sort((a, b) => b.s - a.s || words[b.j].n - words[a.j].n || cmpCp(words[a.j].w, words[b.j].w));
     out.set(x.w, ranked.slice(0, opt.perWord).map((r) => words[r.j].w));
   });

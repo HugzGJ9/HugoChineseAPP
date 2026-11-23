@@ -395,12 +395,35 @@ describe('buildSimilar', () => {
     expect(buildSimilar({ cedict: ced, freq: all(ced) }).get('东西')).toEqual(['协助', '帮助', '帮忙', '援助']);
   });
   it('French meanings count too, words sharing both rank first, a rarer meaning weighs more; perWord cuts the list', () => {
-    const ced = [e('朋友', 'peng2 you5', 'friend'), e('友人', 'you3 ren2', 'friend'), e('友', 'you3', 'friend'), e('伙伴', 'huo3 ban4', 'partner')];
+    const ced = [e('朋友', 'peng2 you5', 'friend'), e('友人', 'you3 ren2', 'friend'), e('好友', 'hao3 you3', 'friend'), e('伙伴', 'huo3 ban4', 'partner')];
     const cf = new Map([['朋友', [['peng2 you5', 'ami/copain']]], ['伙伴', [['huo3 ban4', 'compagnon/copain']]], ['友人', [['you3 ren2', 'ami']]]]);
-    const out = buildSimilar({ cedict: ced, cfdict: cf, freq: new Map([['友', 1]]) });
-    // 友人: friend + ami; 伙伴: copain (df 2, weight 0.63); 友: friend (df 3, weight 0.5)
-    expect(out.get('朋友')).toEqual(['友人', '伙伴', '友']);
-    expect(buildSimilar({ cedict: ced, cfdict: cf, freq: new Map([['友', 1]]), options: { perWord: 1 } }).get('朋友')).toEqual(['友人']);
+    const out = buildSimilar({ cedict: ced, cfdict: cf, freq: new Map([['好友', 1]]) });
+    // 友人: friend + ami; 伙伴: copain (df 2, weight 0.63); 好友: friend (df 3, weight 0.5, +3 % for its sentence)
+    expect(out.get('朋友')).toEqual(['友人', '伙伴', '好友']);
+    expect(buildSimilar({ cedict: ced, cfdict: cf, freq: new Map([['好友', 1]]), options: { perWord: 1 } }).get('朋友')).toEqual(['友人']);
+  });
+  it('a word of 2+ characters gets no single-character candidates; a single character keeps them', () => {
+    const ced = [e('朋友', 'peng2 you5', 'friend'), e('友人', 'you3 ren2', 'friend'), e('友', 'you3', 'friend'), e('朋', 'peng2', 'friend')];
+    const out = buildSimilar({ cedict: ced, freq: all(ced) });
+    expect(out.get('朋友')).toEqual(['友人']);
+    expect(out.get('友人')).toEqual(['朋友']);
+    // same score and count: code point order (友 U+53CB < 朋 U+670B; 朋 before 朋友)
+    expect(out.get('友')).toEqual(['友人', '朋', '朋友']);
+    expect(out.get('朋')).toEqual(['友', '友人', '朋友']);
+  });
+  it('near-ties go to the more frequent word; a word sharing more meanings stays first', () => {
+    const ced = [
+      e('开始', 'kai1 shi3', 'to begin', 'to start', 'to commence'),
+      e('起始', 'qi3 shi3', 'to begin', 'to commence'), // begin (df 2) + commence (df 3)
+      e('开端', 'kai1 duan1', 'to commence'), // df 3: 0.5
+      e('开头', 'kai1 tou2', 'to start'), // df 4: 0.43, but in 200 sentences
+      e('动手', 'dong4 shou3', 'to start'),
+      e('着手', 'zhuo2 shou3', 'to start'),
+    ];
+    const freq = new Map([...all(ced), ['开头', 200]]);
+    expect(buildSimilar({ cedict: ced, freq }).get('开始')).toEqual(['起始', '开头', '开端', '动手']);
+    // without the bonus, only exact ties go by count
+    expect(buildSimilar({ cedict: ced, freq, options: { freqWeight: 0 } }).get('开始')).toEqual(['起始', '开端', '开头', '动手']);
   });
   it('ties go by Tatoeba count, then code point; the output is deterministic', () => {
     const ced = [e('甲', 'jia3', 'first'), e('乙', 'yi3', 'first'), e('丙', 'bing3', 'first'), e('丁', 'ding1', 'first')];
@@ -510,6 +533,9 @@ describe('build-lexicon.mjs', () => {
       const n = (w) => JSON.parse(c[`${shardName(charShardOf(w))}.json`]).n[w];
       expect(n('朋友')).toEqual(['友人']);
       expect(n('帮助')).toEqual(['帮忙', '协助']);
+      // 学习 doesn't get 学 (a single character); 学 gets 学习
+      expect(n('学习')).toBeUndefined();
+      expect(n('学')).toEqual(['学习']);
       expect(JSON.parse(c['index.json']).similar).toBeGreaterThan(0);
     } finally {
       rmSync(a, { recursive: true, force: true });
