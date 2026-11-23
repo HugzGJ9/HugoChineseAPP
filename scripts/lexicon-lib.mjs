@@ -42,8 +42,8 @@ const LINE = /^(\S+)\s+(\S+)\s+\[([^\]]*)\]\s*\/(.*)\/\s*$/;
 /**
  * CC-CEDICT text → entries { trad: string[], simp, pinyin, senses: string[], cl: string[] } in file order.
  * Pinyin lower case with u: → v; CL senses become measure words; entries with the same simplified form and pinyin are
- * merged; proper nouns (capitalised pinyin) are kept only for words without a common entry; headwords longer than
- * maxWord characters are dropped. Also returns the file date (#! date=…) when there is one.
+ * merged; proper nouns (capitalised pinyin) are kept only for words without a common entry, flagged `proper: true`;
+ * headwords longer than maxWord characters are dropped. Also returns the file date (#! date=…) when there is one.
  */
 export function parseCedict(text, { maxWord = DEFAULTS.maxWord } = {}) {
   const bySimp = new Map();
@@ -84,7 +84,11 @@ export function parseCedict(text, { maxWord = DEFAULTS.maxWord } = {}) {
   const entries = [];
   for (const list of bySimp.values()) {
     const common = list.filter((e) => !e.proper);
-    for (const e of common.length ? common : list) entries.push({ trad: e.trad, simp: e.simp, pinyin: e.pinyin, senses: e.senses, cl: e.cl });
+    for (const e of common.length ? common : list) {
+      const out = { trad: e.trad, simp: e.simp, pinyin: e.pinyin, senses: e.senses, cl: e.cl };
+      if (e.proper) out.proper = true;
+      entries.push(out);
+    }
   }
   return { entries, date };
 }
@@ -297,7 +301,11 @@ export function buildShards({ cedict, cfdict = new Map(), sentences = [], segmen
 
 export const CHAR_SHARDS = 64;
 export const charShardOf = (key) => fnv1a(key) % CHAR_SHARDS;
-export const CHAR_DEFAULTS = { perChar: 24 };
+/**
+ * perChar: words kept per character. properMin: Tatoeba count from which a proper-noun-only word (every CEDICT reading
+ * capitalised: 中文, 汤博乐 Tumblr) is listed anyway; Infinity = never.
+ */
+export const CHAR_DEFAULTS = { perChar: 24, properMin: 10 };
 
 /** Code-point order (JS string < compares UTF-16 units, which differs for characters outside the BMP). */
 const cmpCp = (a, b) => {
@@ -358,6 +366,9 @@ const ALL_HAN = /^\p{Script=Han}+$/u;
 
 /**
  * Build public/dict/c: for each character, the common words containing it, best first (D9).
+ * A listed word needs a CC-CEDICT entry (CFDICT alone is mostly phrases: 很好, 学生们) that is not only a proper noun,
+ * a name or a variant; CFDICT only adds the French gloss and the ranking bonus. Its reading is the usable CEDICT
+ * reading with the most real senses, ties in file order (好处 hao3 chu5 "benefit", not hao3 chu4).
  * cedict: parseCedict(...).entries; cfdict: parseCfdictTsv(...); freq: buildShards(...).freq (sentences per word);
  * similar (B3, optional): Map<word, string[]> written as `n` in the word's shard.
  * Returns { files: Map<'00.json'…'3f.json', string>, index, stats: { chars, words, bytes, biggest } }, deterministic bytes.
@@ -370,29 +381,26 @@ export function buildCharIndex({ cedict, cfdict = new Map(), freq = new Map(), s
     if (!l) ced.set(e.simp, (l = []));
     l.push(e);
   }
-  const words = new Set([...ced.keys(), ...cfdict.keys()]);
-  const common = []; // { w, n, cf, row }
-  for (const w of words) {
+  const realSenses = (senses) => sensesOf(senses).filter((x) => !isName(x) && !isRef(x)).length;
+  const common = []; // { w, n, cf, len, row }
+  for (const [w, ce] of ced) {
     const cps = [...w];
     if (cps.length < 2 || !ALL_HAN.test(w)) continue;
     const n = freq.get(w) ?? 0;
     const cf = cfdict.get(w) ?? [];
     if (n < 1 && !cf.length) continue;
-    const ce = ced.get(w) ?? [];
-    let row;
-    if (ce.length) {
-      const e = ce.find((x) => !isNameOrVariant(x.senses));
-      if (!e) continue;
-      const en = shortGloss(e.senses);
-      const f = cf.find((x) => x[0] === e.pinyin && !isNameOrVariant(x[1])) ?? cf.find((x) => !isNameOrVariant(x[1]));
-      const fr = f ? shortGloss(f[1]) : '';
-      row = fr ? [w, e.pinyin, en, fr] : [w, e.pinyin, en];
-    } else {
-      const f = cf.find((x) => !isNameOrVariant(x[1]));
-      if (!f) continue;
-      row = [w, f[0], '', shortGloss(f[1])];
+    if (ce.every((x) => x.proper) && !(n >= opt.properMin)) continue;
+    let e;
+    let best = 0;
+    for (const x of ce) {
+      const k = realSenses(x.senses);
+      if (k > best) [e, best] = [x, k];
     }
-    common.push({ w, n, cf: cf.length > 0, len: cps.length, row });
+    if (!e) continue;
+    const en = shortGloss(e.senses);
+    const f = cf.find((x) => x[0] === e.pinyin && !isNameOrVariant(x[1])) ?? cf.find((x) => !isNameOrVariant(x[1]));
+    const fr = f ? shortGloss(f[1]) : '';
+    common.push({ w, n, cf: cf.length > 0, len: cps.length, row: fr ? [w, e.pinyin, en, fr] : [w, e.pinyin, en] });
   }
   common.sort((a, b) => b.n - a.n || (b.cf ? 1 : 0) - (a.cf ? 1 : 0) || a.len - b.len || cmpCp(a.w, b.w));
 

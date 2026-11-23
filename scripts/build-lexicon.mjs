@@ -300,7 +300,7 @@ console.log(
     `${mb(chars.stats.bytes)} raw / ${mb(cgz)} gzipped, biggest shard ${mb(chars.stats.biggest)}`,
 );
 // sample rows, to check the ranking in the CI log
-for (const ch of ['学', '汤', '好']) {
+for (const ch of ['学', '汤', '好', '中', '汉', '英', '东']) {
   const shard = JSON.parse(chars.files.get(`${shardName(charShardOf(ch))}.json`));
   const row = (shard.c[ch] ?? []).map((r) => `${r[0]} ${r[2] || r[3] || ''}`.trim());
   console.log(`Lexicon: ${ch} → ${row.length ? row.join(' · ') : '(no row)'}`);

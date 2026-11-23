@@ -68,6 +68,8 @@ describe('parseCedict', () => {
     expect(by('张').map((e) => e.senses)).toEqual([['to open']]);
     expect(by('北京')).toHaveLength(1);
     expect(by('北京')[0].pinyin).toBe('bei3 jing1');
+    expect(by('北京')[0].proper).toBe(true);
+    expect(by('张')[0].proper).toBeUndefined();
   });
   it('merges the same simplified form and pinyin', () => {
     expect(by('干')).toEqual([
@@ -248,9 +250,43 @@ describe('buildCharIndex', () => {
     expect(rowsOf(out, '学')[0]).toEqual(['学生', 'xue2 sheng5', 'student']);
     expect(rowsOf(out, '学')[1]).toEqual(['学习', 'xue2 xi2', 'to study', 'étudier']);
   });
-  it('a CFDICT-only word has an empty English meaning', () => {
-    const out = buildCharIndex({ cedict: [], cfdict: new Map([['汉堡', [['han4 bao3', 'hamburger']]]]), built: '2026-11-23' });
-    expect(rowsOf(out, '汉')).toEqual([['汉堡', 'han4 bao3', '', 'hamburger']]);
+  it('needs a CC-CEDICT entry: CFDICT-only words (mostly phrases) are left out, CFDICT still gives the French', () => {
+    const cf = new Map([['很好', [['hen3 hao3', 'très bien']]], ['好人', [['hao3 ren2', 'brave homme']]]]);
+    const out = buildCharIndex({ cedict: [e('好人', 'hao3 ren2', 'good person')], cfdict: cf, freq: new Map([['很好', 9]]), built: '2026-11-23' });
+    expect(rowsOf(out, '好')).toEqual([['好人', 'hao3 ren2', 'good person', 'brave homme']]);
+    expect(rowsOf(out, '很')).toBeUndefined();
+  });
+  it('leaves out proper nouns (every CEDICT reading capitalised), unless properMin lets frequent ones in', () => {
+    const p = (simp, pinyin, ...senses) => ({ ...e(simp, pinyin, ...senses), proper: true });
+    const ced = [p('汤博乐', 'Tang1 bo2 le4', 'Tumblr (microblogging platform)'), p('中文', 'Zhong1 wen2', 'Chinese language'), e('鸡汤', 'ji1 tang1', 'chicken soup')];
+    const freq = new Map([['汤博乐', 1], ['中文', 40], ['鸡汤', 1]]);
+    // Default (properMin 10): frequent proper nouns such as 中文 stay, rare ones such as Tumblr go.
+    const def = buildCharIndex({ cedict: ced, freq, built: '2026-11-23' });
+    expect(rowsOf(def, '汤').map((r) => r[0])).toEqual(['鸡汤']);
+    expect(rowsOf(def, '中').map((r) => r[0])).toEqual(['中文']);
+    const never = buildCharIndex({ cedict: ced, freq, built: '2026-11-23', options: { properMin: Infinity } });
+    expect(rowsOf(never, '中')).toBeUndefined();
+    expect(rowsOf(never, '汤').map((r) => r[0])).toEqual(['鸡汤']);
+  });
+  it('takes the reading with the most real senses, ties in file order, and glosses from it', () => {
+    const ced = [
+      e('好处', 'hao3 chu4', 'easy to get along with'),
+      e('好处', 'hao3 chu5', 'benefit', 'advantage', 'merit'),
+      e('东西', 'dong1 xi1', 'east and west'),
+      e('东西', 'dong1 xi5', 'thing', 'stuff', 'person'),
+      e('长大', 'zhang3 da4', 'to grow up'),
+      e('长大', 'chang2 da4', 'long and big'),
+      e('乐子', 'le4 zi5', 'see 快乐[kuai4 le4]', 'old variant of 乐子', 'variant of 乐子'),
+      e('乐子', 'le4 zi5', 'fun'),
+    ];
+    const cf = new Map([['好处', [['hao3 chu4', 'facile à vivre'], ['hao3 chu5', 'avantage']]]]);
+    const freq = new Map(ced.map((x) => [x.simp, 1]));
+    const out = buildCharIndex({ cedict: ced, cfdict: cf, freq, built: '2026-11-23' });
+    expect(rowsOf(out, '处')).toEqual([['好处', 'hao3 chu5', 'benefit', 'avantage']]);
+    expect(rowsOf(out, '东')).toEqual([['东西', 'dong1 xi5', 'thing']]);
+    expect(rowsOf(out, '长')).toEqual([['长大', 'zhang3 da4', 'to grow up']]);
+    // references don't count as senses
+    expect(rowsOf(out, '乐')).toEqual([['乐子', 'le4 zi5', 'fun']]);
   });
   it('leaves out names and variants despite their counts, single characters, and words that are not common', () => {
     const freq = buildShards({ cedict, cfdict, sentences: [
@@ -260,7 +296,10 @@ describe('buildCharIndex', () => {
     expect(freq.get('汤姆')).toBe(2);
     const out = buildCharIndex({ cedict, cfdict, freq, built: '2026-11-23' });
     // 汤姆 (name) is out; 鸡汤 is in through CFDICT; 汤匙 has neither a sentence nor CFDICT; 汤 itself is never listed
+    // 汤博乐 is a proper noun only, despite its CFDICT entry
     expect(rowsOf(out, '汤')).toEqual([['鸡汤', 'ji1 tang1', 'chicken soup', 'bouillon de poulet']]);
+    expect(rowsOf(out, '处')).toEqual([['好处', 'hao3 chu5', 'benefit', 'avantage']]);
+    expect(rowsOf(out, '很')).toBeUndefined();
     expect(rowsOf(out, '姆')).toBeUndefined();
     // 学说 is only a cross-reference (in both dictionaries)
     expect(rowsOf(out, '说')?.map((r) => r[0]) ?? []).not.toContain('学说');

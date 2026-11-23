@@ -8,3 +8,5 @@ For the character index (dict/c): 汤姆 (a name with two sentences, must be lef
 (common through CFDICT only), 汤匙 (no sentence, no CFDICT: not common), 学说 (only a cross-reference in both
 dictionaries), and the single characters 学, 校 [jiao4] and 校 [xiao4] (the e2e opens 学校; the first 校 reading is
 not the one in the word).
+Also for dict/c: 汤博乐 (a proper noun only, capitalised pinyin, with a CFDICT entry: left out), 好处 (two readings:
+the one with more senses, hao3 chu5, is the one listed) and 很好 (CFDICT only, a phrase: left out).
