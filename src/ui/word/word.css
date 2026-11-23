@@ -189,3 +189,20 @@ button.wx-chip:active { background: var(--fill-3); }
 .wx-cw::after { content: ''; position: absolute; inset: -4px -2px; }
 .wx-cw-gloss { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wx-actions { margin-top: 8px; }
+
+/* Don't confuse with / Similar meaning (Confuse.tsx, plan D10-D12): the word, when to use which, then the contrasting pair. */
+.wx-cf-list { display: flex; flex-direction: column; }
+.wx-cf { display: flex; flex-direction: column; gap: 6px; padding-top: 14px; padding-bottom: 14px; }
+.wx-cf-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 10px; }
+.wx-cf-word {
+  min-height: 44px; padding: 0; border: 0; background: none; color: var(--label); cursor: pointer;
+  font-size: var(--fs-title3); font-weight: 600; line-height: 1.2;
+}
+.wx-cf-word:active { color: var(--accent); }
+.wx-cf-py { font-size: var(--fs-subhead); color: var(--label-2); }
+.wx-cf-use { margin: -6px 0 0; font-size: var(--fs-body); line-height: 1.42; color: var(--label); overflow-wrap: anywhere; }
+.wx-vs { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
+.wx-vs-side { display: flex; flex-direction: column; gap: 2px; padding: 8px 4px 8px 12px; border-radius: var(--radius-m); background: var(--fill); box-shadow: inset 3px 0 0 var(--fill-3); min-width: 0; }
+.wx-vs-side.self { box-shadow: inset 3px 0 0 var(--accent); }
+.wx-vs-tag { align-self: flex-start; font-size: var(--fs-footnote); font-weight: 600; color: var(--label-2); line-height: 1.2; }
+.wx-vs-side.self .wx-vs-tag { color: var(--accent); }

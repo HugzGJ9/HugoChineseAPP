@@ -12,6 +12,7 @@ import { formatDate, Icon, Meaning, Pinyin } from '../common';
 import { WordNavHost, useWordNav } from './nav';
 import { PinyinChip, ZhBlock } from './ZhLine';
 import { CharactersSection } from './Characters';
+import { ConfuseSection, SimilarSection } from './Confuse';
 import './word.css';
 
 const FIRST = 6;
@@ -104,10 +105,11 @@ function ExplainBody({ note, inline, mine, reading }: { note: Note; inline: bool
         </section>
       )}
       <DictionarySection lookup={lookup} lang={lang} />
-      {mine && <ClaudeSection note={note} lang={lang} online={online} lookup={lookup} head={head} pattern={pattern} />}
+      {mine && <ClaudeSection note={note} lang={lang} online={online} lookup={lookup} head={head} pattern={pattern} similar={!grammar} />}
       {!grammar && lookup && (
         <CharactersSection word={note.hanzi} reading={reading || note.pinyinNum || (lookup.ok ? lookup.info.en[0]?.pinyinNum : undefined)} excludeId={mine ? note.id : undefined} />
       )}
+      {!mine && !grammar && lookup && <SimilarSection word={note.hanzi} mine={false} />}
       <ExamplesSection lookup={lookup} lang={lang} head={head} pattern={pattern} />
     </div>
   );
@@ -212,7 +214,7 @@ function DictBody({ info, lang, all, onAll }: { info: { en: DictSense[]; fr: Dic
 
 /* ---- Claude ---- */
 
-function ClaudeSection({ note, lang, online, lookup, head, pattern }: { note: Note; lang: Lang; online: boolean; lookup: Lookup | null; head?: string[]; pattern?: string }) {
+function ClaudeSection({ note, lang, online, lookup, head, pattern, similar }: { note: Note; lang: Lang; online: boolean; lookup: Lookup | null; head?: string[]; pattern?: string; similar: boolean }) {
   const other: Lang = lang === 'en' ? 'fr' : 'en';
   const [tick, setTick] = useState(0);
   const [entry, setEntry] = useState<ExplainEntry | null>(null);
@@ -260,9 +262,10 @@ function ClaudeSection({ note, lang, online, lookup, head, pattern }: { note: No
 
   const shown = entry ?? fallback;
   const dev = shown ? (shown as ExplainEntry & { dev?: string }).dev : undefined;
-  const progress = job ? Math.min(0.95, job.chars / 4500) : 0;
+  const progress = job ? Math.min(0.95, job.chars / 6500) : 0;
 
   return (
+    <>
     <section className="wx-sec" aria-label="Claude's explanation">
       <h3 className="wx-h">Claude's explanation</h3>
       {shown && (
@@ -319,12 +322,14 @@ function ClaudeSection({ note, lang, online, lookup, head, pattern }: { note: No
         </div>
       )}
     </section>
+    {shown && head && head.length > 0 && <ConfuseSection x={shown.x} head={head} onAskAgain={() => void ask(true)} online={online} />}
+    {!shown && similar && <SimilarSection word={note.hanzi} mine />}
+    </>
   );
 }
 
 function ExplanationBody({ x, lang, head, pattern }: { x: Explanation; lang: Lang; head?: string[]; pattern?: string }) {
   const t = lang;
-  const nav = useWordNav();
   return (
     <div className="wx-claude" lang={t}>
       <p className="wx-summary">{x.summary}</p>
@@ -347,21 +352,6 @@ function ExplanationBody({ x, lang, head, pattern }: { x: Explanation; lang: Lan
         <p>
           <b>Register:</b> {x.register}
         </p>
-      )}
-      {x.nuance.length > 0 && (
-        <>
-          <h4>Close words</h4>
-          <ul className="wx-list">
-            {x.nuance.map((n, i) => (
-              <li key={i}>
-                <button type="button" className="wx-word" onClick={() => nav?.open({ t: 'word', word: n.word })} disabled={!nav}>
-                  <span className="zh" lang="zh-CN">{n.word}</span> <span className="muted">{n.pinyin}</span>
-                </button>
-                <div>{n.diff}</div>
-              </li>
-            ))}
-          </ul>
-        </>
       )}
       {x.collocations.length > 0 && (
         <>

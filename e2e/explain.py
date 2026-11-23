@@ -28,7 +28,13 @@ EXPLANATION = {
     'summary': 'A person you know and like, someone who is not family. Mock answer for tests.',
     'senses': [{'meaning': 'friend', 'pos': 'noun'}],
     'register': 'Neutral, used in speech and writing.',
-    'nuance': [],
+    'nuance': [{'word': '友人', 'pinyin': 'yǒurén', 'diff': 'Literary.'}, {'word': '同学', 'pinyin': 'tóngxué', 'diff': 'A schoolmate.'}],
+    'confuse': [
+        {'word': '友人', 'pinyin': 'yǒurén', 'use': 'Literary and formal; 朋友 is what you say in daily speech.',
+         'self': ex('他是我的朋友。', 'tā shì wǒ de péngyou.', 'He is my friend.'), 'other': ex('他是我的友人。', 'tā shì wǒ de yǒurén.', 'He is my friend (formal).')},
+        {'word': '同学', 'pinyin': 'tóngxué', 'use': 'Someone you study with; a friend does not have to be a classmate.',
+         'self': ex('我和朋友去学校。', 'wǒ hé péngyou qù xuéxiào.', 'I go to school with a friend.'), 'other': ex('我和同学去学校。', '', 'I go to school with a classmate.')},
+    ],
     'collocations': [ex('朋友圈', '', 'circle of friends'), ex('好朋友', 'hǎo péngyou', 'good friend'), ex('交朋友', 'jiāo péngyou', 'make friends'), ex('老朋友', 'lǎo péngyou', 'old friend')],
     'patterns': [],
     'mistakes': [],
@@ -55,6 +61,10 @@ def sse(obj):
     out += ev('message_stop', {'type': 'message_stop'})
     return out
 
+
+# An answer like the ones saved before prompt v2: close words only, no `confuse`.
+OLD_EXPLANATION = {k: v for k, v in EXPLANATION.items() if k != 'confuse'}
+OLD_EXPLANATION['nuance'] = [{'word': '学生', 'pinyin': 'xuésheng', 'diff': 'A student, not a teacher.'}]
 
 CORS = {'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET, POST, OPTIONS'}
 
@@ -222,7 +232,7 @@ async def run(p, label, device):
             return await route.fulfill(status=200, headers={**CORS, 'content-type': 'application/json'}, body=json.dumps({'data': [{'id': MODEL}]}))
         if req.url.split('?')[0].endswith('/v1/messages'):
             calls['messages'].append({'headers': req.headers, 'body': json.loads(req.post_data or '{}')})
-            return await route.fulfill(status=200, headers={**CORS, 'content-type': 'text/event-stream'}, body=sse(EXPLANATION))
+            return await route.fulfill(status=200, headers={**CORS, 'content-type': 'text/event-stream'}, body=sse(OLD_EXPLANATION if '老师' in json.dumps(calls['messages'][-1]['body'], ensure_ascii=False) else EXPLANATION))
         calls['other'].append(req.url)
         return await route.fulfill(status=404, headers=CORS, body='{}')
 
@@ -257,6 +267,12 @@ async def run(p, label, device):
     vh = await pg.evaluate('innerHeight')
     check(abs(box['y'] + box['height'] - vh) <= 1, f'panel bottom {box["y"] + box["height"]:.0f} equals viewport bottom {vh}')
     check(await pg.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'no horizontal scroll with the panel open')
+
+    # Before Explain more, a word with a dictionary neighbour shows "Similar meaning" (友人 in the sample build).
+    sim = d.locator('section[aria-label="Similar meaning"]')
+    await sim.wait_for(timeout=10000)
+    check(await sim.locator('.wx-cf').count() >= 1, 'before Explain more: Similar meaning has at least 1 item')
+    check(await sim.locator('.wx-cf-word', has_text='友人').count() == 1, 'Similar meaning lists 友人')
 
     # No key.
     await d.get_by_role('button', name='Explain more').click()
@@ -299,9 +315,27 @@ async def run(p, label, device):
         check(h.get('anthropic-dangerous-direct-browser-access') == 'true', 'direct browser access header')
         check(body.get('model') == MODEL and body.get('stream') is True, 'model and stream in the body')
         check(FAKE_KEY not in json.dumps(body), 'key is not in the request body')
-    await d.get_by_text('他是我的朋友。').wait_for(timeout=5000)
+    await d.get_by_text('他是我的朋友。').first.wait_for(timeout=5000)
     check(await d.get_by_text('我想交新朋友。').count() >= 1, 'Claude block shows all 5 examples')
     check(calls['other'] == [], 'no other Anthropic URL called')
+
+    # Don't confuse with: when to use which, plus a contrasting pair per item.
+    cf = d.locator('section[aria-label="Don\'t confuse with"]')
+    await cf.wait_for(timeout=5000)
+    check(await d.locator('section[aria-label="Similar meaning"]').count() == 0, 'after Explain more: Similar meaning gives way to Don\'t confuse with')
+    check(await cf.locator('.wx-cf').count() == 2, 'Don\'t confuse with shows 2 items')
+    pairs = cf.locator('.wx-vs-side .zb')
+    check(await pairs.count() == 4, 'each item has a pair (4 lines)')
+    await cf.locator('.wx-vs-side .wx-py').nth(3).wait_for(timeout=8000)
+    texts = [(await cf.locator('.wx-vs-side .zb').nth(i).locator('.wx-py').inner_text()).strip() if await cf.locator('.wx-vs-side .zb').nth(i).locator('.wx-py').count() else '' for i in range(4)]
+    check(all(texts), 'every pair line has a pinyin line (the empty one is computed)')
+    check(await cf.locator('.wx-foot').count() == 0, 'a v2 answer has no "older explanation" footer')
+    await cf.locator('.wx-cf-word', has_text='友人').click()
+    d = pg.locator('.pp-panel')
+    await d.locator('.pp-back').wait_for(timeout=5000)
+    check(await d.locator('.wl').count() == 2, 'tapping an item\'s word opens a nested level')
+    await d.locator('.pp-back').click()
+    check(await pg.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'no horizontal scroll with Don\'t confuse with')
 
     # Reopen: cached, no new request.
     await pg.keyboard.press('Escape')
@@ -330,6 +364,19 @@ async def run(p, label, device):
     check(True, 'offline: explanation and dictionary still show')
     check(len(calls['messages']) == 1, 'offline: no new request')
     await ctx.set_offline(False)
+
+    # An answer without `confuse` (as saved before v2): items without pairs, and Ask again.
+    await pg.keyboard.press('Escape') if not device else await d.get_by_role('button', name='Close').click()
+    await pg.locator('.pp-panel').wait_for(state='detached')
+    await pg.goto(U + '#/sheets')
+    await pg.get_by_role('tab', name='HSK五级').click()
+    await pg.get_by_text('老师', exact=True).first.click()
+    d = pg.locator('.pp-panel')
+    await d.get_by_role('button', name='Explain more').click()
+    cf = d.locator('section[aria-label="Don\'t confuse with"]')
+    await cf.wait_for(timeout=10000)
+    check(await cf.locator('.wx-cf').count() == 1 and await cf.locator('.wx-vs').count() == 0, 'old answer: its close words show, without pairs')
+    check(await cf.get_by_role('button', name='Ask again for example pairs').count() == 1, 'old answer: "Ask again for example pairs"')
     await b.close()
 
 
