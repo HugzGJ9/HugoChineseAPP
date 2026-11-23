@@ -10,3 +10,5 @@ dictionaries), and the single characters 学, 校 [jiao4] and 校 [xiao4] (the e
 not the one in the word).
 Also for dict/c: 汤博乐 (a proper noun only, capitalised pinyin, with a CFDICT entry: left out), 好处 (two readings:
 the one with more senses, hao3 chu5, is the one listed) and 很好 (CFDICT only, a phrase: left out).
+For similar meanings (dict/c `n`): 帮助 /to help/to assist/, 帮忙 /to help/ and 协助 /to assist/ (帮助 → 帮忙, 协助),
+and 友人 /friend/ with a CFDICT line, so 朋友 has one similar word (友人); the e2e uses it.

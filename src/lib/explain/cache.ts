@@ -173,7 +173,10 @@ async function saveOwn(entry: StoredEntry): Promise<void> {
 
 /**
  * Take in the entries of another device's file: per key, the newest `at` wins (on a tie, the larger device id).
- * Nothing is ever deleted. Returns whether anything changed.
+ * An entry with the same `at` from the same device replaces the saved one when it differs: that device's file is
+ * authoritative, so an entry an older app version saved without the newer fields (e.g. `confuse`) heals the next time
+ * the file changes (word-panel-v2 D10). This device's own entries are never replaced that way. Nothing is ever
+ * deleted. Returns whether anything changed.
  */
 export async function mergeExplanations(device: string, month: string, entries: ExplainEntry[]): Promise<boolean> {
   if (!entries.length) return false;
@@ -183,8 +186,9 @@ export async function mergeExplanations(device: string, month: string, entries: 
     const taken = new Map<string, StoredEntry>();
     entries.forEach((e, i) => {
       const cur = taken.get(e.k) ?? (rows[i]?.v as StoredEntry | undefined);
-      if (cur && (cur.at > e.at || (cur.at === e.at && cur.dev >= device))) return;
+      if (cur && (cur.at > e.at || (cur.at === e.at && (cur.dev > device || (cur.dev === device && cur.own))))) return;
       const v: StoredEntry = { ...toEntry(e as StoredEntry), dev: device, mo: month };
+      if (cur && cur.at === e.at && cur.dev === device && JSON.stringify(cur) === JSON.stringify(v)) return;
       taken.set(e.k, v);
       put.push({ k: rowKey(e.k), v });
     });

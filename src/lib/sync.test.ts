@@ -921,6 +921,8 @@ describe('explanations', () => {
   const X = (summary: string) => ({ summary, senses: [{ meaning: 'm' }], register: 'neutral', nuance: [], collocations: [], patterns: [], mistakes: [], examples: ex5 });
   let claudeCalls = 0;
   let nextSummary = 'first';
+  /** A whole tool input instead of X(nextSummary), e.g. a prompt v2 answer. */
+  let nextAnswer: unknown = null;
 
   /** Anthropic's streamed answer with a forced tool call. */
   function sse(input: unknown): Response {
@@ -936,12 +938,13 @@ describe('explanations', () => {
 
   beforeEach(() => {
     claudeCalls = 0;
+    nextAnswer = null;
     vi.stubGlobal('fetch', async (input: string | URL, init: RequestInit = {}) => {
       const url = new URL(String(input));
       if (url.host === 'api.anthropic.com') {
         expect((init.headers as Record<string, string>)['x-api-key']).toBe(KEY);
         claudeCalls++;
-        return sse(X(nextSummary));
+        return sse(nextAnswer ?? X(nextSummary));
       }
       expect(url.host).toBe('api.github.com');
       expect(JSON.stringify(init.body ?? '')).not.toContain('sk-ant');
@@ -981,7 +984,7 @@ describe('explanations', () => {
     const j = JSON.parse(new TextDecoder().decode(gunzipSync(bytes)));
     expect(j).toMatchObject({ device: pc.id, month: pc.db.monthKey(e.at), v: 1 });
     expect(Object.keys(j.entries[0]).sort()).toEqual(['at', 'hz', 'k', 'lang', 'model', 'pv', 'py', 'u', 'x']);
-    expect(fileOf(pc.sync, path)).toEqual([{ k: `${word.id}|fr`, hz: word.hanzi, py: word.pinyin, lang: 'fr', at: e.at, model: 'claude-sonnet-5-5', pv: 1, u: [1600, 1500], x: e.x }]);
+    expect(fileOf(pc.sync, path)).toEqual([{ k: `${word.id}|fr`, hz: word.hanzi, py: word.pinyin, lang: 'fr', at: e.at, model: 'claude-sonnet-5-5', pv: 2, u: [1600, 1500], x: e.x }]);
     expect(new TextDecoder().decode(gunzipSync(bytes))).not.toContain('sk-ant');
     expect(await pc.explain.dirtyExplainMonths()).toEqual({});
     // Reviews, marks, settings and the word list are untouched.
@@ -1074,6 +1077,70 @@ describe('explanations', () => {
     expect(JSON.parse(gh.text(`marks/${pc.id}/2026-11.json`)).marks.map((r: unknown[]) => r[0])).toEqual([own.id]);
     expect(pc.sync.decodeExplain(pc.sync.encodeExplain('a', '2026-11', []))).toEqual([]);
     expect(() => pc.sync.decodeExplain(gz({ v: 1 }))).toThrow(/no explanation list/);
+  });
+
+  it('prompt v2: `confuse` round-trips, the file stays v1, and an older version still finds a summary, examples and close words', async () => {
+    const pc = await device();
+    await pc.store.setVocab(vocab(3, T0));
+    await pc.sync.linkRepo(LINK);
+    const phone = await device();
+    await phone.sync.linkRepo(LINK);
+    const word = pc.store.getState().notes[0];
+    await pc.explain.setClaudeKey(KEY);
+    const pair = (zh: string) => ({ zh, pinyin: '', tr: 'tr' });
+    const { nuance: _n, ...v2 } = X('v2 answer');
+    nextAnswer = {
+      ...v2,
+      confuse: [
+        { word: '读书', pinyin: 'dú shū', use: 'School study.', self: pair('我在学习中文。'), other: pair('他在大学读书。') },
+        { word: '学会', pinyin: 'xué huì', use: 'To master.', self: pair('我在学习游泳。'), other: pair('我学会了游泳。') },
+      ],
+    };
+    const e = await pc.explain.requestExplanation(word, 'en');
+    expect(e.pv).toBe(2);
+    expect(e.x.confuse).toHaveLength(2);
+    await pc.sync.syncNow();
+    const path = `explain/${pc.id}/${pc.db.monthKey(e.at)}.json.gz`;
+    const raw = JSON.parse(new TextDecoder().decode(gunzipSync(gh.files.get(path)!.bytes)));
+    expect(raw.v).toBe(1);
+    // What an older version reads: its normalizer keeps summary, examples and nuance, and drops confuse.
+    const x = raw.entries[0].x;
+    expect(x.summary).toBe('v2 answer');
+    expect(x.examples.length).toBeGreaterThanOrEqual(3);
+    expect(x.nuance).toEqual([
+      { word: '读书', pinyin: 'dú shū', diff: 'School study.' },
+      { word: '学会', pinyin: 'xué huì', diff: 'To master.' },
+    ]);
+    // Encode → decode keeps confuse with its pairs.
+    expect(pc.sync.decodeExplain(pc.sync.encodeExplain(pc.id, e.mo, [e]))[0].x).toEqual(e.x);
+    await phone.sync.syncNow();
+    expect((await phone.explain.getExplanation(word, 'en'))?.x).toEqual(e.x);
+    expect((await phone.explain.getExplanation(word, 'en'))?.x.confuse?.[1].other?.zh).toBe('我学会了游泳。');
+  });
+
+  it('an entry an older version kept without `confuse` heals when its device file changes', async () => {
+    const pc = await device();
+    await pc.store.setVocab(vocab(3, T0));
+    await pc.sync.linkRepo(LINK);
+    const phone = await device();
+    await phone.sync.linkRepo(LINK);
+    const [w0, w1] = pc.store.getState().notes;
+    await pc.explain.setClaudeKey(KEY);
+    nextAnswer = { ...X('v2'), confuse: [{ word: '读书', pinyin: 'dú shū', use: 'School study.', self: { zh: '我学习。', pinyin: '', tr: '' }, other: { zh: '我读书。', pinyin: '', tr: '' } }] };
+    const e = await pc.explain.requestExplanation(w0, 'en');
+    await pc.sync.syncNow();
+    await phone.sync.syncNow();
+    // What an older phone saved: the same entry without confuse.
+    const { confuse: _c, ...oldX } = e.x;
+    const stored = await phone.explain.getExplanation(w0, 'en');
+    await phone.db.kvSet(`ex:${e.k}`, { ...stored!, x: oldX });
+    expect((await phone.explain.getExplanation(w0, 'en'))?.x.confuse).toBeUndefined();
+    // The computer's month file changes (another word explained): the phone takes the entry again, with confuse.
+    nextAnswer = null;
+    await pc.explain.requestExplanation(w1, 'en');
+    await pc.sync.syncNow();
+    await phone.sync.syncNow();
+    expect((await phone.explain.getExplanation(w0, 'en'))?.x).toEqual(e.x);
   });
 
   it('linking sees an id used only by explanation files', async () => {

@@ -192,7 +192,8 @@ export async function callClaude(
   };
   const body = {
     model: EXPLAIN_MODEL,
-    max_tokens: 4096,
+    // Prompt v2 answers are about 1,000 tokens longer (confuse with example pairs).
+    max_tokens: 8192,
     stream: true,
     system: [{ type: 'text', text: system, cache_control: { type: 'ephemeral' } }],
     tools: [TOOL],

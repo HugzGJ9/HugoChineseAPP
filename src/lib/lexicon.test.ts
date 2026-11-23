@@ -15,6 +15,7 @@ import {
   prefetchLexicon,
   resetLexicon,
   sensesText,
+  similarWords,
   type CharShardFile,
   type ShardFile,
   overlayKnown,
@@ -38,11 +39,21 @@ const CHARS: CharShardFile['c'] = {
   学: [['学生', 'xue2 sheng5', 'student', 'étudiant'], ['学习', 'xue2 xi2', 'to study'], ['汉堡', 'han4 bao3', '', 'hamburger']],
   校: [],
 };
-const C_INDEX = { v: 1, shards: 64, built: '2026-11-23', chars: 2, words: 3, bytes: 1 };
+// Synthetic similar-meaning rows (B3); 学校's row is malformed on purpose.
+const SIMILAR: Record<string, unknown> = {
+  帮助: ['帮忙', '协助'],
+  学校: ['校', 7, '', '学校', '校', 'A B'],
+  朋友: [],
+};
+const C_INDEX = { v: 1, shards: 64, built: '2026-11-23', chars: 2, words: 3, bytes: 1, similar: 2 };
+let withN = true;
 function charShardFile(n: number): CharShardFile {
   const c: CharShardFile['c'] = {};
   for (const [k, v] of Object.entries(CHARS)) if (charShard(k) === n) c[k] = v;
-  return { v: 1, c };
+  if (!withN) return { v: 1, c };
+  const nn: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(SIMILAR)) if (charShard(k) === n) nn[k] = v;
+  return { v: 1, c, n: nn as CharShardFile['n'] };
 }
 
 function shard(n: number): ShardFile {
@@ -75,6 +86,7 @@ function serve(opts: { index?: boolean; shards?: boolean; chars?: boolean } = {}
 beforeEach(() => {
   resetLexicon();
   urls = [];
+  withN = true;
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -239,6 +251,38 @@ describe('charWords', () => {
     await charWords('学');
     await charWords('学');
     expect(f).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('similarWords', () => {
+  it('reads the word\'s row from its own c shard', async () => {
+    serve();
+    expect(await similarWords('帮助')).toEqual({ ok: true, words: ['帮忙', '协助'] });
+    const hex = charShard('帮助').toString(16).padStart(2, '0');
+    expect(urls).toEqual([`${import.meta.env.BASE_URL}dict/c/${hex}.json`]);
+  });
+  it('gives [] when there is no row, an empty row, or a shard built before `n`', async () => {
+    serve();
+    expect(await similarWords('朋友')).toEqual({ ok: true, words: [] });
+    expect(await similarWords('飞机')).toEqual({ ok: true, words: [] });
+    urls = [];
+    expect(await similarWords('A + B')).toEqual({ ok: true, words: [] });
+    expect(await similarWords('一二三四五六七八九')).toEqual({ ok: true, words: [] });
+    expect(urls).toEqual([]);
+    resetLexicon();
+    withN = false;
+    expect(await similarWords('帮助')).toEqual({ ok: true, words: [] });
+  });
+  it('drops malformed items, the word itself and repeats', async () => {
+    serve();
+    expect(await similarWords(' 学校 ')).toEqual({ ok: true, words: ['校'] });
+  });
+  it('nodata without the c index; offline without a cached shard', async () => {
+    serve({ chars: false });
+    expect(await similarWords('帮助')).toEqual({ ok: false, reason: 'nodata' });
+    resetLexicon();
+    vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new TypeError('offline'))));
+    expect(await similarWords('帮助')).toEqual({ ok: false, reason: 'offline' });
   });
 });
 
