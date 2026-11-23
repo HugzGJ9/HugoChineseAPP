@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
+  CHAR_SHARDS,
   LEXICON_SHARDS,
+  charGloss,
+  charShard,
+  charWords,
   examplePinyin,
   formatSense,
   lexiconCached,
@@ -11,6 +15,7 @@ import {
   prefetchLexicon,
   resetLexicon,
   sensesText,
+  type CharShardFile,
   type ShardFile,
   overlayKnown,
 } from './lexicon';
@@ -28,6 +33,17 @@ const SENTENCES: ShardFile['s'] = [
   [12, '他是好人。', 'He is a good person.', ''],
 ];
 const INDEX = { v: 1, shards: 128, built: '2026-11-07', words: 5, sentences: 2, bytes: 1, sources: [] };
+// Synthetic character rows.
+const CHARS: CharShardFile['c'] = {
+  学: [['学生', 'xue2 sheng5', 'student', 'étudiant'], ['学习', 'xue2 xi2', 'to study'], ['汉堡', 'han4 bao3', '', 'hamburger']],
+  校: [],
+};
+const C_INDEX = { v: 1, shards: 64, built: '2026-11-23', chars: 2, words: 3, bytes: 1 };
+function charShardFile(n: number): CharShardFile {
+  const c: CharShardFile['c'] = {};
+  for (const [k, v] of Object.entries(CHARS)) if (charShard(k) === n) c[k] = v;
+  return { v: 1, c };
+}
 
 function shard(n: number): ShardFile {
   const w: ShardFile['w'] = {};
@@ -39,13 +55,17 @@ const json = (d: unknown) => new Response(JSON.stringify(d), { status: 200, head
 const notFound = () => new Response('not found', { status: 404 });
 let urls: string[] = [];
 
-function serve(opts: { index?: boolean; shards?: boolean } = {}) {
+function serve(opts: { index?: boolean; shards?: boolean; chars?: boolean } = {}) {
   const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
     const url = String(input);
     urls.push(url);
     if (url.endsWith('/dict/w/index.json')) return opts.index === false ? notFound() : json(INDEX);
     const m = /\/dict\/w\/([0-9a-f]{2})\.json$/.exec(url);
     if (m && opts.shards !== false) return json(shard(parseInt(m[1], 16)));
+    if (opts.chars === false) return notFound();
+    if (url.endsWith('/dict/c/index.json')) return json(C_INDEX);
+    const c = /\/dict\/c\/([0-9a-f]{2})\.json$/.exec(url);
+    if (c) return json(charShardFile(parseInt(c[1], 16)));
     return notFound();
   });
   vi.stubGlobal('fetch', fetchMock);
@@ -140,15 +160,27 @@ describe('lexiconMeta and prefetch', () => {
     };
     vi.stubGlobal('caches', { open: async () => cache });
     serve();
-    expect(await lexiconCached()).toEqual({ cached: 0, total: 128 });
+    const total = LEXICON_SHARDS + CHAR_SHARDS; // 192
+    expect(await lexiconCached()).toEqual({ cached: 0, total });
     const progress: number[] = [];
     expect(await prefetchLexicon((d) => progress.push(d), { batch: 8, pause: async () => {} })).toBe(0);
-    expect(progress.at(-1)).toBe(128);
-    expect(await lexiconCached()).toEqual({ cached: 128, total: 128 });
-    expect(store.size).toBe(129); // + index.json
+    expect(progress.at(-1)).toBe(total);
+    expect(await lexiconCached()).toEqual({ cached: total, total });
+    expect(store.size).toBe(total + 2); // + both index.json
+    expect([...store.keys()].filter((u) => u.includes('/dict/c/'))).toHaveLength(CHAR_SHARDS + 1);
     urls = [];
     expect(await prefetchLexicon()).toBe(0);
     expect(urls).toEqual([]);
+  });
+  it('without dict/c (an old build kept after a failed rebuild), prefetch and counts cover dict/w only', async () => {
+    const store = new Map<string, Response>();
+    const cache = { match: async (u: string) => store.get(u), put: async (u: string, r: Response) => void store.set(u, r) };
+    vi.stubGlobal('caches', { open: async () => cache });
+    serve({ chars: false });
+    expect(await lexiconCached()).toEqual({ cached: 0, total: 128 });
+    expect(await prefetchLexicon()).toBe(0);
+    expect(store.size).toBe(129);
+    expect(await charWords('学')).toEqual({ ok: false, reason: 'nodata' });
   });
   it('offline: reads a cached shard', async () => {
     const hex = lexiconShard('好').toString(16).padStart(2, '0');
@@ -157,6 +189,69 @@ describe('lexiconMeta and prefetch', () => {
     vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new TypeError('offline'))));
     const r = await lookupWord('好', 'hao3');
     expect(r.ok && r.info.en.length).toBe(2);
+  });
+});
+
+describe('charWords', () => {
+  it('fetches the character\'s own c shard and gives marked pinyin', async () => {
+    serve();
+    const r = await charWords('学');
+    const hex = charShard('学').toString(16).padStart(2, '0');
+    expect(urls).toEqual([`${import.meta.env.BASE_URL}dict/c/${hex}.json`]);
+    expect(r).toEqual({
+      ok: true,
+      words: [
+        { word: '学生', pinyinNum: 'xue2 sheng5', pinyin: 'xuésheng', en: 'student', fr: 'étudiant' },
+        { word: '学习', pinyinNum: 'xue2 xi2', pinyin: 'xuéxí', en: 'to study' },
+        { word: '汉堡', pinyinNum: 'han4 bao3', pinyin: 'hànbǎo', en: '', fr: 'hamburger' },
+      ],
+    });
+  });
+  it('ok with [] for a character without a row, an empty row, or something that is not one Han character', async () => {
+    serve();
+    expect(await charWords('校')).toEqual({ ok: true, words: [] });
+    expect(await charWords('飞')).toEqual({ ok: true, words: [] });
+    urls = [];
+    expect(await charWords('学习')).toEqual({ ok: true, words: [] });
+    expect(await charWords('A')).toEqual({ ok: true, words: [] });
+    expect(urls).toEqual([]);
+  });
+  it('nodata without the c index; offline falls back to the cache, else says offline', async () => {
+    serve({ chars: false });
+    expect(await charWords('学')).toEqual({ ok: false, reason: 'nodata' });
+
+    resetLexicon();
+    vi.stubGlobal('fetch', vi.fn(async () => Promise.reject(new TypeError('offline'))));
+    expect(await charWords('学')).toEqual({ ok: false, reason: 'offline' });
+    const hex = charShard('学').toString(16).padStart(2, '0');
+    vi.stubGlobal('caches', { open: async () => ({ match: async (u: string) => (u.endsWith(`/dict/c/${hex}.json`) ? json(charShardFile(charShard('学'))) : undefined) }) });
+    const r = await charWords('学');
+    expect(r.ok && r.words.map((w) => w.word)).toEqual(['学生', '学习', '汉堡']);
+  });
+  it('a server error is an error, and nothing failed is kept', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('boom', { status: 500 })));
+    expect(await charWords('学')).toEqual({ ok: false, reason: 'error' });
+    serve();
+    expect((await charWords('学')).ok).toBe(true);
+  });
+  it('keeps parsed c shards in memory', async () => {
+    const f = serve();
+    await charWords('学');
+    await charWords('学');
+    expect(f).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('charGloss', () => {
+  it('drops variant, see, surname and radical senses but keeps "used in"; up to 3', () => {
+    expect(charGloss(['surname Le', 'variant of 乐 (lè)', 'happy', 'glad', 'cheerful', 'joyful'])).toBe('happy; glad; cheerful');
+    expect(charGloss(['old variant of 学 (xué)', 'see 学问 (xuéwèn)', 'Kangxi radical 39', 'used in 枇杷 (pípa)'])).toBe('used in 枇杷 (pípa)');
+    expect(charGloss(['to learn', 'school'], 1)).toBe('to learn');
+    expect(charGloss(['nom de famille Le', 'variante de 乐', 'joyeux'])).toBe('joyeux');
+  });
+  it('keeps the senses when nothing else is left', () => {
+    expect(charGloss(['surname Zhang', 'variant of 张 (zhāng)'])).toBe('surname Zhang; variant of 张 (zhāng)');
+    expect(charGloss([])).toBe('');
   });
 });
 

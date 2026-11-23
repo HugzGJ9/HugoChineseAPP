@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Note } from './types';
-import { lineTokens, sentenceTokens, vocabIndex, vocabLinks, type Token } from './sentence';
+import { lineTokens, sentenceTokens, vocabIndex, vocabLinks, vocabWithChar, type Token } from './sentence';
 
 // Generic textbook words only: no personal data in this public repo.
 function note(hanzi: string, en: string, order: number, extra: Partial<Note> = {}): Note {
@@ -49,6 +49,18 @@ describe('vocabLinks', () => {
     expect(vocabLinks('学', index)).toEqual(['v:学习', 'v:留学']);
     expect(vocabLinks('学习者', index)).toEqual(['v:学习', 'v:学']);
     expect(vocabLinks('猫', index)).toEqual([]);
+  });
+});
+
+describe('vocabWithChar', () => {
+  it('lists his words containing a character, in list order, once each, alts included', () => {
+    const index = vocabIndex([word('留学'), word('学习'), word('中文'), word('学'), word('上课', ['上学']), word('学生', ['学生们']), unless]);
+    expect(vocabWithChar('学', index)).toEqual(['v:留学', 'v:学习', 'v:学', 'v:上课', 'v:学生']);
+    expect(vocabWithChar('文', index)).toEqual(['v:中文']);
+    expect(vocabWithChar('猫', index)).toEqual([]);
+    expect(vocabWithChar('', index)).toEqual([]);
+    // grammar notes are not in the index
+    expect(vocabWithChar('非', index)).toEqual([]);
   });
 });
 

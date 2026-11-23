@@ -42,7 +42,9 @@ jobs:
       # Lexicon shards (CC-CEDICT, CFDICT senses, Tatoeba examples).
       - uses: actions/cache@v4
         with:
-          path: public/dict/w
+          path: |
+            public/dict/w
+            public/dict/c
           key: lexicon-${{ hashFiles('scripts/build-lexicon.mjs', 'scripts/lexicon-lib.mjs') }}-${{ steps.month.outputs.ym }}
           restore-keys: lexicon-${{ hashFiles('scripts/build-lexicon.mjs', 'scripts/lexicon-lib.mjs') }}-
       # Copies the stroke data, builds the dictionary, type-checks and builds into dist/.

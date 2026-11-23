@@ -1,5 +1,6 @@
 // Pure functions for scripts/build-lexicon.mjs (no I/O), tested in scripts/lexicon-lib.test.mjs.
-// Format and rules: .claude/plans/2026-11-07-word-explain.md, D2. The runtime reader is src/lib/lexicon.ts.
+// Format and rules: .claude/plans/2026-11-07-word-explain.md, D2 (dict/w); 2026-11-23-word-panel-v2.md, D9 (dict/c).
+// The runtime reader is src/lib/lexicon.ts.
 
 export const SHARDS = 128;
 export const DEFAULTS = { examples: 6, minHan: 4, maxHan: 24, maxWord: 8, targetHan: 12 };
@@ -287,7 +288,168 @@ export function buildShards({ cedict, cfdict = new Map(), sentences = [], segmen
   const index = { v: 1, shards: SHARDS, built };
   if (sample) index.sample = true;
   Object.assign(index, { words: words.size, sentences: used.size, bytes, sources });
-  return { files, index, stats: { words: words.size, withExamples, sentences: used.size, bytes, biggest } };
+  const freq = new Map();
+  for (const [w, list] of hits) freq.set(w, list.length);
+  return { files, index, stats: { words: words.size, withExamples, sentences: used.size, bytes, biggest }, freq };
+}
+
+// ---------- character index: public/dict/c (plan 2026-11-23-word-panel-v2, D9) ----------
+
+export const CHAR_SHARDS = 64;
+export const charShardOf = (key) => fnv1a(key) % CHAR_SHARDS;
+export const CHAR_DEFAULTS = { perChar: 24 };
+
+/** Code-point order (JS string < compares UTF-16 units, which differs for characters outside the BMP). */
+const cmpCp = (a, b) => {
+  const x = [...a];
+  const y = [...b];
+  for (let i = 0; i < Math.min(x.length, y.length); i++) {
+    const d = x[i].codePointAt(0) - y[i].codePointAt(0);
+    if (d) return d;
+  }
+  return x.length - y.length;
+};
+
+// Senses that only point elsewhere or name someone (English from CC-CEDICT, French from CFDICT).
+const NAME_SENSE = [
+  /\((?:[\w\s'-]*\s)?(?:name|surname)\)$/i, // Tom (name), Zhang (Japanese surname)
+  /^(?:[\w-]+\s)?(?:surname|given name|personal name)\b/i, // surname Zhang, Japanese surname Ito
+  /^nom (?:de famille|propre|de personne)\b/i,
+  /^(?:prénom|patronyme)\b/i,
+  /\((?:nom|prénom|nom de famille)\)$/i,
+];
+const REF_SENSE = [
+  /^(?:[\w-]+\s){0,2}variant of\b/i, // variant of, old variant of, Japanese variant of
+  /^see(?: also)?\b/i,
+  /^same as\b/i,
+  /^(?:Taiwan |also )pr\./i,
+  /^(?:\S+\s)?variante (?:de|graphique)\b/i,
+  /^voir\b/i,
+];
+const isName = (s) => NAME_SENSE.some((r) => r.test(s.trim()));
+const isRef = (s) => REF_SENSE.some((r) => r.test(s.trim()));
+const sensesOf = (senses) => (Array.isArray(senses) ? senses : String(senses).split('/')).map((s) => s.trim()).filter(Boolean);
+
+/** Every sense is a name, surname, variant or cross-reference (or there is none). Takes an array or a '/' string. */
+export function isNameOrVariant(senses) {
+  return sensesOf(senses).every((s) => isName(s) || isRef(s));
+}
+
+/**
+ * Short meaning for a chip: the first sense that is not a cross-reference, variant or name; CEDICT references like
+ * 樂|乐[le4] become 乐. At most `max` characters, cut at a word boundary with "…". '' when nothing is left.
+ */
+export function shortGloss(senses, max = 32) {
+  const first = sensesOf(senses).find((s) => !isName(s) && !isRef(s));
+  if (!first) return '';
+  const s = first
+    .replace(/(?:[^\s|[\]/,;()]+\|)?([^\s|[\]/,;()]+)\[[^\]]+\]/gu, '$1')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const cps = [...s];
+  if (cps.length <= max) return s;
+  const head = cps.slice(0, max - 1).join('');
+  // cut at the last space or punctuation that leaves something; CJK text has no spaces, so cut anywhere then
+  const at = Math.max(head.lastIndexOf(' '), head.lastIndexOf(','), head.lastIndexOf(';'));
+  return `${(at > 0 ? head.slice(0, at) : head).replace(/[\s,;:(]+$/, '')}…`;
+}
+
+const ALL_HAN = /^\p{Script=Han}+$/u;
+
+/**
+ * Build public/dict/c: for each character, the common words containing it, best first (D9).
+ * cedict: parseCedict(...).entries; cfdict: parseCfdictTsv(...); freq: buildShards(...).freq (sentences per word);
+ * similar (B3, optional): Map<word, string[]> written as `n` in the word's shard.
+ * Returns { files: Map<'00.json'…'3f.json', string>, index, stats: { chars, words, bytes, biggest } }, deterministic bytes.
+ */
+export function buildCharIndex({ cedict, cfdict = new Map(), freq = new Map(), similar, built, sample = false, options = {} }) {
+  const opt = { ...CHAR_DEFAULTS, ...options };
+  const ced = new Map(); // simp → entries
+  for (const e of cedict) {
+    let l = ced.get(e.simp);
+    if (!l) ced.set(e.simp, (l = []));
+    l.push(e);
+  }
+  const words = new Set([...ced.keys(), ...cfdict.keys()]);
+  const common = []; // { w, n, cf, row }
+  for (const w of words) {
+    const cps = [...w];
+    if (cps.length < 2 || !ALL_HAN.test(w)) continue;
+    const n = freq.get(w) ?? 0;
+    const cf = cfdict.get(w) ?? [];
+    if (n < 1 && !cf.length) continue;
+    const ce = ced.get(w) ?? [];
+    let row;
+    if (ce.length) {
+      const e = ce.find((x) => !isNameOrVariant(x.senses));
+      if (!e) continue;
+      const en = shortGloss(e.senses);
+      const f = cf.find((x) => x[0] === e.pinyin && !isNameOrVariant(x[1])) ?? cf.find((x) => !isNameOrVariant(x[1]));
+      const fr = f ? shortGloss(f[1]) : '';
+      row = fr ? [w, e.pinyin, en, fr] : [w, e.pinyin, en];
+    } else {
+      const f = cf.find((x) => !isNameOrVariant(x[1]));
+      if (!f) continue;
+      row = [w, f[0], '', shortGloss(f[1])];
+    }
+    common.push({ w, n, cf: cf.length > 0, len: cps.length, row });
+  }
+  common.sort((a, b) => b.n - a.n || (b.cf ? 1 : 0) - (a.cf ? 1 : 0) || a.len - b.len || cmpCp(a.w, b.w));
+
+  const byChar = new Map();
+  for (const c of common) {
+    for (const ch of new Set(c.w)) {
+      let l = byChar.get(ch);
+      if (!l) byChar.set(ch, (l = []));
+      if (l.length < opt.perChar) l.push(c.row);
+    }
+  }
+  const byShard = Array.from({ length: CHAR_SHARDS }, () => ({ c: [], n: [] }));
+  const listed = new Set();
+  for (const ch of [...byChar.keys()].sort(cmpCp)) {
+    byShard[charShardOf(ch)].c.push(ch);
+    for (const r of byChar.get(ch)) listed.add(r[0]);
+  }
+  let nSimilar = 0;
+  if (similar) {
+    for (const w of [...similar.keys()].sort(cmpCp)) {
+      if (!similar.get(w)?.length) continue;
+      byShard[charShardOf(w)].n.push(w);
+      nSimilar++;
+    }
+  }
+  const files = new Map();
+  let bytes = 0;
+  let biggest = 0;
+  for (let s = 0; s < CHAR_SHARDS; s++) {
+    const c = {};
+    for (const ch of byShard[s].c) c[ch] = byChar.get(ch);
+    const file = { v: 1, c };
+    if (similar) {
+      const n = {};
+      for (const w of byShard[s].n) n[w] = similar.get(w);
+      file.n = n;
+    }
+    const json = JSON.stringify(file);
+    const size = Buffer.byteLength(json);
+    bytes += size;
+    biggest = Math.max(biggest, size);
+    files.set(`${shardName(s)}.json`, json);
+  }
+  const index = { v: 1, shards: CHAR_SHARDS, built };
+  if (sample) index.sample = true;
+  Object.assign(index, { chars: byChar.size, words: listed.size, bytes });
+  if (similar) index.similar = nSimilar;
+  return { files, index, stats: { chars: byChar.size, words: listed.size, bytes, biggest } };
+}
+
+/** Is an existing dict/c index (with all its shard files, `present`) good enough to reuse alongside dict/w? */
+export function charReusable(index, { present = true, sample = false, minChars = 0 } = {}) {
+  if (!index || index.v !== 1 || index.shards !== CHAR_SHARDS) return { ok: false, why: 'no usable character index' };
+  if (!present) return { ok: false, why: 'character index shards missing' };
+  if (!!index.sample !== sample) return { ok: false, why: index.sample ? 'sample character index' : 'real character index in a sample run' };
+  if (!sample && !(index.chars >= minChars)) return { ok: false, why: 'implausible character count' };
+  return { ok: true };
 }
 
 /** Is an existing index.json good enough to reuse? */
@@ -300,9 +462,15 @@ export function reusable(index, { sample = false, minWords = 0, minSentences = 0
   return { ok: true };
 }
 
-export function sourcesText(index) {
+export const SOURCES_TITLE = {
+  w: 'Hugo 中文: offline dictionary and example sentences (dict/w/*.json)',
+  c: 'Hugo 中文: common words for each character (dict/c/*.json), ranked by Tatoeba sentence counts',
+};
+
+/** SOURCES.txt for a build: index needs `built` and `sources`; title defaults to the dict/w one. */
+export function sourcesText(index, title = SOURCES_TITLE.w) {
   const lines = [
-    'Hugo 中文: offline dictionary and example sentences (dict/w/*.json)',
+    title,
     `Built ${index.built}. Adapted: filtered and reformatted from the sources below.`,
     '',
   ];
