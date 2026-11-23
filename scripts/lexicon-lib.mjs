@@ -529,6 +529,8 @@ export function glossKeys(enSenses, frSenses) {
  * section already shows; a single character keeps them. Returns Map<word, string[]> (≤ perWord, best first), only
  * for words with at least one similar word; deterministic.
  */
+const ODD_SENSE = /^\((?:Internet |coll\. |)slang|^\((?:dialect|old|archaic|Cantonese|Taiwanese|Tw)\b/i;
+
 export function buildSimilar({ cedict, cfdict = new Map(), freq = new Map(), options = {} }) {
   const opt = { ...SIMILAR_DEFAULTS, ...options };
   const words = []; // { w, n, keys, one: a single character }
@@ -537,7 +539,10 @@ export function buildSimilar({ cedict, cfdict = new Map(), freq = new Map(), opt
     const cf = cfdict.get(w) ?? [];
     if (!isCommon(w, ce, n, cf, opt.properMin)) continue;
     const keys = glossKeys(ce.flatMap((x) => x.senses), cf.flatMap((x) => sensesOf(x[1])));
-    if (keys.length) words.push({ w, n, keys, one: [...w].length === 1 });
+    // Slang, dialect and old words (every sense marked so, 盆友 "(Internet slang) friend") get a row but are never
+    // offered as a similar word: Hugo should not pick them up in place of the common word.
+    const odd = ce.flatMap((x) => x.senses).every((t) => ODD_SENSE.test(t));
+    if (keys.length) words.push({ w, n, keys, one: [...w].length === 1, odd });
   }
   words.sort((a, b) => cmpCp(a.w, b.w));
   const post = new Map(); // key → word indexes
@@ -556,7 +561,7 @@ export function buildSimilar({ cedict, cfdict = new Map(), freq = new Map(), opt
       const l = post.get(k);
       if (l.length < opt.minDf || l.length > opt.maxDf) continue;
       const wgt = 1 / Math.log2(1 + l.length);
-      for (const j of l) if (j !== i && (one || !words[j].one)) score.set(j, (score.get(j) ?? 0) + wgt);
+      for (const j of l) if (j !== i && !words[j].odd && (one || !words[j].one)) score.set(j, (score.get(j) ?? 0) + wgt);
     }
     if (!score.size) return;
     // rounded, so sums of the same weights in another order still tie

@@ -375,6 +375,17 @@ describe('buildSimilar', () => {
   const e = (simp, pinyin, ...senses) => ({ trad: [simp], simp, pinyin, senses, cl: [] });
   const all = (ced, n = 1) => new Map(ced.map((x) => [x.simp, n]));
 
+  it('never offers slang, dialect or old words as similar words, but still gives them a row', () => {
+    const ced = [
+      e('朋友', 'peng2 you5', 'friend'),
+      e('友人', 'you3 ren2', 'friend'),
+      e('盆友', 'pen2 you3', '(Internet slang) friend'),
+      e('老铁', 'lao3 tie3', '(slang) very close friend', '(dialect) friend'),
+    ];
+    const sim = buildSimilar({ cedict: ced, freq: all(ced, 50) });
+    expect(sim.get('朋友')).toEqual(['友人']);
+    expect(sim.get('盆友')).toEqual(['友人', '朋友']);
+  });
   it('pairs words that share a rare meaning, scored by Σ 1/log2(1 + df); a generic meaning is ignored', () => {
     const ced = [
       e('帮助', 'bang1 zhu4', 'to help', 'to assist', 'thing'),
