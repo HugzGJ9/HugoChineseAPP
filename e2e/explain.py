@@ -163,6 +163,49 @@ async def word_levels(pg, _unused, device):
     check('#/words/' in pg.url, 'Words page: x returns to the page')
 
 
+async def characters(pg, device):
+    """Characters cards and "Words with X" (plan 2026-11-23 WP2.2)."""
+    await pg.goto(U + '#/sheets')
+    await pg.get_by_role('tab', name='HSK五级').click()
+    await pg.get_by_text('学校', exact=True).first.click()
+    d = pg.locator('.pp-panel')
+    await d.get_by_role('heading', name='Characters', exact=True).wait_for(timeout=10000)
+    cards = d.locator('.wl.top .wx-char')
+    await cards.nth(1).wait_for(timeout=8000)
+    check(await cards.count() == 2, '学校: two character cards')
+    t0, t1 = await cards.nth(0).inner_text(), await cards.nth(1).inner_text()
+    check('学' in t0 and 'xué' in t0 and '校' in t1 and 'xiào' in t1, '学校: readings xué and xiào')
+    glosses = [(await cards.nth(0).locator('.wx-char-gloss').inner_text()).strip(), (await cards.nth(1).locator('.wx-char-gloss').inner_text()).strip()]
+    check(all(len(g) > 2 for g in glosses), '学校: each card has a meaning')
+    sec = d.locator('.wl.top section[aria-label="Words with 学"]')
+    await sec.wait_for(timeout=8000)
+    await sec.get_by_role('button', name='学生').wait_for(timeout=5000)
+    check(await sec.get_by_role('button', name='学习').count() == 1, '学 lists 学生 and 学习 among the common words')
+    await sec.get_by_role('button', name='学生').click()
+    await d.locator('.wl.top .sw-tag', has_text='Not in your list').wait_for(timeout=5000)
+    check(True, 'tapping 学生 opens a nested level: Not in your list')
+    await d.locator('.pp-back').click()
+    await d.locator('.wl.top .wx-char').first.wait_for(timeout=5000)
+    check(await d.locator('.pp-back').count() == 0, 'Back returns to 学校')
+    if device:
+        box = await d.locator('.wl.top .wx-char-zh').first.bounding_box()
+        check(box['height'] >= 44 and box['width'] >= 44, 'character button is at least 44 px')
+    check(await pg.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'no horizontal scroll with Characters')
+    await d.get_by_role('button', name='Close').click()
+    await pg.locator('.pp-panel').wait_for(state='detached')
+    # A single character: no Characters heading, only Words with 好 and his 你好.
+    await pg.get_by_role('tab', name='HSK四级').click()
+    await pg.get_by_text('好', exact=True).first.click()
+    d = pg.locator('.pp-panel')
+    await d.get_by_role('heading', name='Dictionary').wait_for(timeout=10000)
+    sec = d.locator('.wl.top section[aria-label="Words with 好"]')
+    await sec.wait_for(timeout=8000)
+    check(await d.get_by_role('heading', name='Characters', exact=True).count() == 0, '好: no Characters heading')
+    check(await sec.get_by_role('button', name='你好').count() == 1, '好: Words with 好 has his 你好 chip')
+    await d.get_by_role('button', name='Close').click()
+    await pg.locator('.pp-panel').wait_for(state='detached')
+
+
 async def run(p, label, device):
     print(f'--- {label}')
     b = await p.chromium.launch()
@@ -269,6 +312,7 @@ async def run(p, label, device):
     await pg.keyboard.press('Escape')
 
     await word_levels(pg, None, device)
+    await characters(pg, device)
 
     # Key not in localStorage / sessionStorage.
     stores = await pg.evaluate("JSON.stringify([Object.entries(localStorage), Object.entries(sessionStorage)])")

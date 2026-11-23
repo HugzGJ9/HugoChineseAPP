@@ -11,6 +11,7 @@ import { patternChars } from '../../lib/grammar/list';
 import { formatDate, Icon, Meaning, Pinyin } from '../common';
 import { WordNavHost, useWordNav } from './nav';
 import { PinyinChip, ZhBlock } from './ZhLine';
+import { CharactersSection } from './Characters';
 import './word.css';
 
 const FIRST = 6;
@@ -104,6 +105,9 @@ function ExplainBody({ note, inline, mine, reading }: { note: Note; inline: bool
       )}
       <DictionarySection lookup={lookup} lang={lang} />
       {mine && <ClaudeSection note={note} lang={lang} online={online} lookup={lookup} head={head} pattern={pattern} />}
+      {!grammar && lookup && (
+        <CharactersSection word={note.hanzi} reading={reading || note.pinyinNum || (lookup.ok ? lookup.info.en[0]?.pinyinNum : undefined)} excludeId={mine ? note.id : undefined} />
+      )}
       <ExamplesSection lookup={lookup} lang={lang} head={head} pattern={pattern} />
     </div>
   );
