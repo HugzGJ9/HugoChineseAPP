@@ -241,10 +241,64 @@ export function sensesText(list: DictSense[], max = 6): string {
     .join(' | ');
 }
 
-/** Pinyin with tone marks for a Tatoeba sentence, word by word (pinyin-pro is loaded on first use). */
-export async function examplePinyin(zh: string): Promise<string> {
-  const { pinyin } = await import('pinyin-pro');
-  return sentencePinyin(zh, (h) => pinyin(h, { toneType: 'num', type: 'array', v: true, nonZh: 'removed' }) as string[]);
+/** pinyin-pro, loaded on first use (its own chunk, precached by the service worker). */
+let pinyinPro: Promise<typeof import('pinyin-pro')> | null = null;
+const loadPinyinPro = () => (pinyinPro ??= import('pinyin-pro'));
+
+/** Readings Hugo already knows: a Han-only written form → his numbered pinyin (from his list), longest form length. */
+export interface KnownReadings { get(word: string): string | undefined; max: number }
+
+/**
+ * Pinyin with tone marks for a sentence, word by word (pinyin-pro is loaded on first use). With `known`, his own words
+ * (longest match, left to right) take the pinyin of his list, so light tones follow it: pinyin-pro reads 朋友 as
+ * péngyǒu, his list says péngyou. A reading whose syllable count doesn't match the word is ignored.
+ */
+export async function examplePinyin(zh: string, known?: KnownReadings): Promise<string> {
+  const { pinyin } = await loadPinyinPro();
+  return sentencePinyin(zh, (h) => {
+    const nums = pinyin(h, { toneType: 'num', type: 'array', v: true, nonZh: 'removed' }) as string[];
+    return known ? overlayKnown(h, nums, known) : nums;
+  });
+}
+
+/** nums has one syllable per Han character of zh; his words replace theirs. Exported for tests. */
+export function overlayKnown(zh: string, nums: string[], known: KnownReadings): string[] {
+  const han = [...zh].filter((c) => HAN.test(c));
+  if (han.length !== nums.length) return nums;
+  const out = [...nums];
+  for (let i = 0; i < han.length; ) {
+    let used = 0;
+    for (let l = Math.min(known.max, han.length - i); l >= 2; l--) {
+      const py = known.get(han.slice(i, i + l).join(''));
+      const syl = py?.trim().toLowerCase().replace(/u:/g, 'v').split(/\s+/);
+      if (syl && syl.length === l && syl.every((x) => /^[a-zv]+[0-5]$/.test(x))) {
+        syl.forEach((x, k) => (out[i + k] = x.replace(/0$/, '5')));
+        used = l;
+        break;
+      }
+    }
+    i += used || 1;
+  }
+  return out;
+}
+
+/**
+ * One numbered syllable per code point of zh (CEDICT style: ü as v, neutral tone 5), '' for non-Han; pinyin-pro in
+ * context, so polyphones follow the line (银行 → hang2). Tone sandhi is off (一个 → yi1), as in CEDICT, because these
+ * readings rank dictionary readings (plan 2026-11-23-word-panel-v2, D5).
+ */
+export async function lineReadings(zh: string): Promise<string[]> {
+  const { pinyin } = await loadPinyinPro();
+  const out: string[] = [];
+  for (const r of pinyin(zh, { toneType: 'num', type: 'all', v: true, toneSandhi: false })) {
+    const cps = [...r.origin];
+    if (r.isZh && cps.length === 1 && r.pinyin) out.push(r.pinyin.replace(/0$/, '5'));
+    else out.push(...cps.map(() => ''));
+  }
+  // pinyin-pro gives one entry per character; pad or trim if a future version groups them differently.
+  const n = [...zh].length;
+  while (out.length < n) out.push('');
+  return out.slice(0, n);
 }
 
 /** How many shards are in the offline cache. total is 0 when the build has no lexicon (or it can't be reached). */

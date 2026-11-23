@@ -1,19 +1,20 @@
 // Everything about one word: his meaning, dictionary senses, Claude's explanation (on demand) and real example sentences.
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import type { Note } from '../../lib/types';
 import { useApp, type Lang } from '../../lib/store';
-import { pref, setPref } from '../../lib/db';
-import { speak } from '../../lib/speech';
-import { examplePinyin, formatSense, lookupWord, sensesText, type DictSense, type ExampleSentence, type Lookup } from '../../lib/lexicon';
+import { formatSense, lookupWord, sensesText, type DictSense, type ExampleSentence, type Lookup } from '../../lib/lexicon';
 import {
   ClaudeError, explainJob, getExplanation, onExplainChange, requestExplanation,
   type ExplainEntry, type Explanation,
 } from '../../lib/explain';
+import { patternChars } from '../../lib/grammar/list';
 import { formatDate, Icon, Meaning, Pinyin } from '../common';
+import { WordNavHost, useWordNav } from './nav';
+import { PinyinChip, ZhBlock } from './ZhLine';
 import './word.css';
 
 const FIRST = 6;
-const PY_PREF = 'ex.py';
+const HAN_ONLY = /^\p{Script=Han}+$/u;
 
 function errorText(e: unknown): ReactNode {
   if (!(e instanceof ClaudeError)) return 'Something went wrong. Try again.';
@@ -48,33 +49,51 @@ function useOnline(): boolean {
 }
 
 /**
- * `mine={false}`: a word that is not in his list (tapped in a grammar sentence): no "Your list" block and no Claude,
- * only the offline dictionary and its examples.
+ * `mine={false}`: a word that is not in his list (tapped in a sentence): no "Your list" block and no Claude, only the
+ * offline dictionary and its examples. `reading` = numbered pinyin of the word in its sentence (ranks the readings).
+ * `inline` (Words page): no sheet around, so it brings its own WordNavHost.
  */
-export function ExplainView({ note, inline = false, mine = true }: { note: Note; inline?: boolean; mine?: boolean }) {
+export function ExplainView({ note, inline = false, mine = true, reading }: { note: Note; inline?: boolean; mine?: boolean; reading?: string }) {
+  const nav = useWordNav();
+  if (inline && !nav) {
+    return (
+      <WordNavHost>
+        <ExplainBody note={note} inline mine={mine} reading={reading} />
+      </WordNavHost>
+    );
+  }
+  return <ExplainBody note={note} inline={inline} mine={mine} reading={reading} />;
+}
+
+function ExplainBody({ note, inline, mine, reading }: { note: Note; inline: boolean; mine: boolean; reading?: string }) {
   const lang = useApp((s) => s.lang);
   const online = useOnline();
   const [lookup, setLookup] = useState<Lookup | null>(null);
-  const [py, setPyState] = useState<boolean>(() => pref<boolean>(PY_PREF, false));
-  const setPy = (v: boolean) => {
-    setPyState(v);
-    setPref(PY_PREF, v);
-  };
+  const altsKey = note.alts.join('|');
+  // The panel's own word(s) are bold in every line; a grammar note marks its fixed characters instead.
+  const grammar = note.kind === 'grammar';
+  const head = useMemo(() => (grammar ? undefined : [note.hanzi, ...note.alts].filter((f) => HAN_ONLY.test(f))), [grammar, note.hanzi, altsKey]); // eslint-disable-line react-hooks/exhaustive-deps
+  const pattern = useMemo(() => (grammar ? patternChars(note) : undefined), [grammar, note.hanzi, altsKey]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     let live = true;
     setLookup(null);
-    lookupWord(note.hanzi, note.pinyinNum, note.alts).then(
+    lookupWord(note.hanzi, reading ?? note.pinyinNum, note.alts).then(
       (r) => live && setLookup(r),
       () => live && setLookup({ ok: false, reason: 'error' }),
     );
     return () => {
       live = false;
     };
-  }, [note.id, note.hanzi, note.pinyinNum, note.alts]);
+  }, [note.id, note.hanzi, note.pinyinNum, note.alts, reading]);
 
   return (
     <div className={`wx ${inline ? 'inline' : ''}`}>
+      {inline && (
+        <div className="wx-inline-bar">
+          <PinyinChip />
+        </div>
+      )}
       {mine && (
         <section className="wx-sec" aria-label="Your list">
           <h3 className="wx-h">Your list</h3>
@@ -84,8 +103,8 @@ export function ExplainView({ note, inline = false, mine = true }: { note: Note;
         </section>
       )}
       <DictionarySection lookup={lookup} lang={lang} />
-      {mine && <ClaudeSection note={note} lang={lang} online={online} lookup={lookup} py={py} setPy={setPy} />}
-      <ExamplesSection lookup={lookup} lang={lang} py={py} setPy={setPy} />
+      {mine && <ClaudeSection note={note} lang={lang} online={online} lookup={lookup} head={head} pattern={pattern} />}
+      <ExamplesSection lookup={lookup} lang={lang} head={head} pattern={pattern} />
     </div>
   );
 }
@@ -115,12 +134,15 @@ function DictionarySection({ lookup, lang }: { lookup: Lookup | null; lang: Lang
 }
 
 function DictBody({ info, lang, all, onAll }: { info: { en: DictSense[]; fr: DictSense[] }; lang: Lang; all: boolean; onAll: () => void }) {
+  const nav = useWordNav();
   const useFr = lang === 'fr' && info.fr.length > 0;
   const list = useFr ? info.fr : info.en;
-  const primary = list.filter((d) => d.match !== 'other');
-  const other = list.filter((d) => d.match === 'other');
+  // No reading matches (no context, e.g. a measure-word chip): list them all as primary instead of folding them away (D5).
+  const anyMatch = list.some((d) => d.match !== 'other');
+  const primary = anyMatch ? list.filter((d) => d.match !== 'other') : list;
+  const other = anyMatch ? list.filter((d) => d.match === 'other') : [];
   // Measure words are listed in English entries only.
-  const measure = [...info.en, ...info.fr].filter((d) => d.match !== 'other').flatMap((d) => d.measure);
+  const measure = [...info.en, ...info.fr].filter((d) => !anyMatch || d.match !== 'other').flatMap((d) => d.measure);
   const measureUniq = measure.filter((m, i) => measure.findIndex((x) => x.hanzi === m.hanzi) === i);
   const total = primary.reduce((n, d) => n + d.senses.length, 0);
   let budget = all ? Infinity : FIRST;
@@ -155,9 +177,9 @@ function DictBody({ info, lang, all, onAll }: { info: { en: DictSense[]; fr: Dic
           <span className="wx-label">Measure words</span>
           <div className="wx-chips">
             {measureUniq.map((m) => (
-              <span key={m.hanzi} className="wx-chip">
+              <button key={m.hanzi} type="button" className="wx-chip" onClick={() => nav?.open({ t: 'word', word: m.hanzi })} disabled={!nav}>
                 <span className="zh" lang="zh-CN">{m.hanzi}</span> <span className="muted">{m.pinyin}</span>
-              </span>
+              </button>
             ))}
           </div>
         </div>
@@ -186,15 +208,7 @@ function DictBody({ info, lang, all, onAll }: { info: { en: DictSense[]; fr: Dic
 
 /* ---- Claude ---- */
 
-function PyChip({ on, set }: { on: boolean; set: (v: boolean) => void }) {
-  return (
-    <button type="button" className="chip wx-pychip" aria-pressed={on} onClick={() => set(!on)}>
-      Pinyin
-    </button>
-  );
-}
-
-function ClaudeSection({ note, lang, online, lookup, py, setPy }: { note: Note; lang: Lang; online: boolean; lookup: Lookup | null; py: boolean; setPy: (v: boolean) => void }) {
+function ClaudeSection({ note, lang, online, lookup, head, pattern }: { note: Note; lang: Lang; online: boolean; lookup: Lookup | null; head?: string[]; pattern?: string }) {
   const other: Lang = lang === 'en' ? 'fr' : 'en';
   const [tick, setTick] = useState(0);
   const [entry, setEntry] = useState<ExplainEntry | null>(null);
@@ -246,10 +260,7 @@ function ClaudeSection({ note, lang, online, lookup, py, setPy }: { note: Note; 
 
   return (
     <section className="wx-sec" aria-label="Claude's explanation">
-      <div className="wx-sech">
-        <h3 className="wx-h">Claude's explanation</h3>
-        {shown && <PyChip on={py} set={setPy} />}
-      </div>
+      <h3 className="wx-h">Claude's explanation</h3>
       {shown && (
         <>
           {!entry && fallback && (
@@ -260,7 +271,7 @@ function ClaudeSection({ note, lang, online, lookup, py, setPy }: { note: Note; 
               </button>
             </p>
           )}
-          <ExplanationBody x={shown.x} lang={shown.lang} py={py} />
+          <ExplanationBody x={shown.x} lang={shown.lang} head={head} pattern={pattern} />
           <p className="wx-foot">
             Claude · {formatDate(shown.at)}
             {dev ? ` · ${dev}` : ''}
@@ -307,20 +318,9 @@ function ClaudeSection({ note, lang, online, lookup, py, setPy }: { note: Note; 
   );
 }
 
-function ZhLine({ zh, pinyin, tr, show }: { zh: string; pinyin?: string; tr?: ReactNode; show: boolean }) {
-  return (
-    <>
-      <button type="button" className="wx-zh zh" lang="zh-CN" onClick={() => speak(zh)} aria-label={`${zh}, play audio`}>
-        {zh}
-      </button>
-      {show && pinyin && <div className="wx-py">{pinyin}</div>}
-      {tr != null && <div className="wx-tr">{tr}</div>}
-    </>
-  );
-}
-
-function ExplanationBody({ x, lang, py }: { x: Explanation; lang: Lang; py: boolean }) {
+function ExplanationBody({ x, lang, head, pattern }: { x: Explanation; lang: Lang; head?: string[]; pattern?: string }) {
   const t = lang;
+  const nav = useWordNav();
   return (
     <div className="wx-claude" lang={t}>
       <p className="wx-summary">{x.summary}</p>
@@ -350,7 +350,9 @@ function ExplanationBody({ x, lang, py }: { x: Explanation; lang: Lang; py: bool
           <ul className="wx-list">
             {x.nuance.map((n, i) => (
               <li key={i}>
-                <span className="zh" lang="zh-CN">{n.word}</span> <span className="muted">{n.pinyin}</span>
+                <button type="button" className="wx-word" onClick={() => nav?.open({ t: 'word', word: n.word })} disabled={!nav}>
+                  <span className="zh" lang="zh-CN">{n.word}</span> <span className="muted">{n.pinyin}</span>
+                </button>
                 <div>{n.diff}</div>
               </li>
             ))}
@@ -363,7 +365,7 @@ function ExplanationBody({ x, lang, py }: { x: Explanation; lang: Lang; py: bool
           <ul className="wx-list">
             {x.collocations.map((c, i) => (
               <li key={i}>
-                <ZhLine zh={c.zh} pinyin={c.pinyin} tr={c.tr} show={py} />
+                <ZhBlock zh={c.zh} pinyin={c.pinyin} tr={c.tr} trLang={t} head={head} pattern={pattern} />
               </li>
             ))}
           </ul>
@@ -375,11 +377,10 @@ function ExplanationBody({ x, lang, py }: { x: Explanation; lang: Lang; py: bool
           <ul className="wx-list">
             {x.patterns.map((p, i) => (
               <li key={i}>
-                <span className="zh" lang="zh-CN">{p.pattern}</span>
-                <div>{p.tr}</div>
+                <ZhBlock zh={p.pattern} tr={p.tr} trLang={t} head={head} pattern={pattern} audio={false} />
                 {p.example && (
                   <div className="wx-sub">
-                    <ZhLine zh={p.example.zh} pinyin={p.example.pinyin} tr={p.example.tr} show={py} />
+                    <ZhBlock zh={p.example.zh} pinyin={p.example.pinyin} tr={p.example.tr} trLang={t} head={head} pattern={pattern} />
                   </div>
                 )}
               </li>
@@ -393,8 +394,8 @@ function ExplanationBody({ x, lang, py }: { x: Explanation; lang: Lang; py: bool
           <ul className="wx-list">
             {x.mistakes.map((m, i) => (
               <li key={i}>
-                {m.wrong && <div className="wx-wrong zh" lang="zh-CN">✗ {m.wrong}</div>}
-                {m.right && <div className="wx-right zh" lang="zh-CN">✓ {m.right}</div>}
+                {m.wrong && <ZhBlock zh={m.wrong} mark="wrong" head={head} pattern={pattern} />}
+                {m.right && <ZhBlock zh={m.right} mark="right" head={head} pattern={pattern} />}
                 <div>{m.why}</div>
               </li>
             ))}
@@ -405,7 +406,7 @@ function ExplanationBody({ x, lang, py }: { x: Explanation; lang: Lang; py: bool
       <ul className="wx-list">
         {x.examples.map((e, i) => (
           <li key={i}>
-            <ZhLine zh={e.zh} pinyin={e.pinyin} tr={e.tr} show={py} />
+            <ZhBlock zh={e.zh} pinyin={e.pinyin} tr={e.tr} trLang={t} head={head} pattern={pattern} />
           </li>
         ))}
       </ul>
@@ -415,47 +416,25 @@ function ExplanationBody({ x, lang, py }: { x: Explanation; lang: Lang; py: bool
 
 /* ---- Tatoeba examples ---- */
 
-function SentencePinyin({ zh }: { zh: string }) {
-  const [text, setText] = useState('');
-  useEffect(() => {
-    let live = true;
-    examplePinyin(zh).then((t) => live && setText(t), () => {});
-    return () => {
-      live = false;
-    };
-  }, [zh]);
-  return <div className="wx-py">{text}</div>;
-}
-
-function ExamplesSection({ lookup, lang, py, setPy }: { lookup: Lookup | null; lang: Lang; py: boolean; setPy: (v: boolean) => void }) {
+function ExamplesSection({ lookup, lang, head, pattern }: { lookup: Lookup | null; lang: Lang; head?: string[]; pattern?: string }) {
   const list: ExampleSentence[] = lookup?.ok ? lookup.info.examples : [];
   if (list.length === 0) return null;
   return (
     <section className="wx-sec" aria-label="Examples">
-      <div className="wx-sech">
-        <h3 className="wx-h">Examples</h3>
-        <PyChip on={py} set={setPy} />
-      </div>
+      <h3 className="wx-h">Examples</h3>
       <ul className="wx-card wx-ex">
         {list.map((s) => {
           const own = lang === 'fr' ? s.fr : s.en;
           const text = own ?? (lang === 'fr' ? s.en : s.fr);
-          const tag = !own && text ? (lang === 'fr' ? 'EN' : 'FR') : null;
+          const tag = !own && text ? (lang === 'fr' ? 'EN' : 'FR') : undefined;
           return (
             <li key={s.id} className="wx-row">
-              <button type="button" className="wx-zh zh" lang="zh-CN" onClick={() => speak(s.zh)} aria-label={`${s.zh}, play audio`}>
-                {s.zh}
-              </button>
-              {py && <SentencePinyin zh={s.zh} />}
-              {text && (
-                <div className="wx-tr" lang={own ? lang : lang === 'fr' ? 'en' : 'fr'}>
-                  {tag && <span className="tag">{tag}</span>} {text}
-                </div>
-              )}
-              <a className="wx-src" href={`https://tatoeba.org/en/sentences/show/${s.id}`} target="_blank" rel="noopener">
-                Tatoeba
-                <Icon name="external" />
-              </a>
+              <ZhBlock zh={s.zh} tr={text} trLang={own ? lang : lang === 'fr' ? 'en' : 'fr'} trTag={tag} head={head} pattern={pattern}>
+                <a className="wx-src" href={`https://tatoeba.org/en/sentences/show/${s.id}`} target="_blank" rel="noopener">
+                  Tatoeba
+                  <Icon name="external" />
+                </a>
+              </ZhBlock>
             </li>
           );
         })}

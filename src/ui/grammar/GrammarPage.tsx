@@ -411,7 +411,7 @@ function GrammarDetail({ item, shown, lang, statuses }: { item: GrammarItem; sho
         </nav>
       )}
 
-      {tap && <SentenceWord key={`${tap.zh}:${tap.start}`} {...tap} index={index} statuses={statuses} onClose={() => setTap(null)} />}
+      {tap && <SentenceWord key={`${tap.zh}:${tap.start}`} {...tap} onClose={() => setTap(null)} />}
     </div>
   );
 }

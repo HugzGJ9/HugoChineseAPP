@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { Note } from '../types';
 import { parseFamily, parseHsk, parseRegister } from './families';
-import { fold, formulaParts, grammarItems, itemTitle, matchItem, patternChars, pick, pickList, sentenceTokens, vocabIndex, vocabLinks } from './list';
+import * as sentence from '../sentence';
+import { browserSegments, fold, formulaParts, grammarItems, itemTitle, matchItem, patternChars, pick, pickList, sentenceTokens, vocabIndex, vocabLinks } from './list';
 import type { GrammarInfo } from './types';
 
 // Generic textbook patterns only: no personal data in this public repo.
@@ -86,46 +87,19 @@ describe('formulaParts', () => {
   });
 });
 
-describe('sentenceTokens', () => {
-  const index = vocabIndex([word('学习'), word('学'), word('中文'), word('就'), word('喝', ['喝酒']), unless]);
-  // A fixed segmenter so the tests don't depend on the ICU dictionary of the machine.
-  const seg = (cuts: string) => () => cuts.split(' ');
-  const show = (zh: string, cuts: string, pattern = '') =>
-    sentenceTokens(zh, index, pattern, seg(cuts))
-      .map((t) => (t.note ? `[${t.s}]` : t.word ? `{${t.s}}` : t.s) + (t.pattern ? '*' : ''))
-      .join('');
-  it('lays his words over the segmenter, longest first', () => {
-    expect(show('我在学习中文。', '我 在 学习 中文 。')).toBe('{我}{在}[学习][中文]。');
-    expect(show('他一喝酒就脸红。', '他 一 喝酒 就 脸红 。')).toBe('{他}{一}[喝酒][就]{脸红}。');
-  });
-  it('his words win over segmenter boundaries; one-character words only where the segmenter cuts', () => {
-    expect(show('学习者', '学 习者')).toBe('[学习]{者}');
-    expect(show('学校很大', '学校 很 大')).toBe('{学校}{很}{大}');
-    expect(show('他学得快', '他 学 得 快')).toBe('{他}[学]{得}{快}');
-  });
-  it('flags pattern characters and splits mixed segments', () => {
-    expect(show('他一听就懂', '他 一听 就 懂', '一就')).toBe('{他}{一}*{听}[就]*{懂}');
-  });
-  it('keeps punctuation and Latin untappable, with offsets', () => {
-    const t = sentenceTokens('好，OK', index, '', seg('好 ， OK'));
-    expect(t.map((x) => [x.s, x.start, x.word])).toEqual([['好', 0, true], ['，', 1, false], ['OK', 2, false]]);
-  });
-  it('works with the browser segmenter or without it', () => {
-    expect(sentenceTokens('我在学习中文。', index).map((t) => t.s).join('')).toBe('我在学习中文。');
-    expect(sentenceTokens('我在学习', index).find((t) => t.note)?.s).toBe('学习');
-  });
-});
-
-describe('patternChars and vocabLinks', () => {
+describe('patternChars', () => {
   it('keeps the fixed Chinese of the pattern and its alts', () => {
     expect(patternChars({ hanzi: '除非A，才（会/能）B', alts: [] })).toBe('除非才会能');
     expect(patternChars({ hanzi: '一+V+就+Result', alts: ['一…就'] })).toBe('一就一就');
   });
-  it('links a dictionary word to his words around it', () => {
-    const index = vocabIndex([word('学习'), word('学'), word('留学'), word('中文')]);
-    expect(vocabLinks('学', index)).toEqual(['v:学习', 'v:留学']);
-    expect(vocabLinks('学习者', index)).toEqual(['v:学习', 'v:学']);
-    expect(vocabLinks('猫', index)).toEqual([]);
+});
+
+describe('tokenizer re-export', () => {
+  it('keeps the moved tokenizer importable from list.ts (tests in ../sentence.test.ts)', () => {
+    expect(sentenceTokens).toBe(sentence.sentenceTokens);
+    expect(vocabIndex).toBe(sentence.vocabIndex);
+    expect(vocabLinks).toBe(sentence.vocabLinks);
+    expect(browserSegments).toBe(sentence.browserSegments);
   });
 });
 

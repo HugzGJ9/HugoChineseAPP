@@ -27,6 +27,14 @@ div.pp-panel::before { display: none; }
   background: var(--bg);
 }
 @media (prefers-color-scheme: dark) { .pp-head { background: var(--bg-elev); } }
+.pp-back {
+  flex: none; display: inline-flex; align-items: center; gap: 2px; max-width: 38%; min-height: 44px; margin-left: -8px; padding: 0 8px 0 4px;
+  border: 0; border-radius: 10px; background: none; color: var(--label); font: 500 var(--fs-body) / 1.2 var(--font);
+}
+.pp-back svg { flex: none; width: 20px; height: 20px; stroke-width: 2.4; }
+.pp-back span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pp-back:active { background: var(--press); }
+@media (hover: hover) { .pp-back:hover { background: var(--hover); } }
 .pp-title { flex: 1; min-width: 0; margin: 0; font: 600 var(--fs-body) / 1.3 var(--font); }
 .pp-close {
   flex: none; display: inline-flex; align-items: center; justify-content: center; width: 44px; height: 44px; margin-right: -4px;
