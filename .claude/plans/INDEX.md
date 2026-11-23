@@ -23,6 +23,7 @@
 
 ## Now / next
 - Now: ui-polish batches A+B (behind the device-only "Try new animations" switch) wait for Hugo's iPhone check. grammar-v3 shipped; Hugo pastes the regenerated 语法 columns into his Excel (file sent in chat, never in the repo).
+  `e2e/sync.py` flaked once on the batch-2 deploy ("devices disagree", 409, "PC warm-up saved no stroke data"; passed on rerun): check whether the longer dictionary warm-up (192 shards) delays stroke caching.
   `onedrive_writeback.py` flaked again in CI at `od_common.py:97` (passed on rerun): worth fixing the wait.
 - Next candidates: connected-saving WP13; roadmap phase 4 #1 weak-words drill, then #3 HSK level progress (needs its own
   short plan: data source and licence).
