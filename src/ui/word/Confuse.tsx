@@ -60,13 +60,12 @@ export function ConfuseSection({ x, head, onAskAgain, online }: { x: Explanation
         ))}
       </ul>
       {old && (
-        <p className="wx-foot">
-          From an older explanation ·{' '}
-          <button type="button" className="wx-link" onClick={onAskAgain} disabled={!online}>
+        <div className="wx-ask">
+          <span className="wx-foot">From an older explanation{online ? '' : ' · needs a connection'}</span>
+          <button type="button" className="btn small plain" onClick={onAskAgain} disabled={!online}>
             Ask again for example pairs
           </button>
-          {!online && ' (needs a connection)'}
-        </p>
+        </div>
       )}
     </section>
   );
