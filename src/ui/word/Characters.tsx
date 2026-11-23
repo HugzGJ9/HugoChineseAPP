@@ -14,7 +14,7 @@ const HAN_G = /\p{Script=Han}/gu;
 const HIS_FIRST = 12;
 const COMMON_FIRST = 8;
 
-interface CharCard { ch: string; syllable?: string; meaning: string; tag?: 'EN'; reading: string }
+interface CharCard { ch: string; syllable?: string; meaning: string; tag?: 'EN'; reading: string; offline?: boolean }
 
 /** The distinct Han characters of a word, in order, each with the syllable it has in this word (when the counts agree). */
 export function charSyllables(word: string, reading?: string): { ch: string; syllable?: string }[] {
@@ -61,9 +61,11 @@ function CardsSection({ chars }: { chars: { ch: string; syllable?: string }[] })
     Promise.all(
       chars.map(async ({ ch, syllable }): Promise<CharCard> => {
         const r = await lookupWord(ch, syllable).catch(() => null);
-        if (!r || !r.ok) return { ch, syllable, meaning: '', reading: syllable ?? '' };
-        const useFr = lang === 'fr' && r.info.fr.length > 0;
-        const d = pickSenses(useFr ? r.info.fr : r.info.en, syllable) ?? pickSenses(r.info.en, syllable);
+        if (!r || !r.ok) return { ch, syllable, meaning: '', reading: syllable ?? '', offline: r?.ok === false && r.reason === 'offline' };
+        // French only when CFDICT has this reading (校 is only jiao4 in CFDICT: 学校 must not show « corriger »).
+        const fr = lang === 'fr' && syllable ? r.info.fr.find((x) => x.match !== 'other') : lang === 'fr' ? r.info.fr[0] : undefined;
+        const useFr = !!fr;
+        const d = fr ?? pickSenses(r.info.en, syllable);
         const num = syllable ?? d?.pinyinNum.split(/\s+/)[0] ?? '';
         return { ch, syllable: syllable ?? (num || undefined), meaning: d ? charGloss(d.senses, 3) : '', tag: lang === 'fr' && !useFr ? 'EN' : undefined, reading: num };
       }),
@@ -95,7 +97,7 @@ function CardsSection({ chars }: { chars: { ch: string; syllable?: string }[] })
               <div className="wx-char-body">
                 {c.reading && <Pinyin text={numberedToMarked([c.reading])} className="wx-rpy" />}
                 <span className="wx-char-gloss" lang={c.tag ? 'en' : lang}>
-                  {c.meaning ? <>{c.tag && <span className="tag">{c.tag}</span>} {c.meaning}</> : <span className="wx-dim">No meaning found.</span>}
+                  {c.meaning ? <>{c.tag && <span className="tag">{c.tag}</span>} {c.meaning}</> : <span className="wx-dim">{c.offline ? 'Connect once to download the dictionary.' : 'No meaning found.'}</span>}
                 </span>
               </div>
             </div>
