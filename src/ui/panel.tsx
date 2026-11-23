@@ -10,16 +10,20 @@ const open: symbol[] = []; // open sheets, last = top: only the top one handles 
 let locks = 0;
 
 export function Sheet({
-  title, label, head, onClose, children, className = '', size, variant = 'panel', onKeyDown,
+  title, label, head, onClose, children, className = '', size, variant = 'panel', onKeyDown, back,
 }: {
   title?: ReactNode; label: string; head?: ReactNode; size?: 'full' | 'content'; variant?: 'panel' | 'menu';
   onClose: () => void; children: ReactNode; className?: string; onKeyDown?: (e: React.KeyboardEvent) => void;
+  /** A leading "‹ label" button (a stack level above the first). Esc goes back instead of closing. */
+  back?: { label: string; onBack: () => void };
 }) {
   const menu = variant === 'menu';
   const full = (size ?? (menu ? 'content' : 'full')) === 'full';
   const ref = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
   close.current = onClose;
+  const backRef = useRef(back);
+  backRef.current = back;
   // D3 (behind the motion switch): play a short exit, then call onClose. A timeout backs up a missed animationend.
   const [closing, setClosing] = useState(false);
   // One pending close at a time, whatever asked for it (button, backdrop, Esc, drag): a second request while one is
@@ -56,7 +60,8 @@ export function Sheet({
     const key = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && open[open.length - 1] === me) {
         e.preventDefault();
-        requestRef.current();
+        if (backRef.current) backRef.current.onBack();
+        else requestRef.current();
       }
     };
     document.addEventListener('keydown', key);
@@ -82,6 +87,12 @@ export function Sheet({
         <>
           <div className="pp-grabber" aria-hidden="true" />
           <div className="pp-head">
+            {back && (
+              <button type="button" className="pp-back" onClick={back.onBack} aria-label={`Back to ${back.label}`}>
+                <Icon name="back" />
+                <span className="zh" lang="zh-CN">{back.label}</span>
+              </button>
+            )}
             <h2 className="pp-title">{title}</h2>
             {head}
             <button type="button" className="pp-close" onClick={request} aria-label="Close" title="Close (Esc)">

@@ -1,13 +1,7 @@
 // One panel per word: Explain (dictionary, Claude, examples), "Practise this word" (opens Cards on it) and the status
-// picker when allowed.
-import { lazy, Suspense } from 'react';
+// picker when allowed. The panel is a WordSheet (plan 2026-11-23 D3): words tapped inside it open as levels of the same sheet.
 import type { Note, WordStatus } from '../../lib/types';
-import { AudioButton, Icon, LangSwitch, Pinyin } from '../common';
-import { Sheet } from '../panel';
-import { StatusPicker } from '../StatusPicker';
-import './word.css';
-
-const ExplainView = lazy(() => import('./ExplainView').then((m) => ({ default: m.ExplainView })));
+import { WordSheet } from './WordSheet';
 
 export function WordPanel({
   note, practiseHref, rowId, status, onStatus, onClose,
@@ -21,46 +15,5 @@ export function WordPanel({
   rowId?: string | number;
   status?: WordStatus; onStatus?: (s: WordStatus) => void; onClose: () => void;
 }) {
-  const details = `#/${note.kind === 'grammar' ? 'grammar' : 'words'}/${encodeURIComponent(note.id)}`;
-  return (
-    <Sheet
-      className="wp tall"
-      label={note.hanzi}
-      onClose={onClose}
-      title={
-        <span className="wp-title">
-          <span className="zh wp-hz" lang="zh-CN">{note.hanzi}</span>
-          {note.kind !== 'grammar' && note.pinyin && <Pinyin text={note.pinyin} className="wp-py" />}
-          {rowId != null && <span className="wp-id">#{rowId}</span>}
-        </span>
-      }
-      head={<AudioButton text={note.hanzi} />}
-    >
-      <div className="wp-bar">
-        {practiseHref ? (
-          <a className="btn small tinted wp-practise" href={practiseHref}>
-            <Icon name="pen" />
-            Practise this word
-          </a>
-        ) : (
-          <span className="grow" />
-        )}
-        <LangSwitch />
-      </div>
-      <Suspense fallback={<p className="wp-loading" aria-busy="true">Loading…</p>}>
-        <ExplainView note={note} />
-      </Suspense>
-      {onStatus && status && (
-        <section className="pp-group wp-status" aria-labelledby="pp-status-label">
-          <h3 className="pp-group-h">
-            <span id="pp-status-label">Status</span>
-            <a href={details} className="wp-details">
-              Details
-            </a>
-          </h3>
-          <StatusPicker value={status} onChange={onStatus} compact />
-        </section>
-      )}
-    </Sheet>
-  );
+  return <WordSheet root={{ t: 'note', note, practiseHref, rowId, status, onStatus }} onClose={onClose} className="wp tall" />;
 }

@@ -111,33 +111,47 @@
 .wx-link:disabled { opacity: 0.5; }
 .wx-claude + .wx-foot { margin-bottom: 2px; }
 
-/* Sentences: tap to hear */
-.wx-ex > .wx-row {
-  display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'zh src' 'py py' 'tr tr';
-  align-items: start; column-gap: 8px; row-gap: 2px; padding: 8px 8px 11px 16px;
-}
-.wx-ex .wx-zh { grid-area: zh; }
-.wx-ex .wx-py { grid-area: py; }
-.wx-ex .wx-tr { grid-area: tr; padding-right: 8px; }
-.wx-ex .wx-src { grid-area: src; }
-.wx-zh {
-  display: block; width: 100%; min-height: 36px; padding: 2px 0; border: 0; background: none; color: var(--label);
-  text-align: left; font-size: var(--fs-body); line-height: 1.5; cursor: pointer; overflow-wrap: anywhere; border-radius: 6px;
-  transition: color 0.15s ease;
-}
-.wx-claude .wx-zh { min-height: 0; padding: 0; }
-.wx-zh:active { color: var(--accent); }
-@media (hover: hover) { .wx-zh:hover { color: var(--accent); } }
-.wx-py { font-size: var(--fs-subhead); color: var(--label-2); }
+/* Chinese lines (ZhLine.tsx): text with tappable words, audio, pinyin, translation. */
+.wx-ex > .wx-row { padding: 8px 12px 11px 16px; }
+.zb { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: 'zh audio' 'py py' 'tr tr' 'x x'; align-items: start; column-gap: 4px; row-gap: 2px; width: 100%; min-width: 0; }
+.zb-zh { grid-area: zh; min-width: 0; align-self: center; }
+.zb > .icon-btn { grid-area: audio; align-self: start; margin: -4px -8px -4px 0; color: var(--label-2); }
+.zb-py { grid-area: py; }
+.zb-tr { grid-area: tr; padding-right: 8px; }
+.zb > .wx-src { grid-area: x; justify-self: start; }
+.zb-mark { font-weight: 600; }
+.zt { font-size: var(--fs-body); line-height: 1.7; overflow-wrap: anywhere; }
+@media (pointer: coarse) { .zt { font-size: 18px; } }
+.zt-w { font: inherit; color: inherit; background: none; border: 0; padding: 0; margin: 0; cursor: pointer; border-radius: 4px; }
+.zt-w.mine { text-decoration: underline; text-decoration-color: var(--st); text-decoration-thickness: 2px; text-underline-offset: 4px; }
+.zt-w.mine.st-new { text-decoration-color: var(--fill-3); }
+.zt-w.head, .zt-w.pat { font-weight: 700; }
+.zt-w:active { background: var(--press); }
+@media (hover: hover) { .zt-w:hover { background: var(--hover); } }
+.wx-py { font-size: var(--fs-subhead); color: var(--label-2); line-height: 1.4; }
 .wx-tr { font-size: var(--fs-subhead); color: var(--label-2); line-height: 1.38; }
 .wx-src {
-  display: inline-flex; align-items: center; gap: 3px; min-height: 36px; padding: 0 8px; border-radius: 999px;
+  display: inline-flex; align-items: center; gap: 3px; min-height: 36px; padding: 0 8px 0 0; border-radius: 999px;
   font-size: var(--fs-caption); color: var(--label-3);
   text-decoration: underline; text-underline-offset: 2px; /* ink link: the underline marks it */
 }
 .wx-src svg { width: 11px; height: 11px; stroke-width: 2; }
 .wx-src:active { background: var(--fill); }
 @media (pointer: coarse) { .wx-src { min-height: 44px; margin: -4px 0 -6px; } }
+.wx-word { display: inline-flex; align-items: baseline; gap: 6px; min-height: 36px; padding: 0; border: 0; background: none; color: var(--label); font-size: var(--fs-body); }
+.wx-word:active { color: var(--accent); }
+@media (pointer: coarse) { .wx-word { min-height: 44px; } }
+.wx-inline-bar { display: flex; justify-content: flex-end; }
+button.wx-chip { border: 0; color: var(--label); min-height: 36px; }
+button.wx-chip:active { background: var(--fill-3); }
+@media (pointer: coarse) { button.wx-chip { min-height: 44px; } }
+
+/* Word sheet levels (WordSheet.tsx): lower levels stay mounted but hidden. */
+.wl-host { display: contents; }
+.wl { display: flex; flex-direction: column; gap: 14px; min-width: 0; outline: none; }
+.wl[hidden] { display: none; }
+.wp-bar .wx-pychip.chip { position: relative; min-height: 32px; padding: 0 12px; font-size: var(--fs-footnote); }
+.wp-bar .wx-pychip.chip::after { content: ''; position: absolute; inset: -6px -2px; }
 
 .wx.inline { gap: 20px; }
 
@@ -154,7 +168,7 @@
 .sw-c.on.first.last { border-radius: 8px; }
 .sw-c:active { opacity: 0.6; }
 .sw-hint { margin: 2px 0 0; font-size: var(--fs-footnote); color: var(--label-2); }
-.sw-tag { flex: 1 1 auto; font-size: var(--fs-subhead); color: var(--label-2); }
+.sw-tag { flex: 1 1 auto; min-width: 0; font-size: var(--fs-subhead); color: var(--label-2); }
 .sw-link-list { display: flex; flex-wrap: wrap; gap: 8px; }
 .sw-link { color: var(--label); }
 .sw-link .st-icon { color: var(--st); }

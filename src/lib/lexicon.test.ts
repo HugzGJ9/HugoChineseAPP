@@ -6,11 +6,13 @@ import {
   lexiconCached,
   lexiconMeta,
   lexiconShard,
+  lineReadings,
   lookupWord,
   prefetchLexicon,
   resetLexicon,
   sensesText,
   type ShardFile,
+  overlayKnown,
 } from './lexicon';
 
 // Synthetic entries written for these tests.
@@ -176,5 +178,37 @@ describe('formatting', () => {
   });
   it('gives example sentences pinyin with tone marks', async () => {
     expect(await examplePinyin('我们明天去学校。')).toBe('wǒmen míngtiān qù xuéxiào.');
+  });
+});
+
+describe('lineReadings', () => {
+  it('gives one numbered syllable per character, in context, empty for non-Han', async () => {
+    expect(await lineReadings('我去银行。')).toEqual(['wo3', 'qu4', 'yin2', 'hang2', '']);
+  });
+  it('writes the neutral tone as 5 and ü as v, without tone sandhi (CEDICT style)', async () => {
+    expect((await lineReadings('我们'))[1]).toBe('men5');
+    expect(await lineReadings('女儿')).toEqual(['nv3', 'er2']);
+    expect(await lineReadings('一个')).toEqual(['yi1', 'ge4']);
+  });
+  it('keeps code point offsets with Latin, spaces and astral characters', async () => {
+    const zh = '好 OK, 𠮷好！';
+    const r = await lineReadings(zh);
+    expect(r).toHaveLength([...zh].length);
+    expect(r[0]).toBe('hao3');
+    expect(r[7]).toBe('hao3');
+    expect(r.filter(Boolean)).toHaveLength(2);
+  });
+});
+
+describe('overlayKnown', () => {
+  const known = { get: (w: string) => ({ 朋友: 'peng2 you5', 老师: 'lao3 shi1', 学: 'xue2' } as Record<string, string>)[w], max: 2 };
+  it('his multi-character words take his reading, the rest stays', () => {
+    expect(overlayKnown('我的朋友是老师。', ['wo3', 'de5', 'peng2', 'you3', 'shi4', 'lao3', 'shi1'], known))
+      .toEqual(['wo3', 'de5', 'peng2', 'you5', 'shi4', 'lao3', 'shi1']);
+  });
+  it('ignores one-character words, malformed readings and misaligned input', () => {
+    expect(overlayKnown('学', ['xue2'], known)).toEqual(['xue2']);
+    expect(overlayKnown('朋友', ['peng2'], known)).toEqual(['peng2']);
+    expect(overlayKnown('好坏', ['hao3', 'huai4'], { get: () => 'bad reading', max: 2 })).toEqual(['hao3', 'huai4']);
   });
 });

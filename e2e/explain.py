@@ -29,7 +29,7 @@ EXPLANATION = {
     'senses': [{'meaning': 'friend', 'pos': 'noun'}],
     'register': 'Neutral, used in speech and writing.',
     'nuance': [],
-    'collocations': [ex('好朋友', 'hǎo péngyou', 'good friend'), ex('交朋友', 'jiāo péngyou', 'make friends'), ex('老朋友', 'lǎo péngyou', 'old friend')],
+    'collocations': [ex('朋友圈', '', 'circle of friends'), ex('好朋友', 'hǎo péngyou', 'good friend'), ex('交朋友', 'jiāo péngyou', 'make friends'), ex('老朋友', 'lǎo péngyou', 'old friend')],
     'patterns': [],
     'mistakes': [],
     'examples': [
@@ -57,6 +57,110 @@ def sse(obj):
 
 
 CORS = {'access-control-allow-origin': '*', 'access-control-allow-headers': '*', 'access-control-allow-methods': 'GET, POST, OPTIONS'}
+
+
+async def drag_down(cdp, x, y, dist=300, steps=14):
+    await cdp.send('Input.dispatchTouchEvent', {'type': 'touchStart', 'touchPoints': [{'x': x, 'y': y}]})
+    for i in range(1, steps + 1):
+        await asyncio.sleep(0.012)
+        await cdp.send('Input.dispatchTouchEvent', {'type': 'touchMove', 'touchPoints': [{'x': x, 'y': y + dist * i / steps}]})
+    await cdp.send('Input.dispatchTouchEvent', {'type': 'touchEnd', 'touchPoints': []})
+
+
+async def word_levels(pg, _unused, device):
+    """Pinyin under every line, tappable lines, the level stack (plan 2026-11-23 WP1.2)."""
+    await pg.goto(U + '#/sheets')
+    await pg.get_by_role('tab', name='HSK五级').click()
+    await pg.get_by_text('朋友', exact=True).first.click()
+    d = pg.locator('.pp-panel')
+    await d.get_by_role('heading', name="Claude's explanation").wait_for(timeout=10000)
+    top = d.locator('.wl.top')
+    # Pinyin: Tatoeba examples show it by default; a collocation with no pinyin gets it computed on the device.
+    await pg.wait_for_function("() => [...document.querySelectorAll('.wx-ex .wx-py')].some(e => e.textContent.trim())", timeout=8000)
+    check(True, 'Tatoeba examples show a non-empty pinyin line by default')
+    col = top.locator('.zb', has_text='朋友圈').first
+    await col.locator('.wx-py').wait_for(timeout=8000)
+    check(bool((await col.locator('.wx-py').inner_text()).strip()), 'collocation with no pinyin: computed on the device')
+    # The chip hides every pinyin line, survives closing and reopening, then turns back on.
+    chip = top.locator('.wx-pychip').first
+    await chip.click()
+    check(await top.locator('.wx-py').count() == 0, 'chip off: no pinyin line')
+    await pg.keyboard.press('Escape')
+    await pg.get_by_text('朋友', exact=True).first.click()
+    d = pg.locator('.pp-panel')
+    await d.get_by_role('heading', name="Claude's explanation").wait_for(timeout=10000)
+    top = d.locator('.wl.top')
+    check(await top.locator('.wx-py').count() == 0, 'chip stays off after reopening')
+    await top.locator('.wx-pychip').first.click()
+    await top.locator('.wx-py').first.wait_for(timeout=5000)
+    check(True, 'chip back on: pinyin lines are back')
+    # Tappable lines: the word is bold, his words are underlined.
+    line = top.locator('.zb', has_text='他是我的朋友。').first
+    check(await line.locator('.zt-w.head', has_text='朋友').count() == 1, 'the panel word is bold (.head) in Claude\'s example')
+    check(await line.locator('.zt-w.mine').count() >= 1, 'his words in a line are marked (.mine)')
+    await line.locator('.zt-w', has_text='的').first.click()
+    top = d.locator('.wl.top')
+    await top.locator('.sw-strip').wait_for(timeout=5000)
+    check(await d.locator('.wl.top .sw-strip').count() == 1, 'tap 的: a level with the sentence strip')
+    back = d.locator('.pp-back')
+    check('朋友' in (await back.get_attribute('aria-label') or '') and '朋友' in await back.inner_text(), 'Back button names 朋友')
+    if device:
+        check((await back.bounding_box())['height'] >= 44, 'Back button is at least 44 px tall')
+    check(await pg.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'no horizontal scroll on a nested level')
+    # Back restores the scroll.
+    await back.click()
+    check(await d.locator('.pp-back').count() == 0 and await d.locator('.wl.top .sw-strip').count() == 0, 'Back returns to the first level')
+    # Scroll restore: scroll down, push, pop.
+    await d.evaluate("el => { el.scrollTop = 120 }")
+    before = await d.evaluate('el => el.scrollTop')
+    await d.locator('.wl.top .zt-w', has_text='朋友').first.click()
+    await d.locator('.wl.top .sw-strip').wait_for(timeout=5000)
+    check(await d.evaluate('el => el.scrollTop') <= 4, 'a new level starts at the top')
+    await d.locator('.pp-back').click()
+    await pg.wait_for_timeout(100)
+    after = await d.evaluate('el => el.scrollTop')
+    check(abs(after - before) <= 4, f'Back restores the scroll ({before:.0f} -> {after:.0f})')
+    # Three levels: Esc goes up one level (desktop), then the close button closes everything.
+    await d.locator('.wl.top .zt-w', has_text='朋友').first.click()
+    await d.locator('.wl.top .sw-strip').wait_for(timeout=5000)
+    await d.locator('.wl.top .zb', has_text='好朋友').first.locator('.zt-w').first.click()
+    await pg.wait_for_function("() => document.querySelectorAll('.wl').length === 3")
+    check(await d.locator('.wl').count() == 3, 'three levels deep')
+    if not device:
+        await pg.keyboard.press('Escape')
+        await pg.wait_for_function("() => document.querySelectorAll('.wl').length === 2")
+        check(await d.count() == 1, 'Esc returns to level 2')
+        await d.locator('.wl.top .zb', has_text='好朋友').first.locator('.zt-w').first.click()
+        await pg.wait_for_function("() => document.querySelectorAll('.wl').length === 3")
+    await d.get_by_role('button', name='Close').click()
+    await pg.locator('.pp-panel').wait_for(state='detached')
+    check(True, 'x closes the whole stack')
+    if device:
+        # A downward touch drag on a nested level closes the sheet.
+        await pg.get_by_text('朋友', exact=True).first.click()
+        d = pg.locator('.pp-panel')
+        await d.locator('.wl.top .zt-w', has_text='朋友').first.wait_for(timeout=10000)
+        await d.locator('.wl.top .zt-w', has_text='朋友').first.click()
+        await d.locator('.wl.top .sw-strip').wait_for(timeout=5000)
+        cdp = await pg.context.new_cdp_session(pg)
+        box = await d.locator('.sw-hint').bounding_box()
+        await drag_down(cdp, box['x'] + 40, box['y'] + 4)
+        await pg.locator('.pp-panel').wait_for(state='detached', timeout=3000)
+        check(True, 'a swipe down on a nested level closes the sheet')
+    # Words page: a word tapped in its examples opens a sheet; x returns to the page.
+    await pg.get_by_text('朋友', exact=True).first.click()
+    d = pg.locator('.pp-panel')
+    href = await d.get_by_role('link', name='Details').get_attribute('href')
+    await pg.keyboard.press('Escape') if not device else await d.get_by_role('button', name='Close').click()
+    await pg.locator('.pp-panel').wait_for(state='detached')
+    await pg.goto(U + href)
+    await pg.locator('.wx .zt-w').first.wait_for(timeout=10000)
+    await pg.locator('.wx .zt-w').first.click()
+    await pg.locator('.pp-panel').wait_for(timeout=5000)
+    check(True, 'Words page: tapping a word in its examples opens a sheet')
+    await pg.get_by_role('button', name='Close').click()
+    await pg.locator('.pp-panel').wait_for(state='detached')
+    check('#/words/' in pg.url, 'Words page: x returns to the page')
 
 
 async def run(p, label, device):
@@ -163,6 +267,8 @@ async def run(p, label, device):
     await pg.wait_for_timeout(500)
     check(len(calls['messages']) == 1, 'reopen: cached, no new request')
     await pg.keyboard.press('Escape')
+
+    await word_levels(pg, None, device)
 
     # Key not in localStorage / sessionStorage.
     stores = await pg.evaluate("JSON.stringify([Object.entries(localStorage), Object.entries(sessionStorage)])")
