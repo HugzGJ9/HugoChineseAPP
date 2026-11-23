@@ -175,6 +175,18 @@ export function sentenceTokens(
   return lineTokens(zh, index, { pattern, segments });
 }
 
+/**
+ * Hugo's words whose written forms (hanzi or alts) contain the character `ch`, as note ids in list order (the index
+ * keeps the notes' order), each once. The current word is not removed here: the caller filters its own id.
+ */
+export function vocabWithChar(ch: string, index: Pick<VocabIndex, 'forms'>): string[] {
+  const c = ch.trim();
+  if (!c) return [];
+  const ids = new Set<string>();
+  for (const [form, id] of index.forms) if (form.includes(c)) ids.add(id);
+  return [...ids];
+}
+
 /** Hugo's words that contain `word` or are inside it (学 → 学习, 留学), longest first, at most `max`. */
 export function vocabLinks(word: string, index: Pick<VocabIndex, 'forms'>, max = 8): string[] {
   const hits: [string, string][] = [];

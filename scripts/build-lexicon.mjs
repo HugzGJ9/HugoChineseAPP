@@ -1,12 +1,16 @@
 // Builds public/dict/w/ (128 shards + index.json + SOURCES.txt): CC-CEDICT senses (English), CFDICT senses (French,
 // from public/dict/cfdict.tsv, so this runs after build-cfdict.mjs) and Tatoeba example sentences.
-// Rules and format: .claude/plans/2026-11-07-word-explain.md (D2); the pure parts are in lexicon-lib.mjs.
+// In the same run, from the same inputs: public/dict/c/ (64 shards + index.json + SOURCES.txt), the common words for
+// each character, ranked by Tatoeba sentence counts.
+// Rules and format: .claude/plans/2026-11-07-word-explain.md (D2), 2026-11-23-word-panel-v2.md (D9); the pure parts
+// are in lexicon-lib.mjs.
 //
 // Env: CEDICT_URL / CEDICT_FILE (plain or .gz), TATOEBA_BASE / TATOEBA_DIR (pre-downloaded files, plain or .bz2),
 // LEXICON_REFRESH=1 (rebuild even when the data is recent), LEXICON_SAMPLE=1 (synthetic fixtures from
 // scripts/fixtures/lexicon unless CEDICT_FILE / TATOEBA_DIR say otherwise, written with sample: true; never reused by a
 // normal run).
-// An existing build is reused while under 30 days old. With CI set and no data at all the build fails; on a laptop it
+// An existing build is reused while under 30 days old, and only when both dict/w and dict/c are complete; when a
+// rebuild fails, an old dict/w is kept even without dict/c (the app then hides the common-word lists). With CI set and no data at all the build fails; on a laptop it
 // only warns (the app then says the dictionary isn't available).
 import { spawn } from 'node:child_process';
 import { createReadStream, createWriteStream, existsSync, mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
@@ -18,20 +22,27 @@ import { pipeline } from 'node:stream/promises';
 import { fileURLToPath } from 'node:url';
 import { gunzipSync, gzipSync } from 'node:zlib';
 import {
+  CHAR_SHARDS,
   SHARDS,
+  SOURCES_TITLE,
   addLink,
   attachTranslations,
+  buildCharIndex,
   buildShards,
+  charReusable,
+  charShardOf,
   filterSentences,
   parseCedict,
   parseCfdictTsv,
   reusable,
+  shardName,
   sourcesText,
   tradOnlyChars,
 } from './lexicon-lib.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const OUT = 'public/dict/w';
+const C_OUT = 'public/dict/c';
 const CFDICT = 'public/dict/cfdict.tsv';
 const FIXTURES = join(HERE, 'fixtures/lexicon');
 const CI = !!process.env.CI;
@@ -47,41 +58,54 @@ const MIN_SENTENCES = 5000;
 const WARN_TOTAL = 35e6;
 const MAX_TOTAL = 60e6;
 const MAX_SHARD = 1.5e6;
+// The same for dict/c, plus the plausibility of a real build (D9).
+const C_WARN_TOTAL = 8e6;
+const C_MAX_TOTAL = 15e6;
+const C_MAX_SHARD = 600e3;
+const MIN_CHARS = 3000;
 const DOWNLOAD_MS = 120000;
 const today = new Date().toISOString().slice(0, 10);
 
-const readIndex = () => {
+const readIndex = (dir = OUT) => {
   try {
-    return JSON.parse(readFileSync(join(OUT, 'index.json'), 'utf8'));
+    return JSON.parse(readFileSync(join(dir, 'index.json'), 'utf8'));
   } catch {
     return null;
   }
 };
-const shardsPresent = () => Array.from({ length: SHARDS }, (_, n) => n).every((n) => existsSync(join(OUT, `${n.toString(16).padStart(2, '0')}.json`)));
+const present = (dir, n) => Array.from({ length: n }, (_, i) => i).every((i) => existsSync(join(dir, `${i.toString(16).padStart(2, '0')}.json`)));
+const shardsPresent = () => present(OUT, SHARDS);
 
 // ---------- reuse ----------
 const old = readIndex();
+const oldC = readIndex(C_OUT);
 const check = reusable(old, { sample: SAMPLE, minWords: MIN_WORDS, minSentences: MIN_SENTENCES, today });
+const checkC = charReusable(oldC, { present: present(C_OUT, CHAR_SHARDS), sample: SAMPLE, minChars: MIN_CHARS });
 const oldUsable = !!old && !old.sample && !SAMPLE && old.v === 1 && old.words >= MIN_WORDS && shardsPresent();
 if (!SAMPLE && !REFRESH && check.ok && shardsPresent()) {
-  console.log(`Lexicon: reusing ${OUT} (built ${old.built}, ${old.words} words, ${old.sentences} sentences).`);
-  process.exit(0);
+  if (checkC.ok) {
+    console.log(`Lexicon: reusing ${OUT} (built ${old.built}, ${old.words} words, ${old.sentences} sentences) and ${C_OUT} (${oldC.chars} characters).`);
+    process.exit(0);
+  }
+  console.log(`Lexicon: ${OUT} is recent but ${C_OUT} is not usable (${checkC.why}); rebuilding both.`);
 }
 
 function unavailable(why) {
   if (tmp) rmSync(tmp, { recursive: true, force: true });
   if (oldUsable) {
     console.warn(`Lexicon: rebuild failed (${why}); keeping the data built ${old.built}.`);
+    if (!checkC.ok) console.warn(`Lexicon: no usable ${C_OUT} (${checkC.why}); the app hides the common-word lists.`);
     process.exit(0);
   }
   if (CI) {
     console.error(`Lexicon: ${why}. No dictionary/examples data and nothing cached: failing the build.`);
     process.exit(1);
   }
-  if (old?.sample) {
+  if (old?.sample || oldC?.sample) {
     // never ship fixtures from a normal build
     rmSync(OUT, { recursive: true, force: true });
-    console.warn(`Lexicon: removed the sample data in ${OUT}.`);
+    rmSync(C_OUT, { recursive: true, force: true });
+    console.warn(`Lexicon: removed the sample data in ${OUT} and ${C_OUT}.`);
   }
   console.warn(`Lexicon not available (${why}); the app will say the dictionary isn't available.`);
   process.exit(0);
@@ -190,6 +214,7 @@ async function readCedict() {
 }
 
 let result;
+let chars;
 let linksSource = 'per-language';
 try {
   const t0 = Date.now();
@@ -249,9 +274,11 @@ try {
     sample: SAMPLE,
     sources,
   });
+  chars = buildCharIndex({ cedict: cedict.entries, cfdict, freq: result.freq, built: today, sample: SAMPLE });
   console.log(`Lexicon: built in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   if (!SAMPLE && result.stats.words < MIN_WORDS) throw new Error(`only ${result.stats.words} words, expected at least ${MIN_WORDS}`);
   if (!SAMPLE && result.stats.sentences < MIN_SENTENCES) throw new Error(`only ${result.stats.sentences} example sentences, expected at least ${MIN_SENTENCES}`);
+  if (!SAMPLE && chars.stats.chars < MIN_CHARS) throw new Error(`only ${chars.stats.chars} characters in ${C_OUT}, expected at least ${MIN_CHARS}`);
 } catch (e) {
   unavailable(e.message);
 }
@@ -266,18 +293,46 @@ console.log(
   `Lexicon: ${stats.words} words (${stats.withExamples} with examples), ${stats.sentences} sentences, ` +
     `${mb(stats.bytes)} raw / ${mb(gz)} gzipped, biggest shard ${mb(stats.biggest)}`,
 );
+let cgz = 0;
+for (const json of chars.files.values()) cgz += gzipSync(json).length;
+console.log(
+  `Lexicon: ${chars.stats.chars} characters, ${chars.stats.words} common words listed, ` +
+    `${mb(chars.stats.bytes)} raw / ${mb(cgz)} gzipped, biggest shard ${mb(chars.stats.biggest)}`,
+);
+// sample rows, to check the ranking in the CI log
+for (const ch of ['学', '汤', '好', '中', '汉', '英', '东']) {
+  const shard = JSON.parse(chars.files.get(`${shardName(charShardOf(ch))}.json`));
+  const row = (shard.c[ch] ?? []).map((r) => `${r[0]} ${r[2] || r[3] || ''}`.trim());
+  console.log(`Lexicon: ${ch} → ${row.length ? row.join(' · ') : '(no row)'}`);
+}
 if (stats.bytes > WARN_TOTAL) console.warn(`Lexicon: total ${mb(stats.bytes)} is above ${mb(WARN_TOTAL)}.`);
+if (chars.stats.bytes > C_WARN_TOTAL) console.warn(`Lexicon: ${C_OUT} total ${mb(chars.stats.bytes)} is above ${mb(C_WARN_TOTAL)}.`);
 if (CI && (stats.bytes > MAX_TOTAL || stats.biggest > MAX_SHARD)) {
   console.error(`Lexicon: over budget (total ${mb(stats.bytes)} / max ${mb(MAX_TOTAL)}, biggest shard ${mb(stats.biggest)} / max ${mb(MAX_SHARD)}).`);
   process.exit(1);
 }
+if (CI && (chars.stats.bytes > C_MAX_TOTAL || chars.stats.biggest > C_MAX_SHARD)) {
+  console.error(
+    `Lexicon: ${C_OUT} over budget (total ${mb(chars.stats.bytes)} / max ${mb(C_MAX_TOTAL)}, ` +
+      `biggest shard ${mb(chars.stats.biggest)} / max ${mb(C_MAX_SHARD)}).`,
+  );
+  process.exit(1);
+}
 
-const next = `${OUT}.tmp`;
-rmSync(next, { recursive: true, force: true });
-mkdirSync(next, { recursive: true });
-for (const [name, json] of files) writeFileSync(join(next, name), json);
-writeFileSync(join(next, 'index.json'), JSON.stringify(index));
-writeFileSync(join(next, 'SOURCES.txt'), sourcesText(index));
+/** Write a tree to `dir.tmp`; the renames happen once both trees are written. */
+function stage(dir, shardFiles, idx, title) {
+  const next = `${dir}.tmp`;
+  rmSync(next, { recursive: true, force: true });
+  mkdirSync(next, { recursive: true });
+  for (const [name, json] of shardFiles) writeFileSync(join(next, name), json);
+  writeFileSync(join(next, 'index.json'), JSON.stringify(idx));
+  writeFileSync(join(next, 'SOURCES.txt'), sourcesText({ built: idx.built, sources: index.sources }, title));
+  return next;
+}
+const nextW = stage(OUT, files, index, SOURCES_TITLE.w);
+const nextC = stage(C_OUT, chars.files, chars.index, SOURCES_TITLE.c);
 rmSync(OUT, { recursive: true, force: true });
-renameSync(next, OUT);
-console.log(`Lexicon: wrote ${files.size} shards to ${OUT}${SAMPLE ? ' (SAMPLE data, for tests only)' : ''}.`);
+renameSync(nextW, OUT);
+rmSync(C_OUT, { recursive: true, force: true });
+renameSync(nextC, C_OUT);
+console.log(`Lexicon: wrote ${files.size} shards to ${OUT} and ${chars.files.size} to ${C_OUT}${SAMPLE ? ' (SAMPLE data, for tests only)' : ''}.`);

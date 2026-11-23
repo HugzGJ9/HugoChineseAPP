@@ -2,14 +2,20 @@
 // scripts/build-lexicon.mjs into 128 shards under public/dict/w/ and cached by the service worker ('dictionary').
 // One word lives in exactly one shard (FNV-1a of the word, the same hash as scripts/lexicon-lib.mjs), so one fetch
 // gives everything about it. No data in the build (local builds) → 'nodata'; offline and not cached → 'offline'.
+// The character index (public/dict/c/, 64 shards by FNV-1a of the character; plan 2026-11-23-word-panel-v2, D9) gives
+// the common words containing a character, read by charWords with the same rules. It is cached and prefetched with
+// dict/w when its index exists; a build without it (an old dict/w kept after a failed rebuild) gives 'nodata'.
 import { HAN, numberedToMarked } from './pinyin';
 import { fnv1a, sentencePinyin } from './import/build';
 
 export const LEXICON_SHARDS = 128;
+export const CHAR_SHARDS = 64;
 /** Longest headword kept by the build (characters). */
 const MAX_WORD = 8;
 /** Parsed shards kept in memory. */
 const LRU_SIZE = 12;
+/** Parsed character shards kept in memory. */
+const CHAR_LRU_SIZE = 8;
 const CACHE = 'dictionary';
 
 /** Shard file format v1 (see .claude/plans/2026-11-07-word-explain.md, D2). */
@@ -58,14 +64,53 @@ export interface WordInfo {
 }
 export type Lookup = { ok: true; info: WordInfo } | { ok: false; reason: 'nodata' | 'offline' | 'error' };
 
+/** Character index format v1 (plan 2026-11-23-word-panel-v2, D9): public/dict/c/index.json. */
+export interface CharIndex {
+  v: 1;
+  shards: number;
+  built: string;
+  sample?: true;
+  chars: number;
+  words: number;
+  bytes: number;
+  similar?: number;
+}
+/** public/dict/c/00.json … 3f.json */
+export interface CharShardFile {
+  v: 1;
+  /** Character → common words containing it, best first, ≤ 24: [word, pinyinNum, en, fr?] (en '' for CFDICT-only words). */
+  c: Record<string, [string, string, string, string?][]>;
+  /** B3: word → up to 4 words sharing a dictionary meaning. Absent before B3. */
+  n?: Record<string, string[]>;
+}
+/** A common word containing a character. */
+export interface CharWord {
+  word: string;
+  /** CEDICT numbered pinyin (xue2 sheng5). */
+  pinyinNum: string;
+  /** Tone marks (xuésheng). */
+  pinyin: string;
+  /** Short English meaning; '' for a word only in CFDICT. */
+  en: string;
+  /** Short French meaning, when CFDICT has the word. */
+  fr?: string;
+}
+export type CharLookup = { ok: true; words: CharWord[] } | { ok: false; reason: 'nodata' | 'offline' | 'error' };
+
 export function lexiconShard(word: string): number {
   return parseInt(fnv1a(word), 16) % LEXICON_SHARDS;
+}
+/** Shard of the character index holding a character (or, from B3, a word's `n` row). */
+export function charShard(key: string): number {
+  return parseInt(fnv1a(key), 16) % CHAR_SHARDS;
 }
 
 const shardName = (n: number) => n.toString(16).padStart(2, '0');
 const abs = (p: string) => (typeof location !== 'undefined' ? new URL(p, location.href).href : p);
 const indexUrl = () => abs(`${import.meta.env.BASE_URL}dict/w/index.json`);
 const shardUrl = (n: number) => abs(`${import.meta.env.BASE_URL}dict/w/${shardName(n)}.json`);
+const charIndexUrl = () => abs(`${import.meta.env.BASE_URL}dict/c/index.json`);
+const charShardUrl = (n: number) => abs(`${import.meta.env.BASE_URL}dict/c/${shardName(n)}.json`);
 const hasCaches = () => typeof caches !== 'undefined';
 
 type Got = { state: 'ok'; data: unknown } | { state: 'missing' | 'offline' | 'error' };
@@ -99,22 +144,34 @@ const isIndex = (d: unknown): d is LexiconIndex =>
   !!d && typeof d === 'object' && (d as LexiconIndex).v === 1 && typeof (d as LexiconIndex).shards === 'number';
 const isShard = (d: unknown): d is ShardFile =>
   !!d && typeof d === 'object' && (d as ShardFile).v === 1 && Array.isArray((d as ShardFile).s) && typeof (d as ShardFile).w === 'object';
+const isCharIndex = (d: unknown): d is CharIndex =>
+  !!d && typeof d === 'object' && (d as CharIndex).v === 1 && (d as CharIndex).shards === CHAR_SHARDS;
+const isCharShard = (d: unknown): d is CharShardFile =>
+  !!d && typeof d === 'object' && (d as CharShardFile).v === 1 && !!(d as CharShardFile).c && typeof (d as CharShardFile).c === 'object';
 
-type IndexState = { state: 'ok'; index: LexiconIndex } | { state: 'nodata' | 'offline' };
-let indexMemo: Promise<IndexState> | null = null;
+type IndexState<T = LexiconIndex> = { state: 'ok'; index: T } | { state: 'nodata' | 'offline' };
 
-function loadIndex(): Promise<IndexState> {
-  if (!indexMemo) {
-    indexMemo = getJson(indexUrl()).then((g): IndexState => {
-      if (g.state === 'ok' && isIndex(g.data)) return { state: 'ok', index: g.data };
-      if (g.state === 'missing' || g.state === 'ok') return { state: 'nodata' };
-      return { state: 'offline' };
-    });
-    // only a definite answer is kept for the session; offline or a server error is asked again next time
-    indexMemo.then((s) => s.state === 'offline' && (indexMemo = null));
-  }
-  return indexMemo;
+/** A memoised index loader: only a definite answer is kept for the session; offline is asked again next time. */
+function indexLoader<T>(url: () => string, valid: (d: unknown) => d is T) {
+  let memo: Promise<IndexState<T>> | null = null;
+  const load = (): Promise<IndexState<T>> => {
+    if (!memo) {
+      const p = getJson(url()).then((g): IndexState<T> => {
+        if (g.state === 'ok' && valid(g.data)) return { state: 'ok', index: g.data };
+        if (g.state === 'missing' || g.state === 'ok') return { state: 'nodata' };
+        return { state: 'offline' };
+      });
+      memo = p;
+      p.then((s) => s.state === 'offline' && memo === p && (memo = null));
+    }
+    return memo;
+  };
+  return { load, reset: () => void (memo = null) };
 }
+
+const wIndex = indexLoader(indexUrl, isIndex);
+const cIndex = indexLoader(charIndexUrl, isCharIndex);
+const loadIndex = wIndex.load;
 
 /** The build's index.json (sources, dates, counts), or null when the build has no lexicon or it can't be reached. */
 export async function lexiconMeta(): Promise<LexiconIndex | null> {
@@ -122,33 +179,84 @@ export async function lexiconMeta(): Promise<LexiconIndex | null> {
   return s.state === 'ok' ? s.index : null;
 }
 
-type ShardState = { ok: true; shard: ShardFile } | { ok: false; reason: 'nodata' | 'offline' | 'error' };
-const shards = new Map<number, Promise<ShardState>>();
+type ShardState<T = ShardFile> = { ok: true; shard: T } | { ok: false; reason: 'nodata' | 'offline' | 'error' };
 
-function loadShard(n: number): Promise<ShardState> {
-  const hit = shards.get(n);
-  if (hit) {
-    shards.delete(n); // move to the most recent end
-    shards.set(n, hit);
-    return hit;
-  }
-  const p = getJson(shardUrl(n)).then(async (g): Promise<ShardState> => {
-    if (g.state === 'ok' && isShard(g.data)) return { ok: true, shard: g.data };
-    if (g.state === 'offline') return { ok: false, reason: 'offline' };
-    if (g.state === 'error') return { ok: false, reason: 'error' };
-    // missing, or not a v1 shard: no data at all, or a broken deploy
-    return { ok: false, reason: (await loadIndex()).state === 'nodata' ? 'nodata' : 'error' };
-  });
-  p.then((s) => !s.ok && shards.get(n) === p && shards.delete(n));
-  shards.set(n, p);
-  while (shards.size > LRU_SIZE) shards.delete(shards.keys().next().value!);
-  return p;
+/** Parsed shards in an LRU; a failure is not kept. A missing or invalid shard is 'nodata' when the index is missing too. */
+function shardLoader<T>(url: (n: number) => string, valid: (d: unknown) => d is T, index: () => Promise<IndexState<unknown>>, size: number) {
+  const lru = new Map<number, Promise<ShardState<T>>>();
+  const load = (n: number): Promise<ShardState<T>> => {
+    const hit = lru.get(n);
+    if (hit) {
+      lru.delete(n); // move to the most recent end
+      lru.set(n, hit);
+      return hit;
+    }
+    const p = getJson(url(n)).then(async (g): Promise<ShardState<T>> => {
+      if (g.state === 'ok' && valid(g.data)) return { ok: true, shard: g.data };
+      if (g.state === 'offline') return { ok: false, reason: 'offline' };
+      if (g.state === 'error') return { ok: false, reason: 'error' };
+      // missing, or not a v1 shard: no data at all, or a broken deploy
+      return { ok: false, reason: (await index()).state === 'nodata' ? 'nodata' : 'error' };
+    });
+    p.then((s) => !s.ok && lru.get(n) === p && lru.delete(n));
+    lru.set(n, p);
+    while (lru.size > size) lru.delete(lru.keys().next().value!);
+    return p;
+  };
+  return { load, clear: () => lru.clear() };
 }
 
-/** For tests: forget the memoised index and shards. */
+const wShards = shardLoader(shardUrl, isShard, loadIndex, LRU_SIZE);
+const cShards = shardLoader(charShardUrl, isCharShard, cIndex.load, CHAR_LRU_SIZE);
+const loadShard = wShards.load;
+
+/** For tests: forget the memoised indexes and shards. */
 export function resetLexicon(): void {
-  indexMemo = null;
-  shards.clear();
+  wIndex.reset();
+  cIndex.reset();
+  wShards.clear();
+  cShards.clear();
+}
+
+/**
+ * Common dictionary words containing a character, best first (≤ 24), with marked pinyin. ok with [] when the
+ * character has no row (or isn't a single Han character); 'nodata' when the build has no character index.
+ */
+export async function charWords(ch: string): Promise<CharLookup> {
+  const c = ch.trim();
+  if ([...c].length !== 1 || !HAN.test(c)) return { ok: true, words: [] };
+  const r = await cShards.load(charShard(c));
+  if (!r.ok) return r;
+  const rows = r.shard.c[c];
+  if (!Array.isArray(rows)) return { ok: true, words: [] };
+  const words: CharWord[] = [];
+  for (const row of rows) {
+    if (!Array.isArray(row) || typeof row[0] !== 'string' || !row[0]) continue;
+    const [word, py = '', en = '', fr] = row;
+    const w: CharWord = { word, pinyinNum: py, pinyin: py ? markedPy(py) : '', en: en || '' };
+    if (fr) w.fr = fr;
+    words.push(w);
+  }
+  return { ok: true, words };
+}
+
+// Senses that only point elsewhere or name someone (D7). "used in …" stays: for many characters it is the meaning.
+const SKIP_SENSE = [
+  /^(?:[\w-]+\s){0,2}variant of\b/i,
+  /^see\b/i,
+  /^surname\b/i,
+  /^Kangxi radical\b/i,
+  /^(?:\S+\s)?variante (?:de|graphique)\b/i,
+  /^voir\b/i,
+  /^nom de famille\b/i,
+  /^(?:radical|clé) (?:de )?Kangxi\b/i,
+];
+
+/** A character's core meaning for its card (D7): up to `max` senses without variant / see / surname / radical senses, unless nothing else is left; joined with '; '. */
+export function charGloss(senses: string[], max = 3): string {
+  const all = senses.map((s) => s.trim()).filter(Boolean);
+  const kept = all.filter((s) => !SKIP_SENSE.some((r) => r.test(s)));
+  return (kept.length ? kept : all).slice(0, max).join('; ');
 }
 
 const normPy = (p: string) => p.toLowerCase().replace(/ü/g, 'v').replace(/u:/g, 'v').replace(/['\s]+/g, '');
@@ -301,15 +409,29 @@ export async function lineReadings(zh: string): Promise<string[]> {
   return out.slice(0, n);
 }
 
-/** How many shards are in the offline cache. total is 0 when the build has no lexicon (or it can't be reached). */
-export async function lexiconCached(): Promise<{ cached: number; total: number }> {
+/** Shard URLs to keep offline: dict/w, plus dict/c when its index exists. null when the build has no lexicon. */
+async function allShardUrls(): Promise<{ urls: string[]; indexes: string[] } | null> {
   const meta = await lexiconMeta();
-  if (!meta) return { cached: 0, total: 0 };
-  const total = meta.shards;
+  if (!meta) return null;
+  const urls = Array.from({ length: meta.shards }, (_, n) => shardUrl(n));
+  const indexes = [indexUrl()];
+  const c = await cIndex.load();
+  if (c.state === 'ok') {
+    for (let n = 0; n < c.index.shards; n++) urls.push(charShardUrl(n));
+    indexes.push(charIndexUrl());
+  }
+  return { urls, indexes };
+}
+
+/** How many shards (dict/w and dict/c) are in the offline cache. total is 0 when the build has no lexicon (or it can't be reached). */
+export async function lexiconCached(): Promise<{ cached: number; total: number }> {
+  const all = await allShardUrls();
+  if (!all) return { cached: 0, total: 0 };
+  const total = all.urls.length;
   if (!hasCaches()) return { cached: 0, total };
   const cache = await caches.open(CACHE);
   let cached = 0;
-  for (let n = 0; n < total; n++) if (await cache.match(shardUrl(n))) cached++;
+  for (const u of all.urls) if (await cache.match(u)) cached++;
   return { cached, total };
 }
 
@@ -322,19 +444,20 @@ export async function prefetchLexicon(
   opts: { batch?: number; pause?: () => Promise<void>; online?: () => boolean } = {},
 ): Promise<number> {
   if (!hasCaches()) return 0;
-  const meta = await lexiconMeta();
-  if (!meta) return 0;
+  const all = await allShardUrls();
+  if (!all) return 0;
   const cache = await caches.open(CACHE);
-  if (!(await cache.match(indexUrl()))) {
+  for (const u of all.indexes) {
+    if (await cache.match(u)) continue;
     try {
-      const res = await fetch(indexUrl());
-      if (res.ok) await cache.put(indexUrl(), res);
+      const res = await fetch(u);
+      if (res.ok) await cache.put(u, res);
     } catch {
       // the shards still work; the index is fetched again next time
     }
   }
-  const todo: number[] = [];
-  for (let n = 0; n < meta.shards; n++) if (!(await cache.match(shardUrl(n)))) todo.push(n);
+  const todo: string[] = [];
+  for (const u of all.urls) if (!(await cache.match(u))) todo.push(u);
   const batch = opts.batch ?? todo.length;
   let done = 0;
   let failed = 0;
@@ -345,7 +468,7 @@ export async function prefetchLexicon(
     const queue = todo.slice(i, i + batch);
     const worker = async () => {
       while (queue.length) {
-        const url = shardUrl(queue.shift()!);
+        const url = queue.shift()!;
         try {
           const res = await fetch(url);
           if (res.ok) await cache.put(url, res);

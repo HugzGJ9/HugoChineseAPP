@@ -30,12 +30,15 @@ jobs:
       - name: Sizes
         run: |
           {
-            echo "--- sizes"; du -sb public/dict public/dict/w; ls public/dict/w | wc -l
-            echo "--- gzip total"; tar -cz -C public/dict w | wc -c
+            echo "--- sizes"; du -sb public/dict public/dict/w public/dict/c; ls public/dict/w | wc -l; ls public/dict/c | wc -l
+            echo "--- gzip total w"; tar -cz -C public/dict w | wc -c
+            echo "--- gzip total c"; tar -cz -C public/dict c | wc -c
             echo "--- index.json"; cat public/dict/w/index.json
+            echo "--- c/index.json"; cat public/dict/c/index.json
           } 2>&1 | tee -a "$RUNNER_TEMP/out/stats.log"
           cp public/dict/w/index.json public/dict/w/SOURCES.txt "$RUNNER_TEMP/out/"
           cp "$(ls public/dict/w/*.json | grep -v index | head -1)" "$RUNNER_TEMP/out/"
+          mkdir -p "$RUNNER_TEMP/out/c" && cp public/dict/c/index.json public/dict/c/SOURCES.txt "$RUNNER_TEMP/out/c/"
       - uses: actions/upload-artifact@v4
         with:
           name: lexicon-stats
