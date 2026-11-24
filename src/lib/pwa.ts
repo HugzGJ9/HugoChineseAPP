@@ -6,16 +6,22 @@ const BASE = import.meta.env.BASE_URL;
 const UPDATE_CHECK_MS = 30 * 60 * 1000;
 const RELOAD_DELAY_MS = 2500;
 
-/** Routes where a reload would interrupt a card on screen. */
-const STUDY_ROUTES = new Set(['review', 'quick']);
+/** Routes where a reload would interrupt a card on screen. `cards` was missing: a deploy reloaded Cards mid-round on the
+ * first focusout (tapping Show answer), losing the typed answer and the screen (plan 2026-11-24-stability-speed F3). */
+const STUDY_ROUTES = new Set(['review', 'quick', 'cards']);
 
 export function routeOf(hash: string): string {
   return (hash.replace(/^#\/?/, '').split('?')[0] || 'today').split('/')[0];
 }
 
-/** Reload on our own only when the app is visible, not on a study screen and not in the middle of typing. */
-export function shouldAutoReload(s: { hash: string; visible: boolean; editing: boolean }): boolean {
-  return s.visible && !s.editing && !STUDY_ROUTES.has(routeOf(s.hash));
+/** Reload on our own only when the app is visible, not on a study screen, not in the middle of typing and with no sheet open. */
+export function shouldAutoReload(s: { hash: string; visible: boolean; editing: boolean; dialog?: boolean }): boolean {
+  return s.visible && !s.editing && !s.dialog && !STUDY_ROUTES.has(routeOf(s.hash));
+}
+
+/** A bottom sheet, menu or panel is open (a word being read, a status menu). */
+function dialogOpen(): boolean {
+  return !!document.querySelector('[role="dialog"], [role="menu"]');
 }
 
 let ready = false;
@@ -44,10 +50,10 @@ export function applyUpdate(): void {
 function maybeReload() {
   if (!ready || reloading) return;
   clearTimeout(timer);
-  if (!shouldAutoReload({ hash: location.hash, visible: document.visibilityState === 'visible', editing: editing() })) return;
+  if (!shouldAutoReload({ hash: location.hash, visible: document.visibilityState === 'visible', editing: editing(), dialog: dialogOpen() })) return;
   // A short pause so the banner is seen; the state is checked again when it ends.
   timer = setTimeout(() => {
-    if (shouldAutoReload({ hash: location.hash, visible: document.visibilityState === 'visible', editing: editing() })) applyUpdate();
+    if (shouldAutoReload({ hash: location.hash, visible: document.visibilityState === 'visible', editing: editing(), dialog: dialogOpen() })) applyUpdate();
   }, RELOAD_DELAY_MS);
 }
 

@@ -1,5 +1,5 @@
 // Hide/show pieces shared by Quick memory and Sheets: layers, presets, hold-to-reveal, the row list.
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { memo, useEffect, useRef, useState, type ReactNode } from 'react';
 import type { Note } from '../lib/types';
 import { pref, setPref } from '../lib/db';
 import { speak } from '../lib/speech';
@@ -110,13 +110,20 @@ export function useShift(): boolean {
 type Item = { key: string; note: Note };
 
 export function QmList<T extends Item>({
-  items, shown, listen, lead, trail, answer, rowClass, onKey, onOpen, hidePinyin = false,
+  items, shown, listen, lead, trail, answer, rowClass, rowSig, onKey, onOpen, hidePinyin = false,
 }: {
   items: T[]; shown: Shown; listen: boolean;
   lead?: (it: T) => ReactNode; trail?: (it: T) => ReactNode;
   /** An answer field: sits with the meaning (phones) or in its own column (wide). Isolated like `trail`. */
   answer?: (it: T) => ReactNode;
   rowClass?: (it: T) => string;
+  /**
+   * Everything the lead, trail and answer slots show for a row, as one string. Rows are memoised (a list of 150–400 rows
+   * re-rendered on every tap or store change was the main slowness on the iPhone): a row renders again only when its
+   * note, its peeks, the shown layers, its classes or this string change. Slot handlers must therefore read changing
+   * state through a ref, not through their closure.
+   */
+  rowSig?: (it: T) => string;
   onKey?: (e: KeyboardEvent, it: T) => boolean; hidePinyin?: boolean;
   /** Called when a shown hanzi is tapped (it is still spoken). */
   onOpen?: (it: T) => void;
@@ -168,6 +175,7 @@ export function QmList<T extends Item>({
           lead={lead?.(it)}
           trail={trail?.(it)}
           answer={answer?.(it)}
+          sig={rowSig?.(it) ?? ''}
           noPinyin={hidePinyin}
           onPeek={(k) => setPeek((p) => ({ ...p, [it.key + ':' + k]: !p[it.key + ':' + k] }))}
           onAll={(on) => setPeek((p) => ({ ...p, [it.key + ':all']: on }))}
@@ -179,13 +187,26 @@ export function QmList<T extends Item>({
   );
 }
 
-function QmRow({
-  id, note, pk, shown, listen, all, peek, focused, extra, lead, trail, answer, noPinyin, onPeek, onAll, onFocus, onOpen,
-}: {
+interface RowProps {
   id: string; note: Note; pk: string; shown: Shown; listen: boolean; all: boolean; peek: Record<string, boolean>; focused: boolean;
-  extra: string; lead?: ReactNode; trail?: ReactNode; answer?: ReactNode; noPinyin: boolean;
+  extra: string; lead?: ReactNode; trail?: ReactNode; answer?: ReactNode; sig: string; noPinyin: boolean;
   onPeek: (k: Layer) => void; onAll: (on: boolean) => void; onFocus: () => void; onOpen?: () => void;
-}) {
+}
+
+const LAYERS: Layer[] = ['hz', 'py', 'mn'];
+
+/** Same row on screen: the slots and handlers are new objects on every list render and are left out (see QmList.rowSig). */
+export function sameRow(a: RowProps, b: RowProps): boolean {
+  return (
+    a.id === b.id && a.note === b.note && a.pk === b.pk && a.shown === b.shown && a.listen === b.listen && a.all === b.all &&
+    a.focused === b.focused && a.extra === b.extra && a.sig === b.sig && a.noPinyin === b.noPinyin && !a.onOpen === !b.onOpen &&
+    LAYERS.every((k) => !!a.peek[a.pk + ':' + k] === !!b.peek[b.pk + ':' + k])
+  );
+}
+
+const QmRow = memo(function QmRow({
+  id, note, pk, shown, listen, all, peek, focused, extra, lead, trail, answer, noPinyin, onPeek, onAll, onFocus, onOpen,
+}: RowProps) {
   const hold = useHold(onAll);
   const vis = (k: Layer) => all || shown[k] !== !!peek[pk + ':' + k];
   const tap = (k: Layer) => () => {
@@ -241,4 +262,4 @@ function QmRow({
       )}
     </div>
   );
-}
+}, sameRow);

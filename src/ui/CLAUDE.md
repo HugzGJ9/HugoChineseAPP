@@ -40,3 +40,6 @@
 - "Try new animations" (`motion.ts`, `hz.motion`, device only): new motion and the WenKai font are scoped under `html.motion`
   (CSS) or `motionOn()` (scripts); off = the app as before. Route transitions in `motion.css`, sheet exits (`.closing`) in
   `panel.css`. Font chunks: `scripts/copy-kai.mjs` → `public/kai/` (only `kai.css` is precached).
+- `QmRow` is memoised (`sameRow`): row content that can change must be in `QmList.rowSig`, and row buttons read changing
+  state through a ref (Sheets `live`), or a skipped row keeps a stale closure.
+- Cards dock buttons prevent the `mousedown` default while the field has focus: losing it closes the iPhone keyboard and drops the screen.

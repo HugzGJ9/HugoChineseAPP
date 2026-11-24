@@ -409,6 +409,12 @@ function Round({
   const flip = (k: Layer) => k !== hidden && !draw && setPeek((p) => ({ ...p, [k]: !p[k] }));
   const ok = done?.ok ?? null;
   const isWrong = wrong.has(n.id) || justWrong.has(n.id);
+  // Tapping Show answer / Check / Next must not take focus from the answer field: on the iPhone that closes the keyboard,
+  // the column (bottom: var(--kb)) grows by the keyboard's height and the whole screen drops, then jumps back up at the
+  // next card. Preventing the mousedown default keeps the focus (and the keyboard) where it is; the click still fires.
+  const keep = (e: { preventDefault: () => void }) => {
+    if (document.activeElement === input.current) e.preventDefault();
+  };
   const scratchBtn = (
     <button type="button" className="btn qk-tool" onClick={() => setScratch(true)} aria-label="Scratch" title="Scratch pad">
       <Icon name="pen" />
@@ -485,21 +491,24 @@ function Round({
             enterKeyHint={done ? 'next' : 'done'}
           />
         )}
-        {done && (
-          <div className="qk-result" role="status">
-            <span className={`qk-verdict verdict ${ok === null ? 'near' : ok ? 'right' : 'wrong'}`}>{ok === null ? done.note : ok ? 'Right' : 'Wrong'}</span>
-            {!draw && (
-              <span className="qk-expected" lang={target === 'hanzi' ? 'zh-CN' : target === 'fr' ? 'fr' : undefined}>
-                {target === 'hanzi' ? n.hanzi : target === 'pinyin' ? <Pinyin text={n.pinyin} /> : meaning(n, 'fr').text}
-              </span>
-            )}
-          </div>
-        )}
+        {/* The verdict line keeps its room before the answer, so checking does not push the card up (and Next down). */}
+        <div className="qk-result" role="status">
+          {done && (
+            <>
+              <span className={`qk-verdict verdict ${ok === null ? 'near' : ok ? 'right' : 'wrong'}`}>{ok === null ? done.note : ok ? 'Right' : 'Wrong'}</span>
+              {!draw && (
+                <span className="qk-expected" lang={target === 'hanzi' ? 'zh-CN' : target === 'fr' ? 'fr' : undefined}>
+                  {target === 'hanzi' ? n.hanzi : target === 'pinyin' ? <Pinyin text={n.pinyin} /> : meaning(n, 'fr').text}
+                </span>
+              )}
+            </>
+          )}
+        </div>
         <div className="qk-actions">
           {done ? (
             <>
               {scratchBtn}
-              <button key="next" type="submit" className="btn primary grow">
+              <button key="next" type="submit" className="btn primary grow" onMouseDown={keep}>
                 Next
               </button>
             </>
@@ -516,10 +525,10 @@ function Round({
           ) : (
             <>
               {scratchBtn}
-              <button key="show" type="button" className="btn grow" onClick={() => submit('')}>
+              <button key="show" type="button" className="btn grow" onMouseDown={keep} onClick={() => submit('')}>
                 Show answer
               </button>
-              <button key="check" type="submit" className="btn primary grow" disabled={!typed.trim()}>
+              <button key="check" type="submit" className="btn primary grow" disabled={!typed.trim()} onMouseDown={keep}>
                 Check
               </button>
             </>
