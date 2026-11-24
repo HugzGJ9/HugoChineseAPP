@@ -1,6 +1,7 @@
-/* Cards (Cards.tsx): a fixed column that follows the keyboard (--kb): top bar, progress, caption, card, answer dock. Tokens only. */
+/* Cards (Cards.tsx): a fixed column on the visible area (iOS pans the page under the keyboard: top --vvt, bottom --kb):
+   top bar, progress, caption, card, answer dock. Tokens only. */
 .cd {
-  position: fixed; top: 0; left: 0; right: 0; bottom: var(--kb, 0px); z-index: 1; display: flex; flex-direction: column; gap: 8px;
+  position: fixed; top: var(--vvt, 0px); left: 0; right: 0; bottom: var(--kb, 0px); z-index: 1; display: flex; flex-direction: column; gap: 8px;
   max-width: 560px; margin: 0 auto; overflow: hidden; overscroll-behavior: contain;
   padding: calc(6px + env(safe-area-inset-top)) calc(16px + env(safe-area-inset-right)) 0 calc(16px + env(safe-area-inset-left));
 }

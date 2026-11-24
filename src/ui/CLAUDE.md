@@ -43,3 +43,4 @@
 - `QmRow` is memoised (`sameRow`): row content that can change must be in `QmList.rowSig`, and row buttons read changing
   state through a ref (Sheets `live`), or a skipped row keeps a stale closure.
 - Cards dock buttons prevent the `mousedown` default while the field has focus: losing it closes the iPhone keyboard and drops the screen.
+- iOS pans the page under the keyboard (`visualViewport.offsetTop`): a fixed full-screen view uses `top: var(--vvt)` and `bottom: var(--kb)` (keyboard.ts), never `top: 0`.

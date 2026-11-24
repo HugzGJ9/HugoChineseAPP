@@ -252,8 +252,45 @@ async def run(p, name, scheme, ctx_args):
     await b.close()
 
 
+# iOS keeps the layout viewport and pans the page under the keyboard (visualViewport.offsetTop), then pans back. Fixed
+# elements are laid out in layout coordinates, so what Hugo sees is rect.top - offsetTop. Chromium has no such keyboard:
+# a stand-in visualViewport is driven by hand (plan 2026-11-24-stability-speed F5).
+FAKE_VV = """(() => { const t = new EventTarget(); let h = innerHeight, top = 0;
+  for (const [k, f] of [['height', () => h], ['offsetTop', () => top], ['width', () => innerWidth], ['offsetLeft', () => 0], ['scale', () => 1]])
+    Object.defineProperty(t, k, { get: f });
+  Object.defineProperty(window, 'visualViewport', { get: () => t });
+  window.__vv = (nh, nt) => { h = nh; top = nt; t.dispatchEvent(new Event('resize')); t.dispatchEvent(new Event('scroll')); }; })();"""
+
+
+async def cards_ios_pan(p):
+    print('-- Cards under a panned iOS keyboard')
+    b = await p.chromium.launch()
+    ctx = await b.new_context(**p.devices['iPhone 13'])
+    await ctx.add_init_script(FAKE_VV)
+    pg = await ctx.new_page()
+    await pg.goto(U)
+    await pg.evaluate('navigator.serviceWorker.ready.then(() => 1)')
+    await pg.goto(U + '#/settings')
+    await pg.locator('input[type=file][accept*=xlsx]').first.set_input_files(XLSX)
+    await pg.goto(U + '#/sheets')
+    await pg.get_by_role('tab', name='HSK五级').wait_for(timeout=15000)
+    await pg.get_by_role('group', name='View').get_by_role('button', name='Cards').click()
+    await pg.locator('.qk-card').wait_for()
+    h = await pg.evaluate('innerHeight')
+    seen = []
+    for off in (0, 120, 60, 0):
+        await pg.evaluate(f'window.__vv({h - 300}, {off})')
+        await pg.wait_for_timeout(100)
+        bar, card, dock = [await pg.locator(sel).bounding_box() for sel in ('.qk-bar', '.qk-card', '.qk-dock')]
+        seen.append((round(bar['y'] - off), round(card['y'] - off), round(dock['y'] + dock['height'] - off)))
+    check(len(set(seen)) == 1, f'Cards: bar, card and dock stay put on screen while iOS pans (seen {seen})')
+    check(seen[0][2] <= h - 300 + 1, 'Cards: the dock ends above the keyboard')
+    await b.close()
+
+
 async def main():
     async with async_playwright() as p:
+        await cards_ios_pan(p)
         phones = (
             ('iPhone 13', p.devices['iPhone 13']),
             ('390x844', {'viewport': {'width': 390, 'height': 844}, 'device_scale_factor': 3, 'is_mobile': True, 'has_touch': True}),

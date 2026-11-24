@@ -1,5 +1,7 @@
 // Software keyboard inset. Chrome/Android resizes the layout with `interactive-widget=resizes-content` (index.html);
 // iOS Safari does not, so we read visualViewport and publish the px the keyboard covers as `--kb` on <html>.
+// iOS also pans the page under the keyboard (visualViewport.offsetTop > 0) and pans it back later: `--vvt` is that pan,
+// so a fixed screen can sit on the visible area (Cards: top --vvt, bottom --kb) instead of sliding up and dropping back.
 // Sheets pad their bottom with max(var(--kb), env(safe-area-inset-bottom)) so the last field and button stay reachable.
 import { useEffect, useState } from 'react';
 
@@ -12,6 +14,7 @@ export function useKeyboardInset(): number {
     const update = () => {
       const px = vv ? Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop)) : 0;
       root.style.setProperty('--kb', `${px}px`);
+      root.style.setProperty('--vvt', `${vv ? Math.max(0, Math.round(vv.offsetTop)) : 0}px`);
       root.classList.toggle('kb-open', px > 80);
       setKb(px);
     };
@@ -22,6 +25,7 @@ export function useKeyboardInset(): number {
       vv?.removeEventListener('resize', update);
       vv?.removeEventListener('scroll', update);
       root.style.removeProperty('--kb');
+      root.style.removeProperty('--vvt');
       root.classList.remove('kb-open');
     };
   }, []);
