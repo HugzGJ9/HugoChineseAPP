@@ -170,7 +170,7 @@ function Round({
     if (n && listen) speak(n.hanzi);
   }, [n, listen]);
   useEffect(() => {
-    if (n && !coarse && !draw) input.current?.focus();
+    if (n && !coarse && !draw) input.current?.focus({ preventScroll: true });
   }, [n, coarse, draw]);
 
   const chooseTarget = (t: Target) => {
@@ -228,7 +228,8 @@ function Round({
     setTyped('');
     setRun((r) => r + 1);
     setI(i + 1);
-    if (!coarse || document.activeElement === input.current) input.current?.focus();
+    // Already focused (the iPhone keeps the keyboard up): focusing again makes iOS scroll the field into view, a jump.
+    if (!coarse && document.activeElement !== input.current) input.current?.focus({ preventScroll: true });
   };
 
   useEffect(() => {
@@ -488,7 +489,8 @@ function Round({
             autoCapitalize="off"
             spellCheck={false}
             lang={target === 'hanzi' ? 'zh-CN' : target === 'fr' ? 'fr' : 'en'}
-            enterKeyHint={done ? 'next' : 'done'}
+            // One Return key label: changing it while the field has focus makes iOS rebuild the keyboard.
+            enterKeyHint="go"
           />
         )}
         {/* The verdict line keeps its room before the answer, so checking does not push the card up (and Next down). */}
