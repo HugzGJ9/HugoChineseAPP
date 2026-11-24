@@ -31,7 +31,7 @@
 .qk-in { animation: qk-fade 0.2s ease-out; }
 @keyframes qk-fade { from { opacity: 0; } }
 .qk-hide { display: inline-block; border-radius: 8px; background: var(--fill-3); }
-.qk-hz .qk-hide { width: 128px; height: 72px; border-radius: 12px; }
+.qk-hz .qk-hide { width: 128px; height: 1.12em; border-radius: 12px; } /* = the hanzi's line box: revealing does not resize the card */
 .qk-py .qk-hide { width: 96px; height: 22px; }
 .qk-mn .qk-hide { width: 168px; height: 18px; }
 .qk-cell:active .qk-hide { opacity: 0.6; }

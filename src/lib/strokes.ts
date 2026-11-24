@@ -4,6 +4,7 @@ import { HAN } from './pinyin';
 import { pref, setPref } from './db';
 import { getState, subscribe } from './store';
 import { dictUrl } from './import';
+import { fnv1a } from './import/build';
 import { prefetchLexicon } from './lexicon';
 
 declare const __APP_VERSION__: string;
@@ -109,6 +110,16 @@ const idle = () =>
     else setTimeout(r, 200);
   });
 
+// A full pass is remembered (device pref) with what it covered, so later launches skip the scan: it used to run
+// `cache.match` for every character and every shard at each launch and after each sync, thousands of Cache API reads
+// competing with the app's own start on the iPhone (plan 2026-11-24-stability-speed F4). Checked again weekly.
+const RECHECK_MS = 7 * 24 * 3600 * 1000;
+type WarmMark = { sig: string; at: number };
+const warmFresh = (key: string, sig: string) => {
+  const m = pref<WarmMark | null>(key, null);
+  return !!m && m.sig === sig && Date.now() - m.at < RECHECK_MS;
+};
+
 let running = false;
 let again = false;
 const noData = new Set<string>();
@@ -139,26 +150,32 @@ export async function warmOffline(): Promise<void> {
         // offline or blocked: tried again at the next launch
       }
     }
-    const all = ownChars().filter((c) => !noData.has(c));
-    const cache = await caches.open('strokes');
+    const own = ownChars();
+    const strokesSig = fnv1a([...own].sort().join(''));
     const todo: string[] = [];
-    for (const c of all) if (!(await cache.match(new URL(strokeUrl(c), location.href).href))) todo.push(c);
     let done = 0;
-    for (let i = 0; i < todo.length && navigator.onLine; i += 50) {
-      setStatus({ phase: 'strokes', done, total: todo.length });
-      await idle();
-      const batch = todo.slice(i, i + 50);
-      await prefetchStrokes(batch);
-      for (const c of batch) if (!(await cache.match(new URL(strokeUrl(c), location.href).href))) noData.add(c);
-      done += batch.length;
+    if (!warmFresh('warm.strokes', strokesSig)) {
+      const all = own.filter((c) => !noData.has(c));
+      const cache = await caches.open('strokes');
+      for (const c of all) if (!(await cache.match(new URL(strokeUrl(c), location.href).href))) todo.push(c);
+      for (let i = 0; i < todo.length && navigator.onLine; i += 50) {
+        setStatus({ phase: 'strokes', done, total: todo.length });
+        await idle();
+        const batch = todo.slice(i, i + 50);
+        await prefetchStrokes(batch);
+        for (const c of batch) if (!(await cache.match(new URL(strokeUrl(c), location.href).href))) noData.add(c);
+        done += batch.length;
+      }
+      if (done === todo.length && navigator.onLine) setPref('warm.strokes', { sig: strokesSig, at: Date.now() } satisfies WarmMark);
     }
-    if (navigator.onLine) {
+    if (navigator.onLine && !warmFresh('warm.lexicon', __APP_VERSION__)) {
       try {
-        await prefetchLexicon((d, t) => t && setStatus({ phase: 'lexicon', done: d, total: t }), {
+        const failed = await prefetchLexicon((d, t) => t && setStatus({ phase: 'lexicon', done: d, total: t }), {
           batch: 8,
           pause: idle,
           online: () => navigator.onLine,
         });
+        if (failed === 0 && navigator.onLine) setPref('warm.lexicon', { sig: __APP_VERSION__, at: Date.now() } satisfies WarmMark);
       } catch {
         // tried again at the next launch
       }

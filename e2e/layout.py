@@ -75,6 +75,15 @@ async def no_scroll(pg, what):
     check(ok, f'{what}: no page scroll')
 
 
+async def answer_type(pg, label):
+    await pg.get_by_role('button', name='Cards settings').click()
+    dlg = pg.get_by_role('dialog', name='Cards settings')
+    await dlg.get_by_role('group', name='Answer with').get_by_role('button', name=label, exact=True).click()
+    await dlg.get_by_role('button', name='Close').click()
+    await dlg.wait_for(state='hidden')
+    await pg.wait_for_timeout(300)
+
+
 async def cards_checks(pg, word):
     hanzi, pinyin, english = word
     await pg.get_by_role('group', name='View').get_by_role('button', name='Cards').click()
@@ -111,6 +120,21 @@ async def cards_checks(pg, word):
         }""")
         leaked = [s for s in secrets[label] if s.lower() in seen]
         check(not leaked, f'{label}: no answer text before Check' + (f' (found {leaked})' if leaked else ''))
+    # Checking an answer must not move the card or the dock, and must keep the focus in the field (on the iPhone a lost
+    # focus closes the keyboard and the whole screen drops; plan 2026-11-24-stability-speed F1).
+    await answer_type(pg, 'Pinyin')
+    field = pg.locator('.qk-input')
+    await field.focus()
+    await field.fill('x')
+    before = (await pg.locator('.qk-card').bounding_box(), await pg.locator('.qk-dock').bounding_box())
+    await pg.get_by_role('button', name='Check').click()
+    await pg.locator('.qk-verdict').wait_for()
+    after = (await pg.locator('.qk-card').bounding_box(), await pg.locator('.qk-dock').bounding_box())
+    moved = [round(abs(a['y'] - b['y']) + abs(a['height'] - b['height'])) for a, b in zip(before, after)]
+    check(max(moved) <= 1, f'Cards: Check moves neither the card nor the dock (moved {moved} px)')
+    check(await pg.evaluate("document.activeElement?.classList.contains('qk-input')"), 'Cards: the field keeps the focus after Check')
+    await pg.get_by_role('button', name='Next').click()
+    check(await pg.evaluate("document.activeElement?.classList.contains('qk-input')"), 'Cards: the field keeps the focus after Next')
     await pg.get_by_role('button', name='Close').first.click()
     await pg.get_by_role('tab', name='HSK五级').wait_for()
 

@@ -324,6 +324,11 @@ export function Sheets() {
     return () => clearTimeout(t);
   }, [undo]);
 
+  // Rows are memoised (QmList.rowSig): their buttons read the paint mode and the Cards link from here, never from a
+  // closure that a skipped row would keep.
+  const live = useRef({ paint, cardsLink });
+  live.current = { paint, cardsLink };
+
   const dialogOpen = !!menu || !!panel || scratch || !!dlg;
 
   // Keys: 1 2 3 layers, L language, / search. Row keys (m k s u w) come through QmList.onKey.
@@ -510,6 +515,7 @@ export function Sheets() {
           listen={listen}
           hidePinyin={hidePinyin}
           rowClass={(r) => `st-${r.status}`}
+          rowSig={(r) => `${r.status}|${wrong.has(r.note.id) ? 'w' : ''}|${answerGen}|${r.ref.id ?? r.ref.row}`}
           lead={(r) => <span className="hs-id">{r.ref.id ?? r.ref.row}</span>}
           trail={(r) => (
             <>
@@ -527,8 +533,15 @@ export function Sheets() {
                   </span>
                 </button>
               )}
-              <StatusChip status={r.status} onClick={() => (paint ? void apply(r, paint) : setMenu(r.key))} />
-              <button type="button" className="icon-btn hs-practise" onClick={() => (location.hash = cardsLink(r.note.id))} aria-label={`Practise ${r.note.hanzi}`} title="Practise (W)">
+              <StatusChip
+                status={r.status}
+                onClick={() => {
+                  const p = live.current.paint;
+                  if (p) void apply(r, p);
+                  else setMenu(r.key);
+                }}
+              />
+              <button type="button" className="icon-btn hs-practise" onClick={() => (location.hash = live.current.cardsLink(r.note.id))} aria-label={`Practise ${r.note.hanzi}`} title="Practise (W)">
                 <Icon name="pen" />
               </button>
             </>
