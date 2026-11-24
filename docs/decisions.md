@@ -68,6 +68,13 @@
   React state or logs. One key per device. Source: word-explain D5.
 - **EXP-2. Explanations are cached per (note, language) in kv `ex:*` and synced as `explain/<dev>/<YYYY-MM>.json.gz`**,
   with their own dirty queue so old versions never touch it. Source: word-explain D6.
+- **EXP-3. Explanation fields are additive; the explain file stays v1.** Prompt v2 adds `confuse` (near-synonyms with
+  when-to-use and a contrasting pair) and keeps writing `nuance` (filled from `confuse`) so older versions still show
+  Close words. Words not in his list never reach Claude. Source: word-panel-v2 D10.
+- **EXP-4. Offline lexicon trees are versioned and reused together.** `dict/w` (words, 128 shards) and `dict/c`
+  (characters → common words, plus `n` similar-meaning rows, 64 shards) are rebuilt together when either is unusable;
+  common/similar words need a CEDICT entry, rare proper nouns (Tatoeba < 10) and slang/dialect/old words are left out.
+  Source: word-panel-v2 D9, D11.
 
 ## Grammar
 - **GRAM-1. Grammar content comes from extra columns of the 语法 sheet** (HSK, Family, Title EN/FR, Definition EN/FR,

@@ -1,10 +1,13 @@
 // What Claude is asked, and how its answer is checked. Pure: no network, no database.
 import type { Note } from '../types';
 import type { Lang } from '../store';
-import type { Explanation } from './types';
+import type { ConfuseItem, Explanation } from './types';
 
-/** Bumped when the prompt or the schema changes in a way that makes older explanations worth asking again. */
-export const PROMPT_VERSION = 1;
+/**
+ * Bumped when the prompt or the schema changes in a way that makes older explanations worth asking again.
+ * 2: `confuse` (words not to confuse with, with example pairs) replaces `nuance` in the schema (word-panel-v2 D10).
+ */
+export const PROMPT_VERSION = 2;
 export const TOOL_NAME = 'word_explanation';
 
 const LANG_NAME: Record<Lang, string> = { en: 'English', fr: 'French' };
@@ -20,12 +23,12 @@ export function systemPrompt(lang: Lang): string {
     '- senses: the common senses first, at most 4. Say which sense his own meaning refers to.',
     '- check: only when his meaning is wrong, too broad or misses a common use; otherwise leave it out.',
     '- register: one line (spoken, written, formal, neutral, slang, regional…).',
-    '- nuance: up to 4 near-synonyms, each with how it differs.',
+    '- confuse: up to 4 words learners mix up with this one (near-synonyms, words used in the same slot); for each, when to use which (meaning, context, register, typical collocations or grammar) and one natural sentence with each word in similar situations, 6–20 characters.',
     '- collocations: 3–8 frequent combinations.',
     '- patterns: 0–4 sentence structures built on the word, each with an example.',
     '- mistakes: 0–3 typical errors of French or English speakers. Never invent mistakes to fill the list.',
     '- examples: exactly 5 natural sentences of 8–20 characters, each showing a different use, mostly with HSK 1–5 words.',
-    'For a grammar point, explain the structure, and use nuance for similar structures.',
+    'For a grammar point, explain the structure, and use confuse for similar structures.',
     'Never invent usages. Say so when you are unsure or when a use is regional.',
   ].join('\n');
 }
@@ -52,13 +55,20 @@ export const INPUT_SCHEMA = {
       },
     },
     register: { type: 'string', description: 'One line' },
-    nuance: {
+    confuse: {
       type: 'array',
       maxItems: 4,
+      description: 'Words learners mix up with this one',
       items: {
         type: 'object',
-        properties: { word: { type: 'string' }, pinyin: { type: 'string' }, diff: { type: 'string', description: 'How it differs' } },
-        required: ['word', 'pinyin', 'diff'],
+        properties: {
+          word: { type: 'string' },
+          pinyin: { type: 'string' },
+          use: { type: 'string', description: 'When to use which: meaning, context, register, typical collocations or grammar; 1–3 sentences' },
+          self: { ...zhItem, description: 'A sentence with the headword, 6–20 characters' },
+          other: { ...zhItem, description: 'A sentence with this word in a similar situation, 6–20 characters' },
+        },
+        required: ['word', 'pinyin', 'use', 'self', 'other'],
       },
     },
     collocations: { type: 'array', minItems: 3, maxItems: 8, items: zhItem },
@@ -82,7 +92,7 @@ export const INPUT_SCHEMA = {
     },
     examples: { type: 'array', minItems: 5, maxItems: 5, items: zhItem },
   },
-  required: ['summary', 'senses', 'register', 'nuance', 'collocations', 'patterns', 'mistakes', 'examples'],
+  required: ['summary', 'senses', 'register', 'confuse', 'collocations', 'patterns', 'mistakes', 'examples'],
 } as const;
 
 export const TOOL = {
@@ -145,6 +155,13 @@ function zhItemOf(o: Record<string, unknown>): { zh: string; pinyin: string; tr:
   return { zh, pinyin: str(o.pinyin, 400), tr: str(o.tr, 600) };
 }
 
+/** A Chinese line that really has Chinese in it, or null. */
+function hanItemOf(v: unknown): { zh: string; pinyin: string; tr: string } | null {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null;
+  const x = zhItemOf(v as Record<string, unknown>);
+  return x && HAN.test(x.zh) ? x : null;
+}
+
 function compact<T>(xs: (T | null)[], cap: number): T[] {
   return xs.filter((x): x is T => x != null).slice(0, cap);
 }
@@ -202,6 +219,23 @@ export function normalizeExplanation(input: unknown): Explanation | null {
     ),
     examples,
   };
+  // Prompt v2. Absent (a v1 entry) stays absent; an empty list is kept: it means "nothing to confuse".
+  if (Array.isArray(o.confuse)) {
+    const confuse = compact<ConfuseItem>(
+      list(o.confuse).map((c) => {
+        const word = str(c.word, 60);
+        const use = str(c.use, 600);
+        if (!word || !use) return null;
+        const self = hanItemOf(c.self);
+        const other = hanItemOf(c.other);
+        return { word, pinyin: str(c.pinyin, 200), use, ...(self ? { self } : {}), ...(other ? { other } : {}) };
+      }),
+      4,
+    );
+    x.confuse = confuse;
+    // Older app versions only show `nuance`: give them the same words (D10).
+    if (!x.nuance.length) x.nuance = confuse.map((c) => ({ word: c.word, pinyin: c.pinyin, diff: c.use }));
+  }
   const check = opt(o.check);
   if (check) x.check = check;
   return x;

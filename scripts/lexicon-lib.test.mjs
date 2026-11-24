@@ -11,9 +11,11 @@ import {
   attachTranslations,
   buildCharIndex,
   buildShards,
+  buildSimilar,
   charReusable,
   charShardOf,
   filterSentences,
+  glossKeys,
   indexSentences,
   isNameOrVariant,
   parseCedict,
@@ -353,8 +355,132 @@ describe('buildCharIndex', () => {
   });
 });
 
+describe('glossKeys', () => {
+  it('lower-cases, drops parentheses, leading "to" and articles, sb/sth placeholders; English first, unique', () => {
+    expect(glossKeys(['to help', 'To assist (sb)', 'a friend', 'to help sb'], 'aider/un ami/l\'école (f)/Aider')).toEqual([
+      'en:help', 'en:assist', 'en:friend', 'fr:aider', 'fr:ami', 'fr:école',
+    ]);
+    expect(glossKeys('to ask sb to do sth; to request', [])).toEqual(['en:ask to do', 'en:request']);
+    expect(glossKeys(['fig. to take the lead', 'the West'], ['les gens'])).toEqual(['en:take the lead', 'en:west', 'fr:gens']);
+  });
+  it('gives no key for names, variants, cross-references or empty senses', () => {
+    expect(glossKeys(['Tom (name)', 'surname Zhang', 'variant of 學|学[xue2]', 'see 學問|学问[xue2 wen4]',
+      'abbr. for 北京大學|北京大学[Bei3 jing1 Da4 xue2]', 'used in 枇杷[pi2 pa5]', '(onom.)', '...'], ['nom de famille Zhang', 'voir 学问']))
+      .toEqual([]);
+    expect(glossKeys(undefined, undefined)).toEqual([]);
+  });
+});
+
+describe('buildSimilar', () => {
+  const e = (simp, pinyin, ...senses) => ({ trad: [simp], simp, pinyin, senses, cl: [] });
+  const all = (ced, n = 1) => new Map(ced.map((x) => [x.simp, n]));
+
+  it('never offers slang, dialect or old words as similar words, but still gives them a row', () => {
+    const ced = [
+      e('朋友', 'peng2 you5', 'friend'),
+      e('友人', 'you3 ren2', 'friend'),
+      e('盆友', 'pen2 you3', '(Internet slang) friend'),
+      e('老铁', 'lao3 tie3', '(slang) very close friend', '(dialect) friend'),
+    ];
+    const sim = buildSimilar({ cedict: ced, freq: all(ced, 50) });
+    expect(sim.get('朋友')).toEqual(['友人']);
+    expect(sim.get('盆友')).toEqual(['友人', '朋友']);
+  });
+  it('pairs words that share a rare meaning, scored by Σ 1/log2(1 + df); a generic meaning is ignored', () => {
+    const ced = [
+      e('帮助', 'bang1 zhu4', 'to help', 'to assist', 'thing'),
+      e('帮忙', 'bang1 mang2', 'to help', 'to do a favor', 'thing'),
+      e('协助', 'xie2 zhu4', 'to assist', 'thing'),
+      e('援助', 'yuan2 zhu4', 'to help', 'to assist', 'thing'),
+      e('东西', 'dong1 xi5', 'thing'),
+      e('事情', 'shi4 qing5', 'affair'),
+    ];
+    // "thing" is shared by 5 words, over maxDf 4: it never makes a pair (东西 gets nothing)
+    const out = buildSimilar({ cedict: ced, freq: all(ced), options: { maxDf: 4 } });
+    // 援助 shares help (df 3) and assist (df 3); 帮忙 only help; 协助 only assist: 协助 (U+534F) before 帮忙 (U+5E2E)
+    expect(out.get('帮助')).toEqual(['援助', '协助', '帮忙']);
+    expect(out.get('协助')).toEqual(['帮助', '援助']);
+    expect(out.has('东西')).toBe(false);
+    expect(out.has('事情')).toBe(false);
+    // with the default maxDf, "thing" counts again
+    expect(buildSimilar({ cedict: ced, freq: all(ced) }).get('东西')).toEqual(['协助', '帮助', '帮忙', '援助']);
+  });
+  it('French meanings count too, words sharing both rank first, a rarer meaning weighs more; perWord cuts the list', () => {
+    const ced = [e('朋友', 'peng2 you5', 'friend'), e('友人', 'you3 ren2', 'friend'), e('好友', 'hao3 you3', 'friend'), e('伙伴', 'huo3 ban4', 'partner')];
+    const cf = new Map([['朋友', [['peng2 you5', 'ami/copain']]], ['伙伴', [['huo3 ban4', 'compagnon/copain']]], ['友人', [['you3 ren2', 'ami']]]]);
+    const out = buildSimilar({ cedict: ced, cfdict: cf, freq: new Map([['好友', 1]]) });
+    // 友人: friend + ami; 伙伴: copain (df 2, weight 0.63); 好友: friend (df 3, weight 0.5, +3 % for its sentence)
+    expect(out.get('朋友')).toEqual(['友人', '伙伴', '好友']);
+    expect(buildSimilar({ cedict: ced, cfdict: cf, freq: new Map([['好友', 1]]), options: { perWord: 1 } }).get('朋友')).toEqual(['友人']);
+  });
+  it('a word of 2+ characters gets no single-character candidates; a single character keeps them', () => {
+    const ced = [e('朋友', 'peng2 you5', 'friend'), e('友人', 'you3 ren2', 'friend'), e('友', 'you3', 'friend'), e('朋', 'peng2', 'friend')];
+    const out = buildSimilar({ cedict: ced, freq: all(ced) });
+    expect(out.get('朋友')).toEqual(['友人']);
+    expect(out.get('友人')).toEqual(['朋友']);
+    // same score and count: code point order (友 U+53CB < 朋 U+670B; 朋 before 朋友)
+    expect(out.get('友')).toEqual(['友人', '朋', '朋友']);
+    expect(out.get('朋')).toEqual(['友', '友人', '朋友']);
+  });
+  it('near-ties go to the more frequent word; a word sharing more meanings stays first', () => {
+    const ced = [
+      e('开始', 'kai1 shi3', 'to begin', 'to start', 'to commence'),
+      e('起始', 'qi3 shi3', 'to begin', 'to commence'), // begin (df 2) + commence (df 3)
+      e('开端', 'kai1 duan1', 'to commence'), // df 3: 0.5
+      e('开头', 'kai1 tou2', 'to start'), // df 4: 0.43, but in 200 sentences
+      e('动手', 'dong4 shou3', 'to start'),
+      e('着手', 'zhuo2 shou3', 'to start'),
+    ];
+    const freq = new Map([...all(ced), ['开头', 200]]);
+    expect(buildSimilar({ cedict: ced, freq }).get('开始')).toEqual(['起始', '开头', '开端', '动手']);
+    // without the bonus, only exact ties go by count
+    expect(buildSimilar({ cedict: ced, freq, options: { freqWeight: 0 } }).get('开始')).toEqual(['起始', '开端', '开头', '动手']);
+  });
+  it('ties go by Tatoeba count, then code point; the output is deterministic', () => {
+    const ced = [e('甲', 'jia3', 'first'), e('乙', 'yi3', 'first'), e('丙', 'bing3', 'first'), e('丁', 'ding1', 'first')];
+    const freq = new Map([['甲', 1], ['乙', 1], ['丙', 5], ['丁', 1]]);
+    // 丙 has the most sentences; 丁 (U+4E01) < 乙 (U+4E59) < 甲 (U+7532)
+    expect(buildSimilar({ cedict: ced, freq }).get('甲')).toEqual(['丙', '丁', '乙']);
+    const a = buildSimilar({ cedict: ced, freq });
+    const b = buildSimilar({ cedict: [...ced].reverse(), freq });
+    expect([...a]).toEqual([...b]);
+  });
+  it('leaves out names, rare proper nouns, CFDICT-only words and words that are not common', () => {
+    const p = (simp, pinyin, ...senses) => ({ ...e(simp, pinyin, ...senses), proper: true });
+    const ced = [
+      e('汤姆', 'Tang1 mu3', 'Tom (name)'),
+      e('汤米', 'Tang1 mi3', 'Tom (name)'),
+      p('北京', 'Bei3 jing1', 'Beijing'),
+      p('燕京', 'Yan1 jing1', 'Beijing'),
+      e('首都', 'shou3 du1', 'capital', 'Beijing'),
+      e('京城', 'jing1 cheng2', 'capital'),
+      e('京师', 'jing1 shi1', 'capital'), // no count, no CFDICT: not common
+    ];
+    const cf = new Map([['都城', [['du1 cheng2', 'capitale']]], ['首都', [['shou3 du1', 'capitale']]]]);
+    const freq = new Map([['汤姆', 50], ['汤米', 50], ['北京', 3], ['燕京', 3], ['首都', 1], ['京城', 1]]);
+    const out = buildSimilar({ cedict: ced, cfdict: cf, freq });
+    expect([...out.keys()].sort()).toEqual(['京城', '首都']);
+    expect(out.get('首都')).toEqual(['京城']);
+    // a frequent proper noun (properMin) is a word like any other
+    expect(buildSimilar({ cedict: ced, cfdict: cf, freq: new Map([...freq, ['北京', 10], ['燕京', 10]]) }).get('北京')).toEqual(['燕京', '首都']);
+  });
+  it('the rows go into `n` of charShardOf(word), and index.similar counts them', () => {
+    const ced = [e('帮助', 'bang1 zhu4', 'to help'), e('帮忙', 'bang1 mang2', 'to help'), e('东西', 'dong1 xi5', 'thing')];
+    const similar = buildSimilar({ cedict: ced, freq: all(ced) });
+    const out = buildCharIndex({ cedict: ced, freq: all(ced), similar, built: '2026-11-23' });
+    for (const w of ['帮助', '帮忙']) {
+      expect(JSON.parse(out.files.get(`${shardName(charShardOf(w))}.json`)).n[w]).toEqual([w === '帮助' ? '帮忙' : '帮助']);
+    }
+    expect(out.index.similar).toBe(2);
+    expect(out.stats).toMatchObject({ similar: 2 });
+    let nBytes = 0;
+    for (const json of out.files.values()) nBytes += Buffer.byteLength(JSON.stringify(JSON.parse(json).n));
+    expect(out.stats.similarBytes).toBe(nBytes);
+  });
+});
+
 describe('charReusable', () => {
-  const idx = { v: 1, shards: 64, built: '2026-11-01', chars: 5000, words: 40000, bytes: 1 };
+  const idx = { v: 1, shards: 64, built: '2026-11-01', chars: 5000, words: 40000, bytes: 1, similar: 30000 };
   it('needs a v1 64-shard index, every shard, the same sample flag and a plausible count', () => {
     expect(charReusable(idx, { minChars: 3000 }).ok).toBe(true);
     expect(charReusable(idx, { present: false, minChars: 3000 }).ok).toBe(false);
@@ -363,6 +489,9 @@ describe('charReusable', () => {
     expect(charReusable({ ...idx, chars: 10 }, { minChars: 3000 }).ok).toBe(false);
     expect(charReusable({ ...idx, sample: true }).ok).toBe(false);
     expect(charReusable(null).ok).toBe(false);
+    // a build from before similar-meaning rows (B3) is rebuilt
+    const { similar: _, ...old } = idx;
+    expect(charReusable(old, { minChars: 3000 })).toMatchObject({ ok: false, why: 'character index without similar words' });
   });
 });
 
@@ -411,6 +540,14 @@ describe('build-lexicon.mjs', () => {
       const rows = (ch) => JSON.parse(c[`${shardName(charShardOf(ch))}.json`]).c[ch].map((r) => r[0]);
       expect(rows('学')).toEqual(expect.arrayContaining(['学生', '学习', '学校']));
       expect(rows('汤')).toEqual(['鸡汤']);
+      // the similar-meaning rows the e2e relies on
+      const n = (w) => JSON.parse(c[`${shardName(charShardOf(w))}.json`]).n[w];
+      expect(n('朋友')).toEqual(['友人']);
+      expect(n('帮助')).toEqual(['帮忙', '协助']);
+      // 学习 doesn't get 学 (a single character); 学 gets 学习
+      expect(n('学习')).toBeUndefined();
+      expect(n('学')).toEqual(['学习']);
+      expect(JSON.parse(c['index.json']).similar).toBeGreaterThan(0);
     } finally {
       rmSync(a, { recursive: true, force: true });
       rmSync(b, { recursive: true, force: true });
@@ -429,6 +566,7 @@ describe('build-lexicon.mjs', () => {
       expect(r.stdout + r.stderr).toContain('global links');
       expect(read(join(b, 'public/dict/w'))).toEqual(read(join(a, 'public/dict/w')));
       expect(read(join(b, 'public/dict/c'))).toEqual(read(join(a, 'public/dict/c')));
+      expect(run(a, { LEXICON_SAMPLE: '1' }).stdout).toContain('Lexicon: similar 朋友 (friend) → 友人 (friend)');
     } finally {
       rmSync(a, { recursive: true, force: true });
       rmSync(b, { recursive: true, force: true });

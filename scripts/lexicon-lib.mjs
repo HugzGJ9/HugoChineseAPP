@@ -1,5 +1,5 @@
 // Pure functions for scripts/build-lexicon.mjs (no I/O), tested in scripts/lexicon-lib.test.mjs.
-// Format and rules: .claude/plans/2026-11-07-word-explain.md, D2 (dict/w); 2026-11-23-word-panel-v2.md, D9 (dict/c).
+// Format and rules: .claude/plans/2026-11-07-word-explain.md, D2 (dict/w); 2026-11-23-word-panel-v2.md, D9 (dict/c), D11 (`n`).
 // The runtime reader is src/lib/lexicon.ts.
 
 export const SHARDS = 128;
@@ -364,6 +364,24 @@ export function shortGloss(senses, max = 32) {
 
 const ALL_HAN = /^\p{Script=Han}+$/u;
 
+/** CC-CEDICT entries grouped by simplified form, in file order. */
+function groupCedict(cedict) {
+  const ced = new Map();
+  for (const e of cedict) {
+    let l = ced.get(e.simp);
+    if (!l) ced.set(e.simp, (l = []));
+    l.push(e);
+  }
+  return ced;
+}
+
+/**
+ * The D9 "common word" test, without the length rule: Han only, a Tatoeba count or a CFDICT entry, and not only proper
+ * nouns unless frequent (properMin). ce: the word's CC-CEDICT entries (required); n: its count; cf: its CFDICT rows.
+ */
+const isCommon = (w, ce, n, cf, properMin) =>
+  ALL_HAN.test(w) && (n >= 1 || cf.length > 0) && !(ce.every((x) => x.proper) && !(n >= properMin));
+
 /**
  * Build public/dict/c: for each character, the common words containing it, best first (D9).
  * A listed word needs a CC-CEDICT entry (CFDICT alone is mostly phrases: 很好, 学生们) that is not only a proper noun,
@@ -375,21 +393,15 @@ const ALL_HAN = /^\p{Script=Han}+$/u;
  */
 export function buildCharIndex({ cedict, cfdict = new Map(), freq = new Map(), similar, built, sample = false, options = {} }) {
   const opt = { ...CHAR_DEFAULTS, ...options };
-  const ced = new Map(); // simp → entries
-  for (const e of cedict) {
-    let l = ced.get(e.simp);
-    if (!l) ced.set(e.simp, (l = []));
-    l.push(e);
-  }
+  const ced = groupCedict(cedict); // simp → entries
   const realSenses = (senses) => sensesOf(senses).filter((x) => !isName(x) && !isRef(x)).length;
   const common = []; // { w, n, cf, len, row }
   for (const [w, ce] of ced) {
     const cps = [...w];
-    if (cps.length < 2 || !ALL_HAN.test(w)) continue;
+    if (cps.length < 2) continue;
     const n = freq.get(w) ?? 0;
     const cf = cfdict.get(w) ?? [];
-    if (n < 1 && !cf.length) continue;
-    if (ce.every((x) => x.proper) && !(n >= opt.properMin)) continue;
+    if (!isCommon(w, ce, n, cf, opt.properMin)) continue;
     let e;
     let best = 0;
     for (const x of ce) {
@@ -429,6 +441,7 @@ export function buildCharIndex({ cedict, cfdict = new Map(), freq = new Map(), s
   const files = new Map();
   let bytes = 0;
   let biggest = 0;
+  let similarBytes = 0;
   for (let s = 0; s < CHAR_SHARDS; s++) {
     const c = {};
     for (const ch of byShard[s].c) c[ch] = byChar.get(ch);
@@ -437,6 +450,7 @@ export function buildCharIndex({ cedict, cfdict = new Map(), freq = new Map(), s
       const n = {};
       for (const w of byShard[s].n) n[w] = similar.get(w);
       file.n = n;
+      similarBytes += Buffer.byteLength(JSON.stringify(n));
     }
     const json = JSON.stringify(file);
     const size = Buffer.byteLength(json);
@@ -448,12 +462,120 @@ export function buildCharIndex({ cedict, cfdict = new Map(), freq = new Map(), s
   if (sample) index.sample = true;
   Object.assign(index, { chars: byChar.size, words: listed.size, bytes });
   if (similar) index.similar = nSimilar;
-  return { files, index, stats: { chars: byChar.size, words: listed.size, bytes, biggest } };
+  const stats = { chars: byChar.size, words: listed.size, bytes, biggest };
+  if (similar) Object.assign(stats, { similar: nSimilar, similarBytes });
+  return { files, index, stats };
+}
+
+// ---------- similar meaning: `n` in public/dict/c (plan 2026-11-23-word-panel-v2, D11) ----------
+
+/**
+ * maxDf/minDf: a meaning counts when 2–40 common words share it; perWord: similar words kept per word; freqWeight: the
+ * Tatoeba bonus that settles near-ties (rank = score × (1 + freqWeight × log2(1 + count)): +3 % for 1 sentence, +20 %
+ * for 100, +30 % for 1,000), so a common word passes a rare one with a slightly rarer shared meaning, but not one that
+ * shares more meanings.
+ */
+export const SIMILAR_DEFAULTS = { maxDf: 40, minDf: 2, perWord: 4, properMin: CHAR_DEFAULTS.properMin, freqWeight: 0.03 };
+
+// Placeholders and leading words that don't change a meaning: "to help sb" = "help", "un ami" = "ami".
+const GLOSS_NOISE = /(?:^|\s)(?:sb|sth|qqn|qqch|qn|qch|qc)(?:'s)?(?=\s|$)|\betc\b\.?/gu;
+const GLOSS_LEAD = {
+  en: /^(?:to\s+)?(?:(?:a|an|the)\s+)?/u,
+  fr: /^(?:(?:le|la|les|un|une|des|du)\s+|l['’]\s*)/u,
+};
+const GLOSS_TRIM = /^[\s.,;:!?…"'“”«»‘’-]+|[\s.,;:!?…"'“”«»‘’-]+$/gu;
+
+function normGloss(sense, lang) {
+  const s = sense.trim();
+  if (!s || isName(s) || isRef(s)) return '';
+  let t = s.toLowerCase();
+  // parentheses (also nested, once), CEDICT readings [hao3]
+  for (let i = 0; i < 2; i++) t = t.replace(/\([^()]*\)|（[^（）]*）/gu, ' ');
+  t = t.replace(/\[[^\]]*\]/g, ' ');
+  if (HAN.test(t)) return ''; // still points at another word: abbr. for 北京大学, used in 枇杷
+  t = t
+    .replace(/^\s*(?:lit|fig)\.\s*/u, '')
+    .replace(GLOSS_NOISE, ' ')
+    .replace(/\s+/g, ' ')
+    .replace(GLOSS_TRIM, '');
+  t = t.replace(GLOSS_LEAD[lang], '').replace(GLOSS_TRIM, '');
+  return /\p{L}/u.test(t) ? t : '';
+}
+
+/**
+ * Normalised meanings of a word, as keys 'en:help', 'fr:aider' (D11): lower case, no parentheses, no leading "to" or
+ * article, no sb/sth placeholders; names, variants and cross-references give no key. Senses are split on '/' and ';'.
+ * Takes arrays or '/' strings; unique keys, English first, in sense order.
+ */
+export function glossKeys(enSenses, frSenses) {
+  const out = new Set();
+  for (const [lang, senses] of [['en', enSenses], ['fr', frSenses]]) {
+    for (const sense of sensesOf(senses ?? [])) {
+      for (const part of sense.split(/[;；]/)) {
+        const k = normGloss(part, lang);
+        if (k) out.add(`${lang}:${k}`);
+      }
+    }
+  }
+  return [...out];
+}
+
+/**
+ * Words that share a dictionary meaning (D11), for each common word: the D9 rules (a CC-CEDICT entry; a Tatoeba count or
+ * a CFDICT entry; rare proper nouns out), single characters included. English senses come from every CC-CEDICT reading,
+ * French from every CFDICT row. A meaning counts when minDf–maxDf words share it; score = Σ 1/log2(1 + df) over the
+ * shared meanings, times the Tatoeba bonus (freqWeight); ties by Tatoeba count, then code point. A word of 2 or more
+ * characters gets no single-character candidates: those are mostly bound morphemes (朋, 识, 始) that the Characters
+ * section already shows; a single character keeps them. Returns Map<word, string[]> (≤ perWord, best first), only
+ * for words with at least one similar word; deterministic.
+ */
+const ODD_SENSE = /^\((?:Internet |coll\. |)slang|^\((?:dialect|old|archaic|Cantonese|Taiwanese|Tw)\b/i;
+
+export function buildSimilar({ cedict, cfdict = new Map(), freq = new Map(), options = {} }) {
+  const opt = { ...SIMILAR_DEFAULTS, ...options };
+  const words = []; // { w, n, keys, one: a single character }
+  for (const [w, ce] of groupCedict(cedict)) {
+    const n = freq.get(w) ?? 0;
+    const cf = cfdict.get(w) ?? [];
+    if (!isCommon(w, ce, n, cf, opt.properMin)) continue;
+    const keys = glossKeys(ce.flatMap((x) => x.senses), cf.flatMap((x) => sensesOf(x[1])));
+    // Slang, dialect and old words (every sense marked so, 盆友 "(Internet slang) friend") get a row but are never
+    // offered as a similar word: Hugo should not pick them up in place of the common word.
+    const odd = ce.flatMap((x) => x.senses).every((t) => ODD_SENSE.test(t));
+    if (keys.length) words.push({ w, n, keys, one: [...w].length === 1, odd });
+  }
+  words.sort((a, b) => cmpCp(a.w, b.w));
+  const post = new Map(); // key → word indexes
+  words.forEach((x, i) => {
+    for (const k of x.keys) {
+      let l = post.get(k);
+      if (!l) post.set(k, (l = []));
+      l.push(i);
+    }
+  });
+  const out = new Map();
+  words.forEach((x, i) => {
+    const score = new Map();
+    const one = x.one;
+    for (const k of [...x.keys].sort()) {
+      const l = post.get(k);
+      if (l.length < opt.minDf || l.length > opt.maxDf) continue;
+      const wgt = 1 / Math.log2(1 + l.length);
+      for (const j of l) if (j !== i && !words[j].odd && (one || !words[j].one)) score.set(j, (score.get(j) ?? 0) + wgt);
+    }
+    if (!score.size) return;
+    // rounded, so sums of the same weights in another order still tie
+    const ranked = [...score].map(([j, s]) => ({ j, s: Math.round(s * (1 + opt.freqWeight * Math.log2(1 + words[j].n)) * 1e9) }));
+    ranked.sort((a, b) => b.s - a.s || words[b.j].n - words[a.j].n || cmpCp(words[a.j].w, words[b.j].w));
+    out.set(x.w, ranked.slice(0, opt.perWord).map((r) => words[r.j].w));
+  });
+  return out;
 }
 
 /** Is an existing dict/c index (with all its shard files, `present`) good enough to reuse alongside dict/w? */
 export function charReusable(index, { present = true, sample = false, minChars = 0 } = {}) {
   if (!index || index.v !== 1 || index.shards !== CHAR_SHARDS) return { ok: false, why: 'no usable character index' };
+  if (typeof index.similar !== 'number') return { ok: false, why: 'character index without similar words' };
   if (!present) return { ok: false, why: 'character index shards missing' };
   if (!!index.sample !== sample) return { ok: false, why: index.sample ? 'sample character index' : 'real character index in a sample run' };
   if (!sample && !(index.chars >= minChars)) return { ok: false, why: 'implausible character count' };

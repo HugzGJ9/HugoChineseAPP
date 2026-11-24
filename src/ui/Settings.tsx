@@ -477,7 +477,7 @@ function ClaudeSettings() {
             <li>Use one key per device, and paste it here. On iPhone, do this in the Home Screen app.</li>
           </ol>
           <p className="small muted">
-            Cost: about 2 to 3 cents per word, paid once, because each explanation is saved and shared between your devices. 300 words come to about $8.
+            Cost: about 4 cents per word, paid once, because each explanation is saved and shared between your devices. 300 words come to about $12.
           </p>
         </div>
       </details>

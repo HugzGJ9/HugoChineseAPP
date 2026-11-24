@@ -5,6 +5,7 @@
 // The character index (public/dict/c/, 64 shards by FNV-1a of the character; plan 2026-11-23-word-panel-v2, D9) gives
 // the common words containing a character, read by charWords with the same rules. It is cached and prefetched with
 // dict/w when its index exists; a build without it (an old dict/w kept after a failed rebuild) gives 'nodata'.
+// The same shards carry `n` (D11): a word → words sharing a dictionary meaning, read by similarWords.
 import { HAN, numberedToMarked } from './pinyin';
 import { fnv1a, sentencePinyin } from './import/build';
 
@@ -237,6 +238,24 @@ export async function charWords(ch: string): Promise<CharLookup> {
     if (fr) w.fr = fr;
     words.push(w);
   }
+  return { ok: true, words };
+}
+
+/**
+ * Words sharing a dictionary meaning with `word` (plan 2026-11-23-word-panel-v2, D11), best first (≤ 4), from the `n`
+ * row in the word's c shard. ok with [] when the word has no row, the shard predates `n`, or the word can't be a
+ * headword; 'nodata' when the build has no character index.
+ */
+export async function similarWords(word: string): Promise<{ ok: true; words: string[] } | { ok: false; reason: 'nodata' | 'offline' | 'error' }> {
+  const w = word.trim();
+  if (!lookupable(w)) return { ok: true, words: [] };
+  const r = await cShards.load(charShard(w));
+  if (!r.ok) return r;
+  const n = r.shard.n;
+  const row = n && typeof n === 'object' ? n[w] : undefined;
+  if (!Array.isArray(row)) return { ok: true, words: [] };
+  const words: string[] = [];
+  for (const x of row) if (typeof x === 'string' && x && x !== w && lookupable(x) && !words.includes(x)) words.push(x);
   return { ok: true, words };
 }
 

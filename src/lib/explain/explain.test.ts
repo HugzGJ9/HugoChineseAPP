@@ -182,9 +182,21 @@ describe('Claude request', () => {
       'content-type': 'application/json',
     });
     const body = JSON.parse(String(init.body));
-    expect(body).toMatchObject({ model: 'claude-sonnet-5-5', max_tokens: 4096, stream: true, tool_choice: { type: 'tool', name: 'word_explanation' } });
+    expect(body).toMatchObject({ model: 'claude-sonnet-5-5', max_tokens: 8192, stream: true, tool_choice: { type: 'tool', name: 'word_explanation' } });
     expect(body.temperature).toBeUndefined();
     expect(body.tools[0].name).toBe('word_explanation');
+    // Schema v2: confuse (with its pairs) instead of nuance.
+    const schema = body.tools[0].input_schema;
+    expect(schema.required).toContain('confuse');
+    expect(schema.required).not.toContain('nuance');
+    expect(schema.properties.nuance).toBeUndefined();
+    expect(schema.properties.confuse).toMatchObject({ type: 'array', maxItems: 4 });
+    expect(schema.properties.confuse.items.required).toEqual(['word', 'pinyin', 'use', 'self', 'other']);
+    expect(schema.properties.confuse.items.properties.self.required).toEqual(['zh', 'pinyin', 'tr']);
+    expect(schema.properties.confuse.items.properties.other.required).toEqual(['zh', 'pinyin', 'tr']);
+    expect(body.system[0].text).toMatch(/- confuse: up to 4 words learners mix up/);
+    expect(body.system[0].text).toMatch(/use confuse for similar structures/);
+    expect(body.system[0].text).not.toMatch(/nuance/);
     expect(body.system[0]).toMatchObject({ type: 'text', cache_control: { type: 'ephemeral' } });
     expect(body.system[0].text).toMatch(/in French/);
     const user: string = body.messages[0].content;
@@ -198,7 +210,7 @@ describe('Claude request', () => {
     // No ids, no progress.
     expect(JSON.stringify(body)).not.toContain('v:学习');
 
-    expect(e).toMatchObject({ k: 'v:学习|xuexi|fr', hz: '学习', py: 'xuéxí', lang: 'fr', model: 'claude-sonnet-5-5-20261001', pv: 1, u: [1600, 1400] });
+    expect(e).toMatchObject({ k: 'v:学习|xuexi|fr', hz: '学习', py: 'xuéxí', lang: 'fr', model: 'claude-sonnet-5-5-20261001', pv: 2, u: [1600, 1400] });
     expect(e.x.summary).toBe('To learn, to study: acquiring knowledge or a skill.');
     expect(e.x.examples).toHaveLength(5);
     expect(await ex.getExplanation(note(), 'fr')).toEqual(e);
@@ -418,6 +430,36 @@ describe('merge', () => {
     expect(await ex.mergeExplanations('iphone-a', '2026-12', [entry(11, 'a11')])).toBe(false);
     expect((await ex.explainUsage()).saved).toBe(1);
   });
+
+  it('the same `at`: the same device replaces (an entry healed by its own file), other devices keep the larger-id rule', async () => {
+    const { ex } = await app();
+    const n = note();
+    const old = entry(10, 'old version');
+    expect(await ex.mergeExplanations('iphone-b', '2026-11', [old])).toBe(true);
+    // The device's file now carries the entry with `confuse` (saved by a newer version): it replaces the old copy.
+    const healed: ExplainEntry = { ...old, x: { ...old.x, summary: 'healed', confuse: [{ word: '读书', pinyin: 'dú shū', use: 'school study' }] } };
+    expect(await ex.mergeExplanations('iphone-b', '2026-11', [healed])).toBe(true);
+    expect((await ex.getExplanation(n, 'en'))?.x).toMatchObject({ summary: 'healed', confuse: [{ word: '读书' }] });
+    // The very same entry again writes nothing.
+    expect(await ex.mergeExplanations('iphone-b', '2026-11', [healed])).toBe(false);
+    // Another device with the same `at`: the larger id still decides.
+    expect(await ex.mergeExplanations('iphone-a', '2026-11', [entry(10, 'a10')])).toBe(false);
+    expect((await ex.getExplanation(n, 'en'))?.x.summary).toBe('healed');
+    expect(await ex.mergeExplanations('iphone-c', '2026-11', [entry(10, 'c10')])).toBe(true);
+    expect((await ex.getExplanation(n, 'en'))).toMatchObject({ dev: 'iphone-c', x: { summary: 'c10' } });
+    expect((await ex.getExplanation(n, 'en'))?.x.confuse).toBeUndefined();
+  });
+
+  it("never replaces this device's own entry with the same `at`", async () => {
+    const { ex, store } = await app();
+    await ex.setClaudeKey(KEY);
+    answers.push(() => sse(GOOD));
+    const mine = await ex.requestExplanation(note(), 'en');
+    const me = store.getState().device;
+    const { dev: _d, mo: _m, own: _o, ...plain } = mine;
+    expect(await ex.mergeExplanations(me, mine.mo, [{ ...plain, x: { ...mine.x, summary: 'other' } }])).toBe(false);
+    expect(await ex.getExplanation(note(), 'en')).toEqual(mine);
+  });
 });
 
 describe('normalizeExplanation', () => {
@@ -462,6 +504,67 @@ describe('normalizeExplanation', () => {
     expect(x.examples).toHaveLength(5);
     expect(x.register).toBe('');
     expect(N({ ...GOOD, summary: 'x'.repeat(5000) })!.summary.length).toBe(1200);
+  });
+
+  it('v2: keeps and caps `confuse`, keeps an empty list, and fills `nuance` from it only when there is none', async () => {
+    const { prompt } = await app();
+    const N = prompt.normalizeExplanation;
+    const { nuance: _n, ...v2 } = GOOD;
+    const pair = (zh: string) => ({ zh: `  ${zh} `, pinyin: 'pīn yīn', tr: 'tr', extra: 1 });
+    const x = N({
+      ...v2,
+      confuse: [
+        { word: ' 读书 ', pinyin: 'dú shū', use: ' School study,\n  reading. ', self: pair('我在学习中文。'), other: pair('他在大学读书。') },
+        { word: '', pinyin: 'x', use: 'no word' },
+        { word: '学', use: '' },
+        'junk',
+        { word: '学会', use: 'to master', self: { zh: 'no han', pinyin: '', tr: '' }, other: 'str' },
+        { word: '长'.repeat(100), pinyin: 'p'.repeat(500), use: 'u'.repeat(1000), self: pair('我学。'), other: { zh: '他学。', pinyin: '', tr: '' } },
+        { word: 'w5', use: 'fifth' },
+        { word: 'w6', use: 'sixth' },
+      ],
+    })!;
+    expect(x.confuse).toHaveLength(4);
+    expect(x.confuse![0]).toEqual({
+      word: '读书',
+      pinyin: 'dú shū',
+      use: 'School study, reading.',
+      self: { zh: '我在学习中文。', pinyin: 'pīn yīn', tr: 'tr' },
+      other: { zh: '他在大学读书。', pinyin: 'pīn yīn', tr: 'tr' },
+    });
+    // A pair line with no Chinese is dropped; the item stays.
+    expect(x.confuse![1]).toEqual({ word: '学会', pinyin: '', use: 'to master' });
+    expect([x.confuse![2].word.length, x.confuse![2].pinyin.length, x.confuse![2].use.length]).toEqual([60, 200, 600]);
+    // An empty pinyin in a pair line is kept as is.
+    expect(x.confuse![2].other).toEqual({ zh: '他学。', pinyin: '', tr: '' });
+    expect(x.confuse![3].word).toBe('w5');
+    // Older versions read `nuance`: the same words, diff = use.
+    expect(x.nuance).toEqual(x.confuse!.map((c) => ({ word: c.word, pinyin: c.pinyin, diff: c.use })));
+    // Normalizing again (as decodeExplain does) changes nothing.
+    expect(N(JSON.parse(JSON.stringify(x)))).toEqual(x);
+
+    // Claude's own nuance stays when it has one.
+    const both = N({ ...GOOD, confuse: [{ word: '学会', pinyin: 'xué huì', use: 'to master' }] })!;
+    expect(both.nuance).toEqual([{ word: '读书', pinyin: 'dú shū', diff: 'school study' }]);
+    expect(both.confuse).toEqual([{ word: '学会', pinyin: 'xué huì', use: 'to master' }]);
+
+    // Nothing to confuse with: the empty list is kept (it hides the section), nuance stays empty.
+    const none = N({ ...v2, confuse: [] })!;
+    expect(none.confuse).toEqual([]);
+    expect(none.nuance).toEqual([]);
+    expect(N({ ...v2, confuse: [{ word: '', use: '' }] })!.confuse).toEqual([]);
+  });
+
+  it('a v1 entry normalizes unchanged, with no `confuse` key', async () => {
+    const { prompt } = await app();
+    const v1 = prompt.normalizeExplanation(GOOD)!;
+    expect('confuse' in v1).toBe(false);
+    expect(prompt.normalizeExplanation(JSON.parse(JSON.stringify(v1)))).toEqual(v1);
+    expect(v1.nuance).toEqual(GOOD.nuance);
+    const noNuance = prompt.normalizeExplanation({ ...GOOD, nuance: undefined })!;
+    expect(noNuance.nuance).toEqual([]);
+    expect('confuse' in noNuance).toBe(false);
+    expect(prompt.normalizeExplanation({ ...GOOD, confuse: 'not a list' })).not.toHaveProperty('confuse');
   });
 
   it('the user prompt handles a grammar point with no French and no group', async () => {

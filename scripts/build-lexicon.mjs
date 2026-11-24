@@ -1,15 +1,17 @@
 // Builds public/dict/w/ (128 shards + index.json + SOURCES.txt): CC-CEDICT senses (English), CFDICT senses (French,
 // from public/dict/cfdict.tsv, so this runs after build-cfdict.mjs) and Tatoeba example sentences.
 // In the same run, from the same inputs: public/dict/c/ (64 shards + index.json + SOURCES.txt), the common words for
-// each character, ranked by Tatoeba sentence counts.
-// Rules and format: .claude/plans/2026-11-07-word-explain.md (D2), 2026-11-23-word-panel-v2.md (D9); the pure parts
+// each character, ranked by Tatoeba sentence counts, and (D11) for each common word up to 4 words sharing a dictionary
+// meaning (`n`).
+// Rules and format: .claude/plans/2026-11-07-word-explain.md (D2), 2026-11-23-word-panel-v2.md (D9, D11); the pure parts
 // are in lexicon-lib.mjs.
 //
 // Env: CEDICT_URL / CEDICT_FILE (plain or .gz), TATOEBA_BASE / TATOEBA_DIR (pre-downloaded files, plain or .bz2),
 // LEXICON_REFRESH=1 (rebuild even when the data is recent), LEXICON_SAMPLE=1 (synthetic fixtures from
 // scripts/fixtures/lexicon unless CEDICT_FILE / TATOEBA_DIR say otherwise, written with sample: true; never reused by a
 // normal run).
-// An existing build is reused while under 30 days old, and only when both dict/w and dict/c are complete; when a
+// An existing build is reused while under 30 days old, and only when both dict/w and dict/c are complete (dict/c with its
+// similar-meaning rows: index.similar is a number); when a
 // rebuild fails, an old dict/w is kept even without dict/c (the app then hides the common-word lists). With CI set and no data at all the build fails; on a laptop it
 // only warns (the app then says the dictionary isn't available).
 import { spawn } from 'node:child_process';
@@ -29,6 +31,7 @@ import {
   attachTranslations,
   buildCharIndex,
   buildShards,
+  buildSimilar,
   charReusable,
   charShardOf,
   filterSentences,
@@ -36,6 +39,7 @@ import {
   parseCfdictTsv,
   reusable,
   shardName,
+  shortGloss,
   sourcesText,
   tradOnlyChars,
 } from './lexicon-lib.mjs';
@@ -215,6 +219,8 @@ async function readCedict() {
 
 let result;
 let chars;
+let similar;
+const glosses = new Map(); // word → a short English meaning, for the sample rows in the log
 let linksSource = 'per-language';
 try {
   const t0 = Date.now();
@@ -274,7 +280,9 @@ try {
     sample: SAMPLE,
     sources,
   });
-  chars = buildCharIndex({ cedict: cedict.entries, cfdict, freq: result.freq, built: today, sample: SAMPLE });
+  similar = buildSimilar({ cedict: cedict.entries, cfdict, freq: result.freq });
+  chars = buildCharIndex({ cedict: cedict.entries, cfdict, freq: result.freq, similar, built: today, sample: SAMPLE });
+  for (const e of cedict.entries) if (!glosses.has(e.simp)) glosses.set(e.simp, shortGloss(e.senses, 24));
   console.log(`Lexicon: built in ${((Date.now() - t0) / 1000).toFixed(1)} s`);
   if (!SAMPLE && result.stats.words < MIN_WORDS) throw new Error(`only ${result.stats.words} words, expected at least ${MIN_WORDS}`);
   if (!SAMPLE && result.stats.sentences < MIN_SENTENCES) throw new Error(`only ${result.stats.sentences} example sentences, expected at least ${MIN_SENTENCES}`);
@@ -304,6 +312,15 @@ for (const ch of ['学', '汤', '好', '中', '汉', '英', '东']) {
   const shard = JSON.parse(chars.files.get(`${shardName(charShardOf(ch))}.json`));
   const row = (shard.c[ch] ?? []).map((r) => `${r[0]} ${r[2] || r[3] || ''}`.trim());
   console.log(`Lexicon: ${ch} → ${row.length ? row.join(' · ') : '(no row)'}`);
+}
+console.log(
+  `Lexicon: ${chars.stats.similar} words with similar-meaning words, ` +
+    `${mb(chars.stats.similarBytes)} raw of ${C_OUT} (included above)`,
+);
+for (const w of ['帮助', '朋友', '知道', '认识', '开始']) {
+  const row = similar.get(w) ?? [];
+  const g = (x) => `${x}${glosses.get(x) ? ` (${glosses.get(x)})` : ''}`;
+  console.log(`Lexicon: similar ${g(w)} → ${row.length ? row.map(g).join(' · ') : '(no row)'}`);
 }
 if (stats.bytes > WARN_TOTAL) console.warn(`Lexicon: total ${mb(stats.bytes)} is above ${mb(WARN_TOTAL)}.`);
 if (chars.stats.bytes > C_WARN_TOTAL) console.warn(`Lexicon: ${C_OUT} total ${mb(chars.stats.bytes)} is above ${mb(C_WARN_TOTAL)}.`);
