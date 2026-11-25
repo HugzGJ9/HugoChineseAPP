@@ -9,6 +9,8 @@ import {
   drawVerdict,
   filterRows,
   isRight,
+  pickChoices,
+  readAnswerBy,
   LIST_FILTERS,
   loadSession,
   readCardsQuery,
@@ -443,5 +445,44 @@ describe('saved sessions from the Quick screen (D8)', () => {
     localStorage.setItem('hz.qm.cards', JSON.stringify({ v: 1, key, ids: ['a'], i: 0, missed: [], knew: 0, round: 1, at: 1 }));
     expect(loadSession(key, new Set(['a']))?.sent).toBeUndefined();
     expect(loadSession(key, new Set(['a']))?.ids).toEqual(['a']);
+  });
+});
+
+describe('pickChoices (Cards › Answer by Choose)', () => {
+  const w = (id: string, hanzi: string, pinyin: string) => ({ id, hanzi, pinyin });
+  const pool = [
+    w('a', '你好', 'nǐ hǎo'), w('b', '谢谢', 'xièxie'), w('c', '再见', 'zàijiàn'), w('d', '请', 'qǐng'),
+    w('e', '对不起', 'duìbuqǐ'), w('f', '他', 'tā'), w('g', '她', 'tā'), w('h', '朋友', 'péngyou'),
+  ];
+  it('holds the answer and 3 distinct distractors, stable for the same salt', () => {
+    const c = pickChoices(pool[0], pool, (x) => x.hanzi, 's1');
+    expect(c).toHaveLength(4);
+    expect(c.filter((x) => x.id === 'a')).toHaveLength(1);
+    expect(new Set(c.map((x) => x.hanzi)).size).toBe(4);
+    expect(pickChoices(pool[0], pool, (x) => x.hanzi, 's1').map((x) => x.id)).toEqual(c.map((x) => x.id));
+  });
+  it('never offers a distractor that reads the same as the answer (homophones)', () => {
+    for (let i = 0; i < 20; i++) {
+      const c = pickChoices(pool[5], pool, (x) => x.pinyin, `salt${i}`);
+      expect(c.filter((x) => x.pinyin === 'tā')).toHaveLength(1);
+    }
+  });
+  it('prefers options of the same length as the answer', () => {
+    const c = pickChoices(pool[0], pool, (x) => x.hanzi, 's2');
+    expect(c.every((x) => [...x.hanzi].length === 2)).toBe(true);
+  });
+  it('puts the answer at different places across cards', () => {
+    const at = new Set(pool.map((p, i) => pickChoices(p, pool, (x) => x.hanzi, `r${i}`).findIndex((x) => x.id === p.id)));
+    expect(at.size).toBeGreaterThan(1);
+  });
+  it('gives fewer options when the pool is small', () => {
+    expect(pickChoices(pool[0], pool.slice(0, 2), (x) => x.hanzi, 's')).toHaveLength(2);
+    expect(pickChoices(pool[0], [pool[0]], (x) => x.hanzi, 's').map((x) => x.id)).toEqual(['a']);
+  });
+  it('reads unknown answer-by values as type', () => {
+    expect(readAnswerBy('choose')).toBe('choose');
+    expect(readAnswerBy('flip')).toBe('flip');
+    expect(readAnswerBy('swipe')).toBe('type');
+    expect(readAnswerBy(undefined)).toBe('type');
   });
 });

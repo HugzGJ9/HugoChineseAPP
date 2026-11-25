@@ -28,13 +28,16 @@ It fakes the GitHub API in memory, so nothing is sent anywhere. It exits non-zer
 - `cards.py` (desktop and iPhone 13) drives Sheets › View › Cards: typed pinyin answers (Right, Wrong, 16 px field, no
   sideways scroll), the deck kept after Close, a hand-typed `#/cards` and a reload, the end of a round, retry, Shuffle and
   Start over; then in a fresh browser tone digits ("3" right, "2" wrong for 少 shǎo), the Draw pad, and the Wrong label (a
-  wrong answer tags the row in Sheets, the Wrong filter counts 1, tapping the tag clears it, still cleared after a reload).
+  wrong answer tags the row in Sheets, the Wrong filter counts 1, tapping the tag clears it, still cleared after a reload)); Answer by Choose (4 different options, the green one is the card, verdict read out) and Flip (Show
+  answer, Not known / Known move on).
 - `layout.py` (iPhone 13 and 390×844, light and dark) fails when the layout breaks on a phone: in Cards, for each answer
   type, the field or pad and Check (Draw: Show answer) are inside the viewport with no page scroll and no answer text is on
   screen before Check; the word panel's top edge is the same on two words; the status and filter menus close on a real
   downward touch drag (CDP `Input.dispatchTouchEvent`); a list answer field is green for 少 and red for 2; a tone-1 pinyin
   span and a Not known chip have different computed colours; Sheets rows are two lines on phones (no id or pen, tags on
-  the hanzi line, meaning ≥ 180 px, row ≤ 100 px) and the tab bar hides while an answer field has focus. In Cards, Check must move neither the card nor the dock, and the field keeps the focus after Check and Next.
+  the hanzi line, meaning ≥ 180 px, row ≤ 100 px) and the tab bar hides while an answer field has focus. In Cards, Check must move neither the card nor the dock, and the field keeps the focus after Check and Next. On a 375x812 iPhone with a
+  stand-in iOS keyboard (pans at focus time like iOS, events 400 ms late, 47/34 px safe areas), tapping the field must not pan
+  and the bar, card, field and buttons stay above the keyboard with nothing cut off, while it opens and once open.
 - `onedrive.py` plays a computer and an iPhone 13 against a fake Microsoft (`fake_graph.py`: Playwright routes for
   login.microsoftonline.com, graph.microsoft.com and a fake `*.microsoftpersonalcontent.com` download host; PKCE checked,
   tokens and quickXorHash made up in memory). No real credentials or requests; any other Microsoft host is aborted and

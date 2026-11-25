@@ -16,6 +16,7 @@ import { DAY, noteOfCard } from './engine/schedule';
 import { answerKind, checkTones } from './answer';
 import { meaning } from './store';
 import { pref, setPref } from './db';
+import { fnv1a } from './import/build';
 
 /** What Hugo answers with: the hanzi, the pinyin (tones alone or full pinyin), the French meaning, or drawing the hanzi. */
 export type Target = 'hanzi' | 'pinyin' | 'fr' | 'draw';
@@ -133,6 +134,47 @@ export function allRows<R extends { note: Note }>(bySheet: Map<string, R[]>): R[
       out.push(r);
     }
   }
+  return out;
+}
+
+// ---------- answer by (Cards settings › Answer by) ----------
+
+/**
+ * How Hugo answers a card: type it (the keyboard), choose it among 4 (Quizlet / Pleco multiple choice: no keyboard), or
+ * flip it (Anki / Pleco self-graded: Show answer, then Not known / Known). Device-only pref `cards.by`, default 'type'.
+ * Draw ignores it.
+ */
+export type AnswerBy = 'type' | 'choose' | 'flip';
+export const ANSWER_BY: readonly AnswerBy[] = ['type', 'choose', 'flip'];
+export const readAnswerBy = (v: unknown): AnswerBy => (ANSWER_BY.includes(v as AnswerBy) ? (v as AnswerBy) : 'type');
+
+const norm = (s: string) => s.normalize('NFC').toLowerCase().replace(/[\s'’·.,;:!?()（）]/g, '');
+
+/**
+ * The options of a multiple-choice card: `answer` plus up to `count - 1` distractors from `pool`, in a stable order for a
+ * given `salt` (same card, same round → same options after a reload). A distractor never reads the same as the answer
+ * (`key`, ignoring case, spaces and punctuation), so homophones and shared meanings can't make two options right. Options
+ * close in length to the answer come first, so the right one does not stand out by its size. Fewer options when the
+ * pool is small; the answer is always in.
+ */
+export function pickChoices<T extends { id: string }>(answer: T, pool: readonly T[], key: (x: T) => string, salt: string, count = 4): T[] {
+  const want = norm(key(answer));
+  const len = [...key(answer)].length;
+  const seen = new Set([want]);
+  const cands: { x: T; d: number; h: string }[] = [];
+  for (const x of pool) {
+    if (x.id === answer.id) continue;
+    const k = norm(key(x));
+    if (!k || seen.has(k)) continue;
+    seen.add(k);
+    cands.push({ x, d: Math.min(3, Math.abs([...key(x)].length - len)), h: fnv1a(`${salt}|${x.id}`) });
+  }
+  cands.sort((a, b) => a.d - b.d || (a.h < b.h ? -1 : a.h > b.h ? 1 : 0));
+  const out = cands.slice(0, count - 1).map((c) => c.x);
+  // Where the answer goes, then the distractors in hash order around it.
+  out.sort((a, b) => (fnv1a(`${salt}#${a.id}`) < fnv1a(`${salt}#${b.id}`) ? -1 : 1));
+  const at = parseInt(fnv1a(`${salt}@${answer.id}`).slice(0, 6), 16) % (out.length + 1);
+  out.splice(at, 0, answer);
   return out;
 }
 

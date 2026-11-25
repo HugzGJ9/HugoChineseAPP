@@ -94,6 +94,11 @@
   gone (`#/quick` redirects to `#/sheets`). Cards runs at `#/cards?sheet=&status=&at=` on the focus shell, built from the
   same `filterRows`/`allRows` as the list, with Hanzi, Pinyin (tone digits or full), French or Draw answers. QUICK-1 still
   holds for its session. Source: mobile-ux D5, D11.
+- **QUICK-3. Cards answers by Type, Choose or Flip** (device pref `hz.cards.by`, not backed up, default Type; Draw has
+  its own pad). Choose = 4 options from the deck (`pickChoices`: never two that read the same, stable per card and round);
+  Flip = Show answer, then Not known / Known, which move on at once (Anki). All three count right/wrong as before: a miss
+  sets the Wrong label, never a status. Layout: card at the top filling the space, dock above the keyboard; on iOS the
+  field is focused without a page pan (`useNoPan`, keyboard.ts). Source: Hugo, 2026-11-25 (iPhone keyboard hid the card).
 
 ## Interface
 - **UI-1. One meaning per colour.** Controls are ink (`--accent`: black in light, white in dark, text on it

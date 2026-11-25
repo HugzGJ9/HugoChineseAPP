@@ -1,6 +1,6 @@
 """Run against the preview build. Sheets › Cards: typed answers (Right / Wrong), tone digits, the Draw pad, the deck surviving
-leaving Cards and a reload, the end of a round, and the Wrong label (set by a wrong answer, cleared from Sheets, still
-cleared after a reload). Desktop and iPhone 13 emulation, synthetic workbook from make_sample.py (no personal data).
+leaving Cards and a reload, the end of a round, the Wrong label (set by a wrong answer, cleared from Sheets, still
+cleared after a reload), and Answer by Choose (4 options, no field) and Flip (Show answer, Not known / Known). Desktop and iPhone 13 emulation, synthetic workbook from make_sample.py (no personal data).
 Screenshots are not taken; nothing is written to E2E_OUT except the generated sample workbook."""
 import asyncio, os, re, subprocess, sys
 from playwright.async_api import async_playwright
@@ -297,11 +297,62 @@ async def tones_draw_wrong(p, name, ctx_args):
     await b.close()
 
 
+async def answer_by(p, name, args):
+    """Cards settings › Answer by: Choose and Flip need no keyboard, so no text field."""
+    print(f'-- {name}: Answer by Choose and Flip')
+    b, pg, errs = await boot(p, args)
+    await open_cards(pg)
+    await answer_with(pg, 'Hanzi')
+    await pg.get_by_role('button', name='Cards settings').click()
+    dlg = pg.get_by_role('dialog', name='Cards settings')
+    await dlg.get_by_role('group', name='Answer by').get_by_role('button', name='Choose', exact=True).click()
+    await dlg.get_by_role('button', name='Close').click()
+    await dlg.wait_for(state='hidden')
+    opts = pg.locator('.qk-choice')
+    await opts.first.wait_for()
+    check(await opts.count() == 4, 'Choose: 4 options')
+    check(await pg.locator('.qk-input').count() == 0, 'Choose: no text field')
+    texts = [t.strip() for t in await opts.all_inner_texts()]
+    check(len(set(texts)) == 4, f'Choose: 4 different options {texts}')
+    label = await pg.locator('.qk-py').get_attribute('aria-label')
+    # The right option is the hanzi of the card: read it off the deck's first word by elimination after answering.
+    await opts.first.click()
+    await pg.locator('.qk-choice.right').wait_for()
+    right = (await pg.locator('.qk-choice.right .qk-ch-hz').inner_text()).strip()
+    check(right in await pg.locator('.qk-hz').inner_text(), f'Choose: the green option is the card ({right})')
+    picked_right = 'right' in (await opts.first.get_attribute('class')).split()
+    check((await pg.locator('.qk-sr').inner_text()).strip() == ('Right' if picked_right else 'Wrong'), 'Choose: verdict read out')
+    check(await pg.locator('.qk-card-tag').count() == (0 if picked_right else 1), 'Choose: Wrong tag only after a wrong pick')
+    await pg.get_by_role('button', name='Next').click()
+    await pg.get_by_text(re.compile(r'^2 / \d+')).wait_for()
+    check(await pg.locator('.qk-choice.right').count() == 0, 'Choose: next card unanswered')
+    # Flip
+    await pg.get_by_role('button', name='Cards settings').click()
+    await dlg.get_by_role('group', name='Answer by').get_by_role('button', name='Flip', exact=True).click()
+    await dlg.get_by_role('button', name='Close').click()
+    await dlg.wait_for(state='hidden')
+    await answer_with(pg, 'Pinyin')
+    check(await pg.locator('.qk-py .qk-hide').count() == 1, 'Flip: pinyin hidden before Show answer')
+    check(await pg.get_by_role('button', name='Known').count() == 0, 'Flip: no grade buttons before Show answer')
+    await pg.get_by_role('button', name='Show answer').click()
+    check(await pg.locator('.qk-py .qk-hide').count() == 0, 'Flip: Show answer reveals the pinyin')
+    await pg.get_by_role('button', name='Not known').click()
+    await pg.get_by_text(re.compile(r'^3 / \d+')).wait_for()
+    check(await pg.locator('.qk-py .qk-hide').count() == 1, 'Flip: Not known moves on to a hidden card')
+    await pg.get_by_role('button', name='Show answer').click()
+    await pg.get_by_role("button", name="Known", exact=True).click()
+    await pg.get_by_text(re.compile(r'^4 / \d+')).wait_for()
+    check(True, 'Flip: Known moves on')
+    check(not errs, f'{name}: no page errors' + (f' {errs}' if errs else ''))
+    await b.close()
+
+
 async def main():
     async with async_playwright() as p:
         for name, args in (('desktop', {'viewport': {'width': 1280, 'height': 860}}), ('iPhone 13', p.devices['iPhone 13'])):
             await main_flow(p, name, args)
             await tones_draw_wrong(p, name, args)
+            await answer_by(p, name, args)
     sys.exit(1 if fail else 0)
 
 asyncio.run(main())

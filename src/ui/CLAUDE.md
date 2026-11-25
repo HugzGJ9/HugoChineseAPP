@@ -19,7 +19,7 @@
 | Cards (`#/cards`, focus shell) | `cards/Cards.tsx` (`CardsPage`) |
 | Review | `review/Session.tsx`, `CardView.tsx`, `GradeBar.tsx`, `VocabBack.tsx`, `OtherCard.tsx` (`Review.tsx` re-exports) |
 | Word panel | `word/WordPanel.tsx`, `word/ExplainView.tsx` (`mine={false}`: dictionary only), `word/SentenceWord.tsx` (word tapped in a grammar sentence), `panel.tsx` (`Sheet`: every bottom sheet and menu) |
-| Keyboard inset | `keyboard.ts` (`useKeyboardInset`, sets `--kb`) |
+| Keyboard inset | `keyboard.ts` (`useKeyboardInset`: `--kb`, `--vvh`, `--vvt`; `useNoPan`/`focusNoPan`: iOS focus without a pan) |
 | Grammar (`#/grammar`, `#/grammar/<id>`) | `grammar/GrammarPage.tsx`, `grammar/grammar.css` |
 | Status | `StatusPicker.tsx` |
 | Writing | `WritePad.tsx` |
@@ -43,4 +43,4 @@
 - `QmRow` is memoised (`sameRow`): row content that can change must be in `QmList.rowSig`, and row buttons read changing
   state through a ref (Sheets `live`), or a skipped row keeps a stale closure.
 - Cards dock buttons prevent the `mousedown` default while the field has focus: losing it closes the iPhone keyboard and drops the screen.
-- iOS pans the page under the keyboard (`visualViewport.offsetTop`): a fixed full-screen view uses `top: var(--vvt)` and `bottom: var(--kb)` (keyboard.ts), never `top: 0`.
+- iOS pans the page to a field focused below the keyboard line: Cards stops it with `useNoPan` (field moved off-page for one frame while it takes focus) and sits on `top: var(--vvt); height: var(--vvh, 100dvh)`, never `top: 0` / `100vh`. Test with the stand-in keyboard in `e2e/layout.py` (`cards_no_pan`).

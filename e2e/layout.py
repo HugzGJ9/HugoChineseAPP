@@ -288,9 +288,63 @@ async def cards_ios_pan(p):
     await b.close()
 
 
+# iOS pans to a field that takes focus below where the keyboard will end. This stand-in does the same: at focus time it
+# pans by however much the field's box (as iOS sees it then) would sit under a 336 px keyboard, and sends the
+# visualViewport events 400 ms later, as iOS does after its animation. Cards must focus without being panned.
+IOS_KB = 336
+FAKE_IOS = """(() => { const t = new EventTarget(); let h = null, top = 0; const K = %d;
+  for (const [k, f] of [['height', () => h ?? innerHeight], ['offsetTop', () => top], ['width', () => innerWidth], ['offsetLeft', () => 0], ['scale', () => 1]])
+    Object.defineProperty(t, k, { get: f });
+  Object.defineProperty(window, 'visualViewport', { get: () => t });
+  window.__pan = -1;
+  document.addEventListener('focusin', (e) => { if (!e.target.matches('input')) return;
+    const r = e.target.getBoundingClientRect();
+    top = r.bottom <= 0 ? 0 : Math.max(0, Math.min(K, Math.ceil(r.bottom + 12 - (innerHeight - K)))); h = innerHeight - K; window.__pan = top;
+    setTimeout(() => { t.dispatchEvent(new Event('resize')); t.dispatchEvent(new Event('scroll')); }, 400); }, true); })();""" % IOS_KB
+
+
+async def cards_no_pan(p):
+    print('-- Cards: tapping the field on a 375x812 iPhone (stand-in iOS keyboard)')
+    b = await p.chromium.launch()
+    dev = dict(p.devices['iPhone 13'])
+    dev['viewport'] = dev['screen'] = {'width': 375, 'height': 812}
+    ctx = await b.new_context(**dev)
+    await ctx.add_init_script(FAKE_IOS)
+    pg = await ctx.new_page()
+    await pg.goto(U)
+    await pg.evaluate('navigator.serviceWorker.ready.then(() => 1)')
+    await pg.goto(U + '#/settings')
+    await pg.locator('input[type=file][accept*=xlsx]').first.set_input_files(XLSX)
+    await pg.goto(U + '#/sheets')
+    await pg.get_by_role('tab', name='HSK五级').wait_for(timeout=15000)
+    await pg.get_by_role('group', name='View').get_by_role('button', name='Cards').click()
+    await pg.locator('.qk-card').wait_for()
+    await pg.add_style_tag(content='.cd { --safe-t: 47px !important; --safe-b: 34px !important; }')  # iPhone safe areas
+    await answer_type(pg, 'Pinyin')
+    fs = await pg.evaluate("parseFloat(getComputedStyle(document.querySelector('.qk-input')).fontSize)")
+    check(fs >= 16, f'Cards: field font {fs}px (>= 16: no iOS zoom)')
+    await pg.wait_for_timeout(3500)  # the import toast has gone
+    await pg.locator('.qk-input').tap()
+    await pg.wait_for_timeout(150)
+    check(await pg.evaluate('window.__pan') == 0, f'Cards: the tap focuses the field without an iOS pan (pan {await pg.evaluate("window.__pan")})')
+    check(await pg.evaluate("document.activeElement?.classList.contains('qk-input')"), 'Cards: the tap focuses the field')
+    vis = 812 - IOS_KB
+    for phase in ('while the keyboard opens', 'keyboard open'):
+        pan = await pg.evaluate('window.__pan')  # what is on screen is the layout box moved up by the pan
+        boxes = {s: await pg.locator(s).bounding_box() for s in ('.qk-bar', '.qk-card', '.qk-input', '.qk-actions')}
+        ok = all(bx['y'] - pan >= 0 and bx['y'] - pan + bx['height'] <= vis + 0.5 for bx in boxes.values())
+        check(ok, f'Cards, {phase}: bar, card, field and buttons inside the {vis}px above the keyboard' + ('' if ok else f' {boxes}'))
+        cut = await pg.evaluate("(() => { const c = document.querySelector('.qk-card'); return c.scrollHeight - c.clientHeight })()")
+        check(cut <= 1, f'Cards, {phase}: nothing cut off the card ({cut}px)')
+        await pg.wait_for_timeout(700)
+    await no_scroll(pg, 'Cards, keyboard open')
+    await b.close()
+
+
 async def main():
     async with async_playwright() as p:
         await cards_ios_pan(p)
+        await cards_no_pan(p)
         phones = (
             ('iPhone 13', p.devices['iPhone 13']),
             ('390x844', {'viewport': {'width': 390, 'height': 844}, 'device_scale_factor': 3, 'is_mobile': True, 'has_touch': True}),
