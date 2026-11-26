@@ -487,3 +487,19 @@ describe('speed', () => {
     expect(again.store.getState().events).toHaveLength(20000 - 1);
   }, 30000);
 });
+
+describe('useAppPick', () => {
+  it('keeps the same pick when other fields change, a new one when a picked field changes', async () => {
+    const { store } = await device();
+    const a = store.pickState(store.getState(), ['notes', 'marks'], null);
+    store.setSync({ state: 'idle' });
+    const b = store.pickState(store.getState(), ['notes', 'marks'], a);
+    expect(b).toBe(a);
+    const c = store.pickState(store.getState(), ['notes', 'sync'], null);
+    store.setSync({ state: 'off' });
+    const d = store.pickState(store.getState(), ['notes', 'sync'], c);
+    expect(d).not.toBe(c);
+    expect(d.sync.state).toBe('off');
+    expect(d.notes).toBe(c.notes);
+  });
+});

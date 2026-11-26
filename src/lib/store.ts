@@ -1,5 +1,5 @@
 // App state in memory, persisted to IndexedDB. Cards are always derived from notes + seeds + events.
-import { useSyncExternalStore } from 'react';
+import { useRef, useSyncExternalStore } from 'react';
 import {
   SHARED_PREFS,
   collectPrefs,
@@ -144,6 +144,23 @@ export function notifyLocalChange() {
 }
 export function useApp<T>(sel: (s: AppState) => T): T {
   return useSyncExternalStore(subscribe, () => sel(state));
+}
+
+/** `prev` when every picked field is the same object (===), else a new pick. Pure; `useAppPick` keeps the last one. */
+export function pickState<K extends keyof AppState>(s: AppState, keys: K[], prev: Pick<AppState, K> | null): Pick<AppState, K> {
+  if (prev && keys.every((k) => prev[k] === s[k])) return prev;
+  const out = {} as Pick<AppState, K>;
+  for (const k of keys) out[k] = s[k];
+  return out;
+}
+
+/**
+ * Some fields of the state: the screen re-renders only when one of them changes (plan 2026-11-26-boot-and-guards D6).
+ * Screens use this or a narrow `useApp` selector, never `useApp((s) => s)` (a sync or Excel tick re-rendered them all).
+ */
+export function useAppPick<K extends keyof AppState>(...keys: K[]): Pick<AppState, K> {
+  const last = useRef<Pick<AppState, K> | null>(null);
+  return useSyncExternalStore(subscribe, () => (last.current = pickState(state, keys, last.current)));
 }
 
 function engineSettings(s: Settings) {
