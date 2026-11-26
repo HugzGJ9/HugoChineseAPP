@@ -63,7 +63,7 @@ jobs:
   e2e:
     needs: build
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
@@ -145,8 +145,24 @@ jobs:
           HUGO_XLSX: ${{ runner.temp }}/sample.xlsx
           E2E_OUT: ${{ runner.temp }}/e2e-out
 
+      # Report only: budgets are not enforced (PERF_STRICT unset). Fails only on a broken flow.
+      - name: Speed check (report)
+        run: python e2e/perf.py
+        env:
+          HUGO_URL: http://localhost:4175/HugoChineseAPP/
+          E2E_OUT: ${{ runner.temp }}/e2e-out
+      # Only perf.json: the folder also holds screenshots.
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: perf
+          path: ${{ runner.temp }}/e2e-out/perf.json
+          retention-days: 14
+          if-no-files-found: ignore
+
   deploy:
     needs: [build, e2e]
+    if: github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     environment:
