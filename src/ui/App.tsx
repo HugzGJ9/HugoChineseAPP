@@ -29,15 +29,24 @@ const Report = lazy(() => load.stats().then((m) => ({ default: m.Report })));
 const Settings = lazy(() => load.settings().then((m) => ({ default: m.Settings })));
 
 let preloaded = false;
-/** Fetches every screen chunk once, after start-up work (sync, warm-up) has had its turn. */
+/**
+ * Fetches every screen chunk once, after start-up work (sync, warm-up) has had its turn: the tab screens (Grammar,
+ * Settings) soon after the first rows, the rest when the app is idle. A first tap on a tab before its chunk arrived
+ * costs ≈ 480 ms with "Try new animations" on (plan 2026-11-26-page-stability P13).
+ */
 function preloadScreens(): void {
   if (preloaded) return;
   preloaded = true;
-  const run = () => {
-    for (const f of Object.values(load)) f().catch(() => undefined);
+  const get = (fs: (() => Promise<unknown>)[]) => {
+    for (const f of fs) f().catch(() => undefined);
   };
   const idle = (globalThis as { requestIdleCallback?: (cb: () => void, o?: { timeout: number }) => number }).requestIdleCallback;
-  setTimeout(() => (idle ? idle(run, { timeout: 4000 }) : run()), 2500);
+  setTimeout(() => get([load.grammar, load.settings]), 800);
+  setTimeout(() => {
+    const rest = () => get([load.cards, load.words, load.stats, load.review]);
+    if (idle) idle(rest, { timeout: 4000 });
+    else rest();
+  }, 2500);
 }
 
 // The three tabs stay mounted once visited (hidden with <Activity>): going back to one is instant and keeps its
