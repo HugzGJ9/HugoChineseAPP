@@ -64,11 +64,14 @@ function useRoute(): string[] {
   const last = useRef(route);
   // Page scroll of each tab screen when it was left (window scroll is shared by all screens).
   const scrolls = useRef<Record<string, number>>({});
+  const shownRoute = useRef(route);
   useEffect(() => {
     const on = () => {
       const next = read();
-      const from = last.current.join('/');
-      if (isKept(screenOf(last.current[0]))) scrolls.current[from] = window.scrollY;
+      // Saved under the screen still on show (the last committed route): two quick changes must not file Sheets'
+      // scroll under a screen that never drew.
+      const on = shownRoute.current;
+      if (isKept(screenOf(on[0]))) scrolls.current[on.join('/')] = window.scrollY;
       // Always a transition: the current screen stays on show until the next one is ready (a chunk still loading, a
       // long list), instead of an empty page. "Try new animations" on (device only): deeper slides in from the right,
       // shallower back from the left, anything else cross-fades.
@@ -88,6 +91,7 @@ function useRoute(): string[] {
   // Scroll once the new screen is committed (so the old one doesn't jump before it goes): back where a tab was left,
   // else to the top.
   useLayoutEffect(() => {
+    shownRoute.current = route;
     const key = route.join('/');
     window.scrollTo(0, isKept(screenOf(route[0])) ? scrolls.current[key] ?? 0 : 0);
   }, [route]);

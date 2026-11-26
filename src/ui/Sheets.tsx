@@ -578,7 +578,7 @@ export function Sheets() {
           onOpen={(r) => setPanel(r.key)}
         />
       )}
-      {list.length > limit && (
+      {list.length > limit && grow.n >= limit && (
         <button type="button" className="btn tinted block hs-showmore" onClick={() => setLimit(limit + (motionOn() ? 400 : 200))}>
           Show more
         </button>

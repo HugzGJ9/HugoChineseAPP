@@ -48,6 +48,10 @@ Hugo's checks before deploy (iPhone, then PC):
    the rest fills in below.
 3. Settings › Look and feel › Try new animations on: same three steps; the status chip still ticks (haptic) on a tap.
 
+qa (sonnet): PASS. Fixed after qa: scroll saved under the screen still on show (two quick route changes filed Sheets'
+scroll under Grammar); "Show more" waits until the rows have filled in. Left: toggling "Try new animations" remounts
+the kept screens once (filters and typed answers reset; reload after the switch avoids it) → B5 removes the switch.
+
 ## 4. Next batches (ranked)
 
 ### Batch 3 — speed that is left (engineer + ui-dev)
