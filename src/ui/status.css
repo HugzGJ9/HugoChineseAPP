@@ -6,6 +6,7 @@
 
 /* Row chip: the button is a 44px hit area, the visible capsule sits inside it. */
 button.status-chip {
+  position: relative; /* holds the haptic label (StatusPicker.tsx) */
   display: inline-flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; padding: 0;
   border: 0; border-radius: 999px; background: transparent; color: inherit; -webkit-user-select: none; user-select: none;
 }

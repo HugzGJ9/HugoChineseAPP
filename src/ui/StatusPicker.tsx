@@ -1,16 +1,32 @@
 // The four word statuses: a one-tap picker (segmented, coloured by status), the row chip and the status glyph.
 import type { WordStatus } from '../lib/types';
 import { STATUS_LABEL, WORD_STATUSES } from '../lib/status';
-import { hapticTrigger } from 'ios-haptics';
 import { motionOn } from './motion';
 import './status.css';
 
+const iOS = (): boolean =>
+  typeof navigator !== 'undefined' && (/iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1));
+
 /**
  * Ref for a button that should give a light haptic tick on iPhone (real taps only). Probe behind "Try new animations"
- * (plan 2026-11-22-ui-polish WP0); does nothing on other devices.
+ * (plan 2026-11-22-ui-polish WP0); does nothing on other devices. Same trick as ios-haptics 3.3 (MIT): an invisible
+ * label over the button toggles a hidden iOS `switch` checkbox, which ticks. Unlike the library it never reads
+ * getComputedStyle: the buttons are `position: relative` in CSS. That read, once per status chip while a list mounts,
+ * forced 400 style recalculations in a row: a 3 s freeze on every Sheets list on the iPhone (plan 2026-11-26 R10).
  */
 const haptic = (el: HTMLElement | null) => {
-  if (el && motionOn()) hapticTrigger(el);
+  if (!el || !motionOn() || !iOS() || el.querySelector(':scope > [data-haptic-trigger]')) return;
+  const label = document.createElement('label');
+  label.setAttribute('data-haptic-trigger', '');
+  label.setAttribute('aria-hidden', 'true');
+  label.style.cssText = 'position:absolute;inset:0;touch-action:manipulation;-webkit-tap-highlight-color:transparent';
+  const input = document.createElement('input');
+  input.type = 'checkbox';
+  input.setAttribute('switch', '');
+  input.style.cssText = 'position:absolute;width:1px;height:1px;margin:0;visibility:hidden';
+  input.addEventListener('click', (e) => e.stopPropagation());
+  label.append(input);
+  el.append(label);
 };
 
 /** Text glyphs, kept for screens that print a status inline. New UI uses StatusIcon. */

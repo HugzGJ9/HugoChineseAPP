@@ -202,7 +202,9 @@
   .sheets .hs-practise { display: none; }
 }
 
-/* Plan 2026-11-22-ui-polish D6, behind html.motion (D10): rows far off screen are skipped; they stay in the DOM.
-   Intrinsic sizes match the row heights: two-line phone row 60px, one-line desktop row 52px. */
-html.motion .sheets .ql-row { content-visibility: auto; contain-intrinsic-size: auto 60px; }
-@media (min-width: 700px) { html.motion .sheets .ql-row { contain-intrinsic-size: auto 52px; } }
+/* Rows far off screen are skipped by layout and paint; they stay in the DOM (plan 2026-11-22-ui-polish D6, now for
+   everyone: plan 2026-11-26-page-stability F7). This is also what makes showing the kept Sheets screen again cheap.
+   `auto` remembers each row's real height once drawn; the estimates match the rows measured in e2e: phone rows (two
+   lines plus the answer field) 98px, one-line wide rows 52px. A wrong estimate makes the scroll bar jump. */
+.sheets .ql-row { content-visibility: auto; contain-intrinsic-size: auto 98px; }
+@media (min-width: 700px) { .sheets .ql-row { contain-intrinsic-size: auto 52px; } }

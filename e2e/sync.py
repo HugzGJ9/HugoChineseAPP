@@ -211,7 +211,7 @@ async def main():
         key = await pg.input_value('.share-key textarea')
         sync_panel = pg.locator('#sync')
         await sync_panel.screenshot(path=S + 's-pc-sync.png')
-        await pg.locator('.main').first.screenshot(path=S + 's-pc-words.png')
+        await pg.locator('.main:visible').first.screenshot(path=S + 's-pc-words.png')
         ev_pc = [p for p in files if p.startswith('events/')]
         print('Repo after reviews:', sorted(files))
         print('key length', len(key))

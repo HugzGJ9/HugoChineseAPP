@@ -341,8 +341,46 @@ async def cards_no_pan(p):
     await b.close()
 
 
+async def kept_tabs(p, motion):
+    """Plan 2026-11-26-page-stability: the tab screens stay mounted. Leaving Sheets for Grammar and coming back keeps the
+    page scroll, closes the word panel (portalled to <body>), and never shows an empty page on the way."""
+    what = 'kept tabs' + (' (motion on)' if motion else '')
+    b, ctx, pg, errs = await boot(p, dict(p.devices['iPhone 13']))
+    if motion:
+        await pg.evaluate("localStorage.setItem('hz.motion', 'true')")
+        await pg.reload()
+        await pg.locator('.ql-row').first.wait_for()
+    await pg.wait_for_timeout(800)  # rows past the first ones are drawn in steps
+    y = min(1200, await pg.evaluate('document.scrollingElement.scrollHeight - innerHeight'))
+    await pg.evaluate(f'window.scrollTo(0, {y})')
+    await pg.wait_for_timeout(200)
+    # A row on screen, so the tap itself does not scroll the page.
+    i = await pg.evaluate("[...document.querySelectorAll('.ql-row')].findIndex(r => { const b = r.getBoundingClientRect(); return b.top > 150 && b.bottom < innerHeight - 120 && r.querySelector('.ql-hz .peek'); })")
+    row = pg.locator('.ql-row').nth(i)
+    y = await pg.evaluate('scrollY')
+    await row.locator('.ql-hz').click()
+    await pg.locator('.pp-panel').wait_for()
+    check(abs(await pg.evaluate('scrollY') - y) <= 2, f'{what}: opening the word panel keeps the page scroll ({y})')
+    blank = await pg.evaluate("""() => new Promise(res => { let n = 0, f = 0; location.hash = '#/grammar';
+      const t = () => { f++; const m = [...document.querySelectorAll('.shell > .main, .shell > main')].filter(e => getComputedStyle(e).display !== 'none');
+        if (!m.length || m.some(e => !e.childElementCount)) n++;
+        f < 30 ? requestAnimationFrame(t) : res(n); }; requestAnimationFrame(t); })""")
+    check(blank == 0, f'{what}: no empty page frame on the way to Grammar ({blank})')
+    await pg.locator('.gr').wait_for()
+    check(await pg.locator('.pp-panel:visible').count() == 0, f'{what}: the word panel closed on leaving Sheets')
+    await pg.locator('nav a[href="#/sheets"]').click()
+    await pg.locator('.ql-row:visible').first.wait_for()
+    await pg.wait_for_timeout(300)
+    back = await pg.evaluate('scrollY')
+    check(abs(back - y) <= 2, f'{what}: Sheets is back at the same scroll position ({y} → {back})')
+    check(not errs, f'{what}: no page errors')
+    await b.close()
+
+
 async def main():
     async with async_playwright() as p:
+        await kept_tabs(p, False)
+        await kept_tabs(p, True)
         await cards_ios_pan(p)
         await cards_no_pan(p)
         phones = (

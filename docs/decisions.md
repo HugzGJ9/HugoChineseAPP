@@ -109,6 +109,11 @@
 - **UI-2. The list answer field leaves no trace.** Sheets rows check hanzi, tone digits or pinyin (`src/lib/answer.ts`)
   and turn green or red; nothing is written to marks, events, prefs or storage, and statuses never change.
   Source: mobile-ux D10.
+- **UI-3. Tab screens stay mounted.** Sheets, Grammar and Settings are kept in `<Activity>` once visited (hidden with
+  display: none), and each keeps its page scroll; route changes are transitions and screen chunks preload when idle.
+  Screens close what they portal to `<body>` in an effect cleanup, and no per-row code reads layout at mount. Under
+  "Try new animations" every transition update starts a View Transition, so background work in a screen uses plain
+  updates. Source: page-stability D1–D3, 2026-11-26.
 
 ## Agent team
 - **AGENT-1. Review strength follows data risk.** qa runs on opus for batches that touch `src/lib`, sync files or

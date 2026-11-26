@@ -155,7 +155,12 @@ export function QmList<T extends Item>({
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [items, cur, onKey]);
+  // Only when the focus moves: effects run again when a kept screen is shown (App <Activity>), and scrolling to the
+  // focused row then would throw away the page's scroll position.
+  const lastCur = useRef(cur);
   useEffect(() => {
+    if (lastCur.current === cur) return;
+    lastCur.current = cur;
     document.getElementById(`qm-${cur}`)?.scrollIntoView({ block: 'nearest' });
   }, [cur]);
   return (

@@ -29,6 +29,10 @@ const ALL_TAB = '\u0000all';
 const PAGE_OLD = 150;
 const PAGE_MOTION = 400; // plan 2026-11-22-ui-polish D6: with content-visibility rows, a bigger page is cheap
 const pageSize = () => (motionOn() ? PAGE_MOTION : PAGE_OLD);
+// Rows drawn at once when the list changes (mount, sheet tab, filter, search); the rest of the page follows in steps
+// of GROW_STEP, so a tab switch paints in one short frame instead of a 300–500 ms freeze on the iPhone.
+const FIRST_ROWS = 30;
+const GROW_STEP = 60;
 const HIDDEN_SHEETS = /^exam$/i;
 
 function matcher(q: string): ((n: Note) => boolean) | null {
@@ -211,6 +215,20 @@ export function Sheets() {
   const [q, setQ] = useState('');
   const dq = useDeferredValue(q);
   const [limit, setLimit] = useState(pageSize);
+  // How many of the `limit` rows are drawn yet, for this list (`grow.key`). A new list starts at FIRST_ROWS.
+  const listKey = `${tab}|${filter}|${dq}`;
+  const [grow, setGrow] = useState({ key: listKey, n: FIRST_ROWS });
+  if (grow.key !== listKey) {
+    setGrow({ key: listKey, n: FIRST_ROWS });
+    setLimit(pageSize());
+  }
+  useEffect(() => {
+    if (grow.n >= limit) return;
+    // In steps of GROW_STEP rows, each a short plain update after the frame is painted. Not a transition: with
+    // "Try new animations" on, every transition update runs a page-wide View Transition (seconds of work for a list).
+    const t = setTimeout(() => setGrow((g) => (g.key === grow.key ? { key: g.key, n: Math.min(limit, g.n + GROW_STEP) } : g)), 16);
+    return () => clearTimeout(t);
+  }, [grow, limit]);
   const [menu, setMenu] = useState<string | null>(null);
   const [panel, setPanel] = useState<string | null>(null);
   const [scratch, setScratch] = useState(false);
@@ -258,8 +276,6 @@ export function Sheets() {
     const c = buildQueue([...cards.values()], noteMap, events, settings, now).counts;
     return c.due + c.learning;
   }, [notes.length, cards, noteMap, events, settings, now]);
-
-  useEffect(() => setLimit(pageSize()), [current, filter, dq]);
 
   // Keep the selected sheet tab in view inside the scrolling tab strip (without scrolling the page).
   useEffect(() => {
@@ -330,6 +346,17 @@ export function Sheets() {
   live.current = { paint, cardsLink };
 
   const dialogOpen = !!menu || !!panel || scratch || !!dlg;
+  // Sheets stays mounted while another screen shows (App <Activity>), and the word panel is portalled to <body>:
+  // close every menu and panel on leaving, so none is still open (or covering Cards) when Hugo comes back.
+  useEffect(
+    () => () => {
+      setMenu(null);
+      setPanel(null);
+      setScratch(false);
+      setDlg(null);
+    },
+    [],
+  );
 
   // Keys: 1 2 3 layers, L language, / search. Row keys (m k s u w) come through QmList.onKey.
   useEffect(() => {
@@ -510,7 +537,7 @@ export function Sheets() {
         </div>
       ) : (
         <QmList
-          items={list.slice(0, limit)}
+          items={list.slice(0, Math.min(limit, grow.n))}
           shown={shown}
           listen={listen}
           hidePinyin={hidePinyin}
