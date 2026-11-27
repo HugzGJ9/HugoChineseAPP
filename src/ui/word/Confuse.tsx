@@ -1,79 +1,14 @@
-// "Don't confuse with" (Claude's near-synonyms, plan 2026-11-23 D10) and "Similar meaning" (offline, D11).
-// For near-synonyms the point is "when to use which", so each item leads with the rule and then shows the contrasting
-// pair: a sentence with the headword and one with the other word, side by side in a stack.
+// "Similar meaning": offline words that share a dictionary meaning with the headword (plan 2026-11-27 D3, rebuilt later).
 import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../../lib/store';
 import { lookupWord, similarWords, type DictSense, type ExampleSentence } from '../../lib/lexicon';
-import type { Explanation } from '../../lib/explain';
 import { Pinyin } from '../common';
 import { useWordNav } from './nav';
-import { ZhBlock, ZhText } from './ZhLine';
-
-const HAN_ONLY = /^\p{Script=Han}+$/u;
-
-interface Item { word: string; pinyin: string; use: string; self?: ZhPair; other?: ZhPair }
-interface ZhPair { zh: string; pinyin: string; tr: string }
-
-function ItemWord({ word }: { word: string }) {
-  const nav = useWordNav();
-  const han = HAN_ONLY.test(word) && [...word].length <= 8;
-  if (!han) return <ZhText zh={word} />;
-  return (
-    <button type="button" className="wx-cf-word zh" lang="zh-CN" disabled={!nav} onClick={() => nav?.open({ t: 'word', word })}>
-      {word}
-    </button>
-  );
-}
-
-export function ConfuseSection({ x, head, onAskAgain, online }: { x: Explanation; head: string[]; onAskAgain: () => void; online: boolean }) {
-  const lang = useApp((s) => s.lang);
-  const old = x.confuse === undefined;
-  const items: Item[] = useMemo(() => {
-    const src: Item[] = x.confuse ?? x.nuance.map((n) => ({ word: n.word, pinyin: n.pinyin, use: n.diff }));
-    return src.filter((i) => !head.includes(i.word));
-  }, [x, head]);
-  if (items.length === 0) return null;
-  return (
-    <section className="wx-sec" aria-label="Don't confuse with">
-      <h3 className="wx-h">Don't confuse with</h3>
-      <ul className="wx-card wx-cf-list" lang={lang}>
-        {items.map((it, i) => (
-          <li key={i} className="wx-row wx-cf">
-            <div className="wx-cf-head">
-              <ItemWord word={it.word} />
-              {it.pinyin && <Pinyin text={it.pinyin} className="wx-cf-py" />}
-            </div>
-            <p className="wx-cf-use">{it.use}</p>
-            {it.self && it.other && (
-              <div className="wx-vs">
-                <div className="wx-vs-side self">
-                  <span className="wx-vs-tag zh" lang="zh-CN">{head[0]}</span>
-                  <ZhBlock zh={it.self.zh} pinyin={it.self.pinyin} tr={it.self.tr} trLang={lang} head={head} />
-                </div>
-                <div className="wx-vs-side other">
-                  <span className="wx-vs-tag zh" lang="zh-CN">{it.word}</span>
-                  <ZhBlock zh={it.other.zh} pinyin={it.other.pinyin} tr={it.other.tr} trLang={lang} head={[it.word]} />
-                </div>
-              </div>
-            )}
-          </li>
-        ))}
-      </ul>
-      {old && (
-        <div className="wx-ask">
-          <span className="wx-foot">From an older explanation{online ? '' : ' · needs a connection'}</span>
-          <button type="button" className="btn small plain" onClick={onAskAgain} disabled={!online}>
-            Ask again for example pairs
-          </button>
-        </div>
-      )}
-    </section>
-  );
-}
+import { ZhBlock } from './ZhLine';
 
 interface Similar { word: string; pinyin: string; pinyinNum: string; senses: string[]; tag?: 'EN'; example?: ExampleSentence }
 
-export function SimilarSection({ word, mine }: { word: string; mine: boolean }) {
+export function SimilarSection({ word }: { word: string }) {
   const lang = useApp((s) => s.lang);
   const nav = useWordNav();
   const [list, setList] = useState<Similar[] | null>(null);
@@ -124,7 +59,6 @@ export function SimilarSection({ word, mine }: { word: string; mine: boolean }) 
       </ul>
       <p className="wx-foot">
         Words that share a dictionary meaning with {word}. Compare their senses and examples.
-        {mine && ' Explain more gives Claude’s comparison.'}
       </p>
     </section>
   );

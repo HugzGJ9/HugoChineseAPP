@@ -61,7 +61,7 @@ export function SetupSources({ linked = false }: { linked?: boolean }) {
     'Pick the folder that holds Hugo_chinese_vocab.xlsx. The app reads the file when it changes and writes a copy next to it with your statuses as colours. The original is never changed.';
   const keyBody = (
     <div className="stack">
-      <p className="cell-detail">On the device that has your words, open Settings › Sync › Add another device, and paste the sync key here.</p>
+      <p className="cell-detail">On the device that has your words, open Settings › Advanced › Sync › Add another device, and paste the sync key here.</p>
       <KeyForm />
     </div>
   );
@@ -431,7 +431,7 @@ export function SyncSettings() {
           <Row glyph="cloud" label="Sync through OneDrive" detail="Sign in with Microsoft above first." />
         ))}
       <Fold title={withMs ? 'Other ways (without Microsoft)' : 'Join with a sync key'} open={!withMs}>
-        <p className="cell-detail">On a device that is already linked: Settings › Sync › Add another device.</p>
+        <p className="cell-detail">On a device that is already linked: Settings › Advanced › Sync › Add another device.</p>
         <KeyForm />
         <details>
           <summary>First device: set up the repository</summary>
@@ -656,13 +656,13 @@ export function LinkPage({ keyText }: { keyText: string }) {
         {!valid ? (
           <Section>
             <Cell>
-              <p className="notice bad">This link has no valid sync key. Open Settings › Sync › Add another device on your computer and try again.</p>
+              <p className="notice bad">This link has no valid sync key. Open Settings › Advanced › Sync › Add another device on your computer and try again.</p>
             </Cell>
           </Section>
         ) : linked ? (
           <Section>
             <Cell>
-              <p className="notice ok">This device is already linked. To link it to another repository, unlink it first in Settings › Sync.</p>
+              <p className="notice ok">This device is already linked. To link it to another repository, unlink it first in Settings › Advanced › Sync.</p>
             </Cell>
           </Section>
         ) : (
@@ -674,7 +674,7 @@ export function LinkPage({ keyText }: { keyText: string }) {
                     <ol className="steps">
                       <li>Copy the key.</li>
                       <li>If Hugo 中文 is not on your Home Screen yet: Share › Add to Home Screen.</li>
-                      <li>Open Hugo 中文 from the Home Screen and paste the key on the first screen, or in Settings › Sync.</li>
+                      <li>Open Hugo 中文 from the Home Screen and paste the key on the first screen, or in Settings › Advanced › Sync.</li>
                     </ol>
                     <CopyButton text={key} />
                   </div>

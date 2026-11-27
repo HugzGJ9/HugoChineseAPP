@@ -210,6 +210,8 @@ describe('deriveWithMemo', () => {
       set: 's1',
       extra: { a: 'b' },
       grammar: { hsk: 3, family: 'time', title: { en: 'a' } },
+      confuse: [{ word: '学', register: 'spoken', fr: 'f', en: 'e' }],
+      register: 'spoken',
     };
     // Another value for every field (a new Note field fails to compile here until it gets one).
     const other: { [K in keyof Required<Note>]: Note[K][] } = {
@@ -234,6 +236,8 @@ describe('deriveWithMemo', () => {
       set: ['s2'],
       extra: [{}],
       grammar: [undefined],
+      confuse: [[], undefined],
+      register: ['written', undefined],
     };
     expect(Object.keys(other).sort()).toEqual(Object.keys(full).sort());
     // Two situations where most fields could matter: a seeded word without events, and one with events and marks.

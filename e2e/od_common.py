@@ -165,7 +165,7 @@ async def study(page, n):
 
 
 async def sync_now(page, wait=1500):
-    await page.goto(U + '#/settings')
+    await page.goto(U + '#/settings/advanced')
     await page.wait_for_selector(SEL['sync_now'], timeout=20000)
     await page.click(SEL['sync_now'])
     await page.wait_for_timeout(wait)

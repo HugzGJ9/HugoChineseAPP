@@ -212,7 +212,7 @@ export function Toaster() {
   ) : null;
 }
 
-const BACK_LABEL: Record<string, string> = { '#/settings': 'Settings', '#/today': 'Today', '#/sheets': 'Sheets', '#/quick': 'Quick', '#/words': 'Words' };
+const BACK_LABEL: Record<string, string> = { '#/settings': 'Settings', '#/settings/advanced': 'Advanced', '#/today': 'Today', '#/sheets': 'Sheets', '#/quick': 'Quick', '#/words': 'Words' };
 
 /**
  * iOS navigation bar with a large title. The large title scrolls with the page; once it passes under the bar,

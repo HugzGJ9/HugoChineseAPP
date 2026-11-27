@@ -1,5 +1,5 @@
 /* Word panel (WordPanel.tsx, ExplainView.tsx): header, view switch, then inset groups on the sheet's grouped background:
-   Your list, Dictionary, Claude's explanation, Examples, Status. Tokens only, so light and dark both work. */
+   Your list, Dictionary, Characters, Similar meaning, Examples, Status. Tokens only, so light and dark both work. */
 
 /* Header: big hanzi with its pinyin, audio, close. */
 .wp .pp-title { display: block; }
@@ -66,50 +66,14 @@
 .wx-other[open] .wx-chev { transform: rotate(90deg); }
 .wx-other > .wx-reading { padding: 4px 16px 12px; }
 
-/* Claude */
 /* Pinyin toggle in a group header: a 28px capsule with a 44px hit area around it. */
 .wx-sech .wx-pychip.chip {
   position: relative; min-height: 28px; height: 28px; padding: 0 12px; margin: 0 4px 0 0; font-size: var(--fs-footnote); text-transform: none; letter-spacing: 0;
 }
 .wx-pychip.chip::after { content: ''; position: absolute; inset: -8px -4px; }
-.wx-claude {
-  display: flex; flex-direction: column; gap: 12px; padding: 14px 16px; border-radius: var(--radius-card); background: var(--bg-elev);
-  min-width: 0; font-size: var(--fs-body); line-height: 1.42;
-}
-@media (prefers-color-scheme: dark) { .wx-claude { background: var(--bg-elev-2); } }
-.wx-summary { font-size: var(--fs-body); font-weight: 500; }
-.wx-claude h4 {
-  margin: 6px 0 -4px; font: 600 var(--fs-footnote) / 1.3 var(--font); color: var(--label-2); text-transform: uppercase; letter-spacing: 0.02em;
-}
-.wx-claude .wx-senses { gap: 8px; }
-.wx-claude .tag { margin-right: 2px; }
-.wx-check { padding: 10px 12px; border-radius: var(--radius-m); background: var(--blue-tint); font-size: var(--fs-subhead); }
 .wx-wrong { color: var(--wrong); }
 .wx-right { color: var(--green); }
-.wx-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 12px; }
-.wx-list li { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; max-width: 100%; }
-.wx-sub { width: 100%; margin-top: 4px; padding-left: 12px; box-shadow: inset 2px 0 0 var(--fill-3); }
 .wx-foot { padding: 7px 16px 0; font-size: var(--fs-footnote); line-height: 1.38; color: var(--label-2); }
-.wx-foot .wx-link { min-height: 0; font-size: inherit; }
-.wx-run { display: flex; flex-direction: column; gap: 2px; padding: 14px 16px 10px; margin-top: 10px; border-radius: var(--radius-card); background: var(--bg-elev); }
-.wx-run .wx-foot { padding: 6px 0 0; }
-@media (prefers-color-scheme: dark) { .wx-run { background: var(--bg-elev-2); } }
-.wx-ask { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-top: 4px; }
-.wx-ask .btn.plain { padding: 0 8px; margin-left: 8px; }
-.wx-ask .btn.plain svg { width: 17px; height: 17px; }
-.wx-ask-first { flex-direction: column; align-items: stretch; margin-top: 0; }
-.wx-ask-first .btn { min-height: 50px; border-radius: var(--radius-card); }
-.wx-ask-first .wx-foot { text-align: left; }
-.wx-err {
-  display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; padding: 12px 14px; border-radius: var(--radius-card);
-  background: var(--wrong-tint); color: var(--label); font-size: var(--fs-subhead);
-}
-.wx-err > span { flex: 1 1 200px; }
-.wx-err a { color: var(--link); font-weight: 600; }
-.wx-err .btn { background: var(--bg-elev); }
-.wx-link { min-height: 44px; padding: 0; border: 0; background: none; color: var(--accent); font-weight: 500; }
-.wx-link:disabled { opacity: 0.5; }
-.wx-claude + .wx-foot { margin-bottom: 2px; }
 
 /* Chinese lines (ZhLine.tsx): text with tappable words, audio, pinyin, translation. */
 .wx-ex > .wx-row { padding: 8px 12px 11px 16px; }
@@ -201,8 +165,3 @@ button.wx-chip:active { background: var(--fill-3); }
 .wx-cf-word:active { color: var(--accent); }
 .wx-cf-py { font-size: var(--fs-subhead); color: var(--label-2); }
 .wx-cf-use { margin: -6px 0 0; font-size: var(--fs-body); line-height: 1.42; color: var(--label); overflow-wrap: anywhere; }
-.wx-vs { display: flex; flex-direction: column; gap: 8px; margin-top: 6px; }
-.wx-vs-side { display: flex; flex-direction: column; gap: 2px; padding: 8px 4px 8px 12px; border-radius: var(--radius-m); background: var(--fill); box-shadow: inset 3px 0 0 var(--fill-3); min-width: 0; }
-.wx-vs-side.self { box-shadow: inset 3px 0 0 var(--accent); }
-.wx-vs-tag { align-self: flex-start; font-size: var(--fs-footnote); font-weight: 600; color: var(--label-2); line-height: 1.2; }
-.wx-vs-side.self .wx-vs-tag { color: var(--accent); }

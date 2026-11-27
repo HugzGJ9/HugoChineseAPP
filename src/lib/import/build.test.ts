@@ -117,6 +117,82 @@ describe('grammar columns (GRAM-1)', () => {
   });
 });
 
+describe("vocab columns Don't confuse and Register (word-panel D5)", () => {
+  const opts = { source: { name: 't.xlsx', modified: 1, size: 1 }, now: 1, pinyinOf };
+  const base = [
+    row(2, { A: '1', B: '称赞', C: 'chēngzàn', D: 'to praise', E: 'a note' }),
+    row(3, { A: '2', B: '夸奖', C: 'kuājiǎng', D: 'to praise' }),
+    row(4, { A: '3', B: '突然', C: 'tūrán', D: 'suddenly' }),
+  ];
+  const plain: XSheet = { name: 'HSK五级', rows: [row(1, { A: 'ID', B: 'HANZI', C: 'PINYIN', D: 'ENGLISH', E: 'Colonne1' }), ...base] };
+  const withCols: XSheet = {
+    name: 'HSK五级',
+    rows: [
+      row(1, { A: 'ID', B: 'HANZI', C: 'PINYIN', D: 'ENGLISH', E: 'Colonne1', F: "Don't Confuse", G: 'Registre' }),
+      ...base.slice(0, 2).map((r) => ({ ...r, cells: { ...r.cells } })),
+      row(4, { A: '3', B: '突然', C: 'tūrán', D: 'suddenly' }),
+    ],
+  };
+  withCols.rows[1].cells.F = { v: '• 夸奖 | 口语 | plus oral | more casual\n表扬 ｜ 书面\nnope | x', fill: null };
+  withCols.rows[1].cells.G = { v: 'Soutenu', fill: null };
+  withCols.rows[2].cells.G = { v: 'bizarre', fill: null };
+  const vf = buildVocab([withCols], opts);
+  const get = (id: string) => vf.notes.find((n) => n.id === id)!;
+
+  it('reads both columns into the note and keeps them out of the notes', () => {
+    const n = get('v:称赞|chengzan');
+    expect(n.confuse).toEqual([
+      { word: '夸奖', register: 'spoken', fr: 'plus oral', en: 'more casual' },
+      { word: '表扬', register: 'written' },
+    ]);
+    expect(n.register).toBe('formal');
+    expect(n.notes).toEqual(['a note']);
+    expect(n.extra).toBeUndefined();
+  });
+  it('reports bad lines and unknown registers like the 语法 columns', () => {
+    const own = vf.issues.filter((i) => i.sheet === 'HSK五级' && (i.col === 'F' || i.col === 'G'));
+    expect(own.map((i) => [i.row, i.col, i.level, i.hanzi])).toEqual([
+      [2, 'F', 'info', '称赞'],
+      [3, 'G', 'info', '夸奖'],
+    ]);
+    expect(own[0].problem).toContain('"nope | x"');
+    expect(get('v:夸奖|kuajiang').register).toBeUndefined();
+    expect(get('v:突然|turan')).not.toHaveProperty('confuse');
+    expect(get('v:突然|turan')).not.toHaveProperty('register');
+  });
+  it('a sheet without the columns builds exactly as before', () => {
+    const a = buildVocab([plain], opts);
+    const stripped: XSheet = { ...withCols, rows: withCols.rows.map((r) => ({ ...r, cells: Object.fromEntries(Object.entries(r.cells).filter(([c]) => c !== 'F' && c !== 'G')) })) };
+    const b = buildVocab([stripped], opts);
+    expect(b.notes).toEqual(a.notes);
+    expect(b.hash).toBe(a.hash);
+    expect(a.notes.every((n) => !('confuse' in n) && !('register' in n))).toBe(true);
+  });
+  it('reads 口语 as the Register header and English "Register" on a vocab sheet', () => {
+    const s = (h: string): XSheet => ({ name: 'HSK四级', rows: [row(1, { A: 'HANZI', B: 'PINYIN', C: 'ENGLISH', D: h }), row(2, { A: '突然', B: 'tūrán', C: 'suddenly', D: 'kouyu' })] });
+    for (const h of ['口语', 'Register', 'REGISTRE']) {
+      const n = buildVocab([s(h)], opts).notes[0];
+      expect(n.register).toBe('spoken');
+      expect(n.notes).toEqual([]);
+    }
+  });
+  it('leaves the 语法 sheet alone: Register stays grammar, 口语 and Don\'t confuse stay in its notes', () => {
+    const g: XSheet = { name: '语法', rows: [row(1, { A: 'HANZI', B: 'ENGLISH', C: 'Register', D: '口语', E: "Don't confuse" }), row(2, { A: '于', B: 'at', C: 'formal', D: 'x', E: 'y' })] };
+    const n = buildVocab([g], opts).notes[0];
+    expect(n.grammar).toEqual({ register: 'formal' });
+    expect(n.notes).toEqual(['x', 'y']);
+    expect(n).not.toHaveProperty('confuse');
+    expect(n).not.toHaveProperty('register');
+  });
+  it('merges the columns of a word found on two sheets', () => {
+    const s4: XSheet = { name: 'HSK四级', rows: [row(1, { A: 'HANZI', B: 'PINYIN', C: 'ENGLISH', D: 'Confuse' }), row(2, { A: '称赞', B: 'chēngzàn', C: 'to praise', D: '夸奖' })] };
+    const s5: XSheet = { name: 'HSK五级', rows: [row(1, { A: 'HANZI', B: 'PINYIN', C: 'ENGLISH', D: 'À ne pas confondre', E: 'Register' }), row(2, { A: '称赞', B: 'chēngzàn', C: 'to praise', D: '夸奖 | 口语\n表扬', E: '书面' })] };
+    const n = buildVocab([s4, s5], opts).notes[0];
+    expect(n.confuse).toEqual([{ word: '夸奖' }, { word: '表扬' }]);
+    expect(n.register).toBe('written');
+  });
+});
+
 describe('buildVocab', () => {
   const vf = build();
   const byId = (id: string) => vf.notes.find((n) => n.id === id)!;

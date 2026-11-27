@@ -11,7 +11,7 @@ python3 e2e/sandbox.py                            # probe: Web Locks, onLine; sy
 python3 e2e/cards.py                              # Sheets › Cards: typed answers, tones, Draw, deck kept, the Wrong label
 python3 e2e/layout.py                             # phone layout, light and dark: Check in view, panel top edge, menu drags, colours
 python3 e2e/grammar.py                            # Grammar tab: 中/FR/EN titles, families, search, meaning card, underlined words, phone back
-python3 e2e/explain.py                            # word panel, Settings key, "Explain more" (needs LEXICON_SAMPLE=1 build)
+python3 e2e/explain.py                            # word panel: section order, dictionary, characters, examples (needs LEXICON_SAMPLE=1 build)
 HUGO_XLSX=/path/to/Hugo_chinese_vocab.xlsx python3 e2e/sync.py   # or a real file
 ```
 
@@ -66,11 +66,9 @@ It fakes the GitHub API in memory, so nothing is sent anywhere. It exits non-zer
   the 423 back-off).
 - `make_sample.py OUT.xlsx` writes a made-up workbook with the colour layout of the real file: HSK四级 (A-B coloured),
   HSK五级 (A-D coloured, blank rows) and a Grammar sheet; needs `openpyxl`. CI uses it, so nothing personal is involved. `sync.py` calls it when `HUGO_XLSX` is unset.
-- `explain.py` needs a build made with `LEXICON_SAMPLE=1 npm run build` (synthetic dictionary and sentences). The Anthropic
-  API is mocked with `page.route` (models list and a canned SSE `tool_use` stream) and the key is a fake `sk-ant-test-…`:
-  no real key and no real request. It checks the panel on desktop and iPhone 13 emulation (bottom flush with the viewport,
-  16 px key input, no sideways scroll), the no-key message, the request headers, the cache on reopen, offline reload, and
-  that the key is not in `localStorage`.
+- `explain.py` needs a build made with `LEXICON_SAMPLE=1 npm run build` (synthetic dictionary and sentences). It checks the
+  word panel on desktop and iPhone 13 emulation (bottom flush with the viewport, no sideways scroll), the section order
+  (Your list, Dictionary, Characters, Similar meaning, Examples), that no Claude block remains, and offline reload.
 - `make_big.py OUT.xlsx` writes a Hugo-sized synthetic workbook (HSK四级 570 words, HSK五级 1,200, Grammar 40; deterministic, made up
   from ~60 common characters, no personal data); needs `openpyxl`. `perf.py` uses it.
 - `perf.py` (iPhone 13, CPU throttled 4x, `service_workers='block'`, 8,000 review events seeded in the page) times the boot

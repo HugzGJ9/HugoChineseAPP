@@ -1,6 +1,6 @@
 // One word sheet with a navigation stack (plan 2026-11-23 D3, D5). The first level is what opened it (his word, or a
 // word tapped in a sentence). Tapping a word in any line pushes a level, with a "‹ word" button to go back. Lower levels
-// stay mounted but hidden, so the selection, Claude's progress and computed pinyin survive; the scroll is saved on push
+// stay mounted but hidden, so the selection and computed pinyin survive; the scroll is saved on push
 // and restored on pop. × , the backdrop and a swipe down close the whole sheet.
 import { lazy, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Note, WordStatus } from '../../lib/types';

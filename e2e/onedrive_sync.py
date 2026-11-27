@@ -47,11 +47,13 @@ async def main():
 
         # 1. Both sign in; sync turns on by itself (OneDrive is the default target) and the words appear.
         await sign_in(pg, '#/settings')
+        await pg.goto(U + '#/settings/advanced')
         if not await has(pg, SEL['synced'], 30000):
             await b.close()
             skip('Signed in, but no "Synced through OneDrive" line: this build has no app-folder sync (WP6/WP7) yet.')
         await show_words(pg, ms)
         await sign_in(pp, '#/settings')
+        await pp.goto(U + '#/settings/advanced')
         check('phone: synced through OneDrive after sign-in', await has(pp, SEL['synced'], 30000))
         await show_words(pp, ms)
         check('both devices show the sheets', await pg.locator('.sheets [role=tab]').count() >= 3
@@ -90,14 +92,14 @@ async def main():
 
         # 4. A language change on the computer reaches the phone.
         grp = lambda page: page.get_by_role('group', name=SEL['lang_group']).first
-        await pg.goto(U + '#/settings')
+        await pg.goto(U + '#/today')
         await grp(pg).get_by_role('button', name='FR').click()
         await pg.wait_for_timeout(2500)  # shared preferences are saved 1.5 s after the change
         await sync_now(pg)
         settings = ms.app_json('settings.json') or {}
         check('settings.json in the app folder carries the language', (settings.get('prefs') or {}).get('lang') == 'fr', str(settings.get('prefs')))
         await sync_now(pp)
-        await pp.goto(U + '#/settings')
+        await pp.goto(U + '#/today')
         pressed = await grp(pp).get_by_role('button', name='FR').get_attribute('aria-pressed')
         check('phone follows the language change', pressed == 'true', str(pressed))
 

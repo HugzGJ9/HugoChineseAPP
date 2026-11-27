@@ -4,6 +4,7 @@ import type { XRow, XSheet } from '../xlsx/read';
 import { indexToCol, rgbToHsl } from '../xlsx/read';
 import type { Example, ImportIssue, Note, NoteKind, SheetCols, SheetReport, SourceRef, VocabFile } from '../types';
 import { GRAMMAR_ALIASES, grammarFromCells, type GrammarField } from '../grammar/excel';
+import { parseConfuse, parseWordRegister } from './confuse';
 import { HAN, hanCount, numberedToMarked, parsePinyin, syllablesFromNumbered, toMarked, toNumbered, toToneless, type Syl } from '../pinyin';
 
 export interface BuildOptions {
@@ -40,7 +41,12 @@ export function sheetTag(name: string): string {
 type Field =
   | 'id' | 'hanzi' | 'pinyin' | 'en' | 'fr' | 'example' | 'exampleFr'
   | 'core' | 'tone' | 'related' | 'exZh' | 'exPy' | 'exEn' | 'tip'
-  | GrammarField;
+  | GrammarField
+  | VocabExtraField;
+
+/** Optional columns read on vocab sheets only (import/confuse.ts, Note.confuse / Note.register). */
+type VocabExtraField = 'wConfuse' | 'wRegister';
+const VOCAB_EXTRA: VocabExtraField[] = ['wConfuse', 'wRegister'];
 
 interface Layout {
   kind: NoteKind | 'skipped';
@@ -68,6 +74,10 @@ const ALIASES: Record<Field, string[]> = {
   tip: ['key grammar / tip', 'tip', 'key grammar'],
   // Extra columns of the 语法 sheet (Note.grammar, GRAM-1)
   ...GRAMMAR_ALIASES,
+  // After the grammar fields: "register" / "registre" are taken by gRegister on every sheet, and a vocab row reads
+  // cols.wRegister ?? cols.gRegister, so the 语法 sheet keeps its Register column.
+  wConfuse: ["don't confuse", 'dont confuse', 'don’t confuse', 'à ne pas confondre', 'a ne pas confondre', 'ne pas confondre', 'confuse'],
+  wRegister: ['register', 'registre', '口语'],
 };
 
 function detectLayout(sheet: XSheet): Layout {
@@ -86,10 +96,13 @@ function detectLayout(sheet: XSheet): Layout {
         }
       }
     }
+    // The vocab-only columns stay in the notes of other sheet kinds, as before they had aliases.
+    const vocabOnly = new Set(VOCAB_EXTRA.map((f) => cols[f]).filter(Boolean));
     const used = new Set(Object.values(cols));
-    const others = Object.keys(row.cells)
-      .filter((c) => !used.has(c))
-      .map((c) => ({ col: c, label: labels[c] }));
+    const othersOf = (kind: NoteKind) =>
+      Object.keys(row.cells)
+        .filter((c) => !used.has(c) || (kind !== 'vocab' && vocabOnly.has(c)))
+        .map((c) => ({ col: c, label: labels[c] }));
     const has = (f: Field) => !!cols[f];
     const vals = Object.values(row.cells).map((c) => norm(c.v));
     if (vals.includes('classificateur')) {
@@ -104,8 +117,12 @@ function detectLayout(sheet: XSheet): Layout {
       }
       return { kind: 'synonym', header: row.r, cols: c, noteCols: [] };
     }
-    if (has('hanzi') && has('pinyin') && has('en')) return { kind: 'vocab', header: row.r, cols, noteCols: others };
-    if (has('hanzi') && has('en')) return { kind: 'grammar', header: row.r, cols, noteCols: others.filter((o) => o.col !== cols.example) };
+    if (has('hanzi') && has('pinyin') && has('en')) return { kind: 'vocab', header: row.r, cols, noteCols: othersOf('vocab') };
+    if (has('hanzi') && has('en')) {
+      const g = { ...cols };
+      for (const f of VOCAB_EXTRA) delete g[f];
+      return { kind: 'grammar', header: row.r, cols: g, noteCols: othersOf('grammar').filter((o) => o.col !== cols.example) };
+    }
   }
   return { kind: 'skipped', header: 0, cols: {}, noteCols: [] };
 }
@@ -392,6 +409,17 @@ export function buildVocab(sheets: XSheet[], opts: BuildOptions): VocabFile {
             continue;
           }
         }
+        let confuse: Note['confuse'];
+        let register: Note['register'];
+        if (layout.kind === 'vocab') {
+          const c = parseConfuse(cellText(row, cols.wConfuse), primary);
+          if (c.items.length) confuse = c.items;
+          for (const p of c.problems) issue('info', p, { col: cols.wConfuse, hanzi: primary });
+          const regCol = cols.wRegister ?? cols.gRegister;
+          const r = parseWordRegister(cellText(row, regCol));
+          if (r.register) register = r.register;
+          if (r.problem) issue('info', r.problem, { col: regCol, hanzi: primary });
+        }
         const prefix = layout.kind === 'vocab' ? 'v' : layout.kind === 'measure' ? 'm' : 's';
         let group: string | undefined;
         const m = idNum(idRaw);
@@ -416,6 +444,8 @@ export function buildVocab(sheets: XSheet[], opts: BuildOptions): VocabFile {
           ...(group ? { group } : {}),
           ...(layout.kind === 'synonym' ? { set: sheet.name } : {}),
           ...(Object.keys(extra).length ? { extra } : {}),
+          ...(confuse ? { confuse } : {}),
+          ...(register ? { register } : {}),
         };
       }
 
@@ -513,6 +543,12 @@ function merge(into: Note, from: Note) {
   for (const e of from.examples) if (!into.examples.some((x) => x.zh === e.zh)) into.examples.push(e);
   if (!into.colour && from.colour) into.colour = from.colour;
   if (!into.group && from.group) into.group = from.group;
+  if (!into.register && from.register) into.register = from.register;
+  if (from.confuse) {
+    const list = into.confuse ?? [];
+    for (const c of from.confuse) if (!list.some((x) => x.word === c.word)) list.push(c);
+    into.confuse = list;
+  }
 }
 
 function splitMeaningsLoose(s: string): string[] {

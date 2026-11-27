@@ -1,4 +1,4 @@
-// One panel per word: Explain (dictionary, Claude, examples), "Practise this word" (opens Cards on it) and the status
+// One panel per word: Explain (dictionary, characters, similar words, examples), "Practise this word" (opens Cards on it) and the status
 // picker when allowed. The panel is a WordSheet (plan 2026-11-23 D3): words tapped inside it open as levels of the same sheet.
 import type { Note, WordStatus } from '../../lib/types';
 import { WordSheet } from './WordSheet';
