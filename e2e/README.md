@@ -7,6 +7,7 @@ don't run `playwright install`.
 npm run build && npx vite preview --port 4173 &   # serves http://localhost:4173/HugoChineseAPP/
 python3 e2e/offline.py                            # service worker, dictionary warm-up, offline reload, update flow
 python3 e2e/sync.py                               # uses a synthetic workbook from make_sample.py
+python3 e2e/sandbox.py                            # probe: Web Locks, onLine; sync scripts shim only what fails here
 python3 e2e/cards.py                              # Sheets › Cards: typed answers, tones, Draw, deck kept, the Wrong label
 python3 e2e/layout.py                             # phone layout, light and dark: Check in view, panel top edge, menu drags, colours
 python3 e2e/grammar.py                            # Grammar tab: 中/FR/EN titles, families, search, meaning card, underlined words, phone back

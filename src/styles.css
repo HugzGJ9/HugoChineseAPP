@@ -292,12 +292,13 @@ svg.icon { flex: none; }
 .nav a[aria-current='page'] { color: var(--accent); }
 .brand { display: none; }
 /* While typing on a phone the tab bar hides (iOS pins fixed bars to the layout viewport, so it would float mid-screen
-   over the keyboard). CSS on focus reacts before the keyboard animates; html.kb-open (keyboard.ts) is the fallback. */
+   over the keyboard). CSS on focus reacts before the keyboard animates; html.kb-open (keyboard.ts) is the fallback;
+   html.nav-hold (keyboard.ts) keeps it hidden until a tap that blurred the field has ended. */
 @media (max-width: 899px) {
   html:has(:is(input:not([type=checkbox], [type=radio], [type=range], [type=button], [type=submit]), textarea, [contenteditable]):focus) .nav,
-  html.kb-open .nav { display: none; }
+  html.kb-open .nav, html.nav-hold .nav { display: none; }
   html:has(:is(input:not([type=checkbox], [type=radio], [type=range], [type=button], [type=submit]), textarea, [contenteditable]):focus) .main,
-  html.kb-open .main { padding-bottom: calc(32px + var(--kb, 0px) + env(safe-area-inset-bottom)); }
+  html.kb-open .main, html.nav-hold .main { padding-bottom: calc(32px + var(--kb, 0px) + env(safe-area-inset-bottom)); }
   html.kb-open .undo-bar { bottom: calc(var(--kb, 0px) + 12px); }
 }
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {

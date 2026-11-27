@@ -283,9 +283,8 @@ async def main():
         await pp.wait_for_selector('text=Get your words from your computer')
         await pp.screenshot(path=S + 's-phone-first.png', full_page=True)
         await pp.fill('textarea', key)
-        # While a textarea has focus the phone's tab bar is hidden; a tap on the button blurs it, the bar comes back over the
-        # button between pointerdown and pointerup and the click is lost. Blur first so Playwright scrolls clear of the bar.
-        await pp.evaluate("document.activeElement.blur()")
+        # A real tap with the field still focused: the tab bar used to come back mid-tap and take the click (keyboard.ts
+        # `nav-hold` now keeps it hidden until the tap ends).
         await pp.click('text=Link this device')
         async def phone_state():
             if await pp.locator('.sheets').first.is_visible(): return 'sheets'
