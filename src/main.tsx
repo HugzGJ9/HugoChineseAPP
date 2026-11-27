@@ -9,8 +9,11 @@ import { completeSignIn, msSignIn, shouldRenewAtStart, takeAuthResponse } from '
 import { toast } from './ui/common';
 import { startPwa } from './lib/pwa';
 import { startWarmOffline } from './lib/strokes';
+import { startDevLog } from './lib/devlog';
 import './styles.css';
 
+// First: errors during boot are on record too (Settings › Copy diagnostics).
+startDevLog();
 startPwa();
 
 // Back from Microsoft sign-in: the answer leaves the address bar and the route comes back before the first render.
