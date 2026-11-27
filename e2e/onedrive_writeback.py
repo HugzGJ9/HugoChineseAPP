@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from od_common import (SEL, S, U, NAME, SHEET, GREEN, YELLOW, Checks, FakeMicrosoft, sample_workbook, blank_rows, skip, sign_in,
                        show_words, has, status_of, set_status, poll_for_change, no_sideways_scroll, preflight)  # noqa: E402
 from fake_graph import fill_of, recolour, recolour_none, zip_changed, sheet_xml_name  # noqa: E402
+from sandbox import prepare  # noqa: E402
 
 
 async def drive_write(page, ms, uploads_before, timeout=90, want=200):
@@ -33,8 +34,10 @@ async def drive_write(page, ms, uploads_before, timeout=90, want=200):
         if any(u[2] == want for u in ms.uploads[uploads_before:]):
             page.set_default_timeout(30000)
             return True
-        if time.time() - last_click > 3 and await page.locator(SEL['write_now']).count():
-            await page.locator(SEL['write_now']).first.click(); last_click = time.time()
+        # ':visible': the Sheets screen stays mounted (hidden) and has its own "Write now" button, first in DOM order.
+        btn = page.locator(SEL['write_now'] + ':visible')
+        if time.time() - last_click > 3 and await btn.count():
+            await btn.first.click(); last_click = time.time()
         await page.wait_for_timeout(500)
     page.set_default_timeout(30000)
     return False
@@ -61,11 +64,12 @@ async def main():
         b = await p.chromium.launch()
         ph = await b.new_context(**p.devices['iPhone 13'], service_workers='block')
         await ph.add_init_script("delete Window.prototype.showDirectoryPicker; delete window.showDirectoryPicker;")
+        await prepare(ph, b)
         await ms.install(ph)
         pp = await ph.new_page()
         check.listen(pp, 'PHONE')
         await sign_in(pp, '#/settings')
-        await show_words(pp)
+        await show_words(pp, ms)
         (r1, h1), (r2, h2), (r3, h3), (r4, h4), (r5, h5) = rows
 
         # A. First write: confirmation, then the fill; the app's own write is no Excel edit.
