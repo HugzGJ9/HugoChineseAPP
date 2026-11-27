@@ -9,6 +9,11 @@
   connection of any old-version tab still open, and its next write throws. Bump only when an index must change, with an
   upgrade; `db.on('versionchange')` already asks old tabs to reload. Source: roadmap D2, word-status D3, connected-saving D11.
 
+- **STORE-2. Derived cards are memoised per word** in kv `cardsMemo`, a device-only cache: reused only when the word's
+  fingerprint (kind, studied, seed, its events and marks in the resolved views) and the env (engine settings, time zone,
+  app build) match; only full-list derivations (start, `rebuild()`) write it; never synced or backed up; older versions
+  ignore it; deleting it costs one replay. Source: boot-and-guards D1–D4, 2026-11-26.
+
 ## Events, marks and the engine
 - **ENG-1. Events carry their month (`ReviewEvent.mo`), frozen at record or merge time.** Grouping by `e.mo ?? monthKey(e.t)`
   makes merges independent of the reader's timezone. `mo` is never written into files: the path carries the month.
@@ -114,6 +119,10 @@
   Screens close what they portal to `<body>` in an effect cleanup, and no per-row code reads layout at mount. Under
   "Try new animations" every transition update starts a View Transition, so background work in a screen uses plain
   updates. Source: page-stability D1–D3, 2026-11-26.
+
+- **DIAG-1. Device log** in kv `devlog` (60 entries): uncaught errors and the store's sync, Excel, folder and Microsoft
+  warnings, scrubbed when captured (no words, names, accounts or keys), device-only, never synced or backed up; Settings ›
+  About › Copy diagnostics. Source: boot-and-guards D11, 2026-11-26.
 
 ## Agent team
 - **AGENT-1. Review strength follows data risk.** qa runs on opus for batches that touch `src/lib`, sync files or
