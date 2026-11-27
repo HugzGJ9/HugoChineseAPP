@@ -91,6 +91,12 @@
   `lib/explain` and the `explain/` sync files stay (old devices still read and write them); the stored key is removed
   once per device. Source: word-panel-settings D1–D4.
 
+- **EXP-6. Tatoeba examples: strict match, quality, reading lists (2026-11-27).** A 1–2 character word counts only as a
+  whole segment (Intl.Segmenter, re-split into CC-CEDICT words); sentences with a doubtful tag are dropped; native owner,
+  audio and OK tag rank first. Polyphones get additive `xr: {reading: [ids]}` next to `x` (x stays the overall list for
+  old versions; an xr list equal to x is omitted); the index carries `xr: true`. No usernames in shards.
+  Source: word-panel-settings D6–D8.
+
 ## Grammar
 - **GRAM-1. Grammar content comes from extra columns of the 语法 sheet** (HSK, Family, Title EN/FR, Definition EN/FR,
   Use EN/FR, Register, Sentences) into the additive `Note.grammar`; Excel is the only source, nothing grammar-specific

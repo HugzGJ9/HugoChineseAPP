@@ -159,7 +159,7 @@ button.wx-chip:active { background: var(--fill-3); }
 .wx-cf { display: flex; flex-direction: column; gap: 6px; padding-top: 14px; padding-bottom: 14px; }
 .wx-cf-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 10px; }
 .wx-cf-word {
-  min-height: 44px; padding: 0; border: 0; background: none; color: var(--label); cursor: pointer;
+  min-height: 44px; min-width: 44px; padding: 0; border: 0; background: none; color: var(--label); cursor: pointer;
   font-size: var(--fs-title3); font-weight: 600; line-height: 1.2;
 }
 .wx-cf-word:active { color: var(--accent); }

@@ -14,10 +14,17 @@ import {
   buildSimilar,
   charReusable,
   charShardOf,
+  dictSegmenter,
   filterSentences,
   glossKeys,
   indexSentences,
+  isDoubtful,
   isNameOrVariant,
+  makeReader,
+  markQuality,
+  matchReading,
+  nativeSpeakers,
+  parseTranscription,
   parseCedict,
   parseCfdictTsv,
   rankExamples,
@@ -27,8 +34,11 @@ import {
   shortGloss,
   sourcesText,
   tradOnlyChars,
+  SYLLABLE_LIST,
 } from './lexicon-lib.mjs';
+import { pinyin } from 'pinyin-pro';
 import { charShard, lexiconShard } from '../src/lib/lexicon';
+import { SYLLABLES } from '../src/lib/pinyin';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIX = join(HERE, 'fixtures/lexicon');
@@ -127,23 +137,103 @@ describe('sentences', () => {
   });
 });
 
-describe('indexSentences', () => {
-  const heads = new Set(['说', '说中', '中文', '会', '他', '图书馆', '图书', '馆', '看书']);
+describe('indexSentences (D6 strict match)', () => {
+  const heads = new Set(['说', '说中', '中文', '会', '会议', '他', '图书馆', '图书', '馆', '看书', '学', '学生']);
   it('does not index a two-character word across a word boundary (他会说中文)', () => {
-    const idx = indexSentences([{ zh: '他会说中文。' }], heads, zh);
+    const idx = indexSentences([{ zh: '他会说中文。' }], heads, cut('他|会|说|中文|。'));
     expect(idx.has('说中')).toBe(false);
     for (const w of ['他', '会', '说', '中文']) expect(idx.get(w)).toEqual([0]);
   });
-  it('finds words inside a segment and 3+ character words across segments', () => {
-    const idx = indexSentences([{ zh: '图书馆看书' }, { zh: '她在图书馆看书。' }], heads, cut('图书|馆看书', '她在|图书|馆|看书|。'));
+  it('a 1–2 character word counts only as a whole segment or a join of whole segments', () => {
+    const idx = indexSentences(
+      [{ zh: '明天有会议。' }, { zh: '她是学生。' }, { zh: '他会说中文' }, { zh: '他会说中文' }],
+      heads,
+      cut('明天|有|会议|。', '她|是|学生|。'),
+    );
+    // 会 inside 会议, 学 inside 学生: not counted; 中|文 joined: counted
+    expect(idx.get('会议')).toEqual([0]);
+    expect(idx.get('学生')).toEqual([1]);
+    expect(idx.has('学')).toBe(false);
+    expect(idx.get('会')).toBeUndefined();
+    const joined = indexSentences([{ zh: '中文' }], heads, cut('中|文'));
+    expect(joined.get('中文')).toEqual([0]);
+  });
+  it('3+ character words count anywhere; 2-character words inside a longer segment do not', () => {
+    const idx = indexSentences([{ zh: '图书馆看书' }, { zh: '她在图书馆看书。' }], heads, cut('图书|馆看书', '她在|图书馆|看书|。'));
     expect(idx.get('图书馆')).toEqual([0, 1]);
-    expect(idx.get('看书')).toEqual([0, 1]);
-    expect(idx.get('馆')).toEqual([0, 1]);
+    // 看书 is inside the segment 馆看书 in the first sentence
+    expect(idx.get('看书')).toEqual([1]);
+    expect(idx.get('图书')).toEqual([0]);
+    expect(idx.get('馆')).toBeUndefined();
+  });
+  it('records the code-point starts of the words asked for in `at`', () => {
+    const at = new Map([['会', new Map()]]);
+    indexSentences([{ zh: '会不会' }, { zh: '会议' }], heads, cut('会|不|会', '会议'), { at });
+    expect([...at.get('会')]).toEqual([[0, [0, 2]]]);
+  });
+});
+
+describe('dictSegmenter', () => {
+  const words = new Set(readFileSync(join(FIX, 'traps-words.txt'), 'utf8').split(/\s+/).filter(Boolean));
+  const seg = dictSegmenter(zh, words);
+  const parts = (s) => [...seg.segment(s)].map((x) => x.segment);
+  it('splits segments that are not words into words, keeps words whole', () => {
+    expect(parts('我会说中文。')).toEqual(['我', '会', '说', '中文', '。']);
+    expect(parts('明天下午有一个会议。')).toContain('会议');
+    expect(parts('我吃了饭就去。')).toEqual(expect.arrayContaining(['吃', '了', '饭']));
+  });
+  // Known traps (scripts/fixtures/lexicon/traps.tsv: sentence, word, 1 = the word itself is used, reading). The
+  // comparison of 2026-11-27: Intl.Segmenter alone 32/46, @node-rs/jieba 37/46 (with HMM 31), jieba-wasm 31/46,
+  // Intl + dictSegmenter 42/46, jieba + dictSegmenter 44/46 (traps-words.txt standing in for CC-CEDICT).
+  const traps = readFileSync(join(FIX, 'traps.tsv'), 'utf8').trim().split('\n').map((l) => l.split('\t'));
+  const score = (segmenter) => {
+    const wrong = [];
+    traps.forEach(([sentence, w, want]) => {
+      const got = indexSentences([{ zh: sentence }], words, segmenter).has(w);
+      if (got !== (want === '1')) wrong.push(`${sentence} ${w}`);
+    });
+    return wrong;
+  };
+  it('gets the trap set right but for 4 (Intl.Segmenter alone: 14 wrong)', () => {
+    expect(traps).toHaveLength(46);
+    expect(score(zh)).toHaveLength(14);
+    expect(score(seg)).toEqual(['我不会游泳。 会', '他得了第一名。 得', '我还没吃饭呢。 还', '我只有一个妹妹。 只']);
+  });
+});
+
+describe('sentence quality (D8)', () => {
+  it('knows the doubtful tags, in any case and spacing', () => {
+    expect(isDoubtful(new Set(['@needs  native check']))).toBe(true);
+    expect(isDoubtful(['@Change'])).toBe(true);
+    expect(isDoubtful(['@delete maybe', 'OK'])).toBe(true);
+    expect(isDoubtful(['OK', 'food'])).toBe(false);
+    expect(isDoubtful(undefined)).toBe(false);
+  });
+  it('native speakers: cmn level 5 only', () => {
+    expect([...nativeSpeakers([['cmn', '5', 'mei', '\\N'], ['cmn', '4', 'lin', ''], ['fra', '5', 'jean', ''], ['cmn', '5', '\\N', '']])]).toEqual(['mei']);
+  });
+  it('drops doubtful sentences and flags native owner, audio and OK; no username in the output', () => {
+    const s = (id) => ({ id, zh: '一二三四', en: 'x', fr: '' });
+    const { kept, dropped } = markQuality([s(1), s(2), s(3), s(4)], {
+      owners: new Map([[1, 'mei'], [2, 'lin']]),
+      natives: new Set(['mei']),
+      audio: new Set([2]),
+      tags: new Map([[3, new Set(['@check'])], [4, new Set(['ok'])]]),
+    });
+    expect(dropped).toBe(1);
+    expect(kept).toEqual([
+      { ...s(1), native: true },
+      { ...s(2), audio: true },
+      { ...s(4), ok: true },
+    ]);
+    expect(JSON.stringify(kept)).not.toContain('mei');
+    // nothing known: unchanged
+    expect(markQuality([s(1)]).kept).toEqual([s(1)]);
   });
 });
 
 describe('rankExamples', () => {
-  const s = (id, zh, en, fr) => ({ id, zh, en, fr });
+  const s = (id, zh, en, fr, q = {}) => ({ id, zh, en, fr, ...q });
   const list = [
     s(5, '一二三四五六七八九十一二', 'x', ''), // 12, no fr
     s(4, '一二三四五六', 'x', 'y'), // 6
@@ -159,6 +249,48 @@ describe('rankExamples', () => {
     expect(got).toEqual([8, 2, 3, 1, 6, 4]);
     expect(rankExamples(list.map((_, i) => i), list, { examples: 2 })).toHaveLength(2);
   });
+  it('D8: quality points come first (native owner, audio, OK: one each), then the old keys', () => {
+    const q = [
+      ...list,
+      s(9, '一二三四五六', '', 'y', { audio: true }), // 1 point, no en, short
+      s(10, '一二三四五六七八九十一二', 'x', '', { native: true, ok: true }), // 2 points
+      s(11, '一二三四', 'x', 'y', { ok: true }), // 1 point, both languages
+    ];
+    const got = rankExamples(q.map((_, i) => i), q).map((i) => q[i].id);
+    expect(got).toEqual([10, 11, 9, 8, 2, 3]);
+  });
+});
+
+describe('reading check (D7)', () => {
+  it('parses Tatoeba transcriptions with tone numbers or marks, words written together', () => {
+    expect(parseTranscription('Ta1 hui4 shuo1 Zhong1wen2.', 5)).toEqual(['ta1', 'hui4', 'shuo1', 'zhong1', 'wen2']);
+    expect(parseTranscription('Tā huì shuō Zhōngwén.', 5)).toEqual(['ta1', 'hui4', 'shuo1', 'zhong1', 'wen2']);
+    expect(parseTranscription('Wo3 xi3huan5 nü:3er2', 5)).toEqual(['wo3', 'xi3', 'huan5', 'nv3', 'er2']);
+    expect(parseTranscription('ni3 hao3 ma', 3)).toEqual(['ni3', 'hao3', 'ma5']);
+    // wrong count or not pinyin: null
+    expect(parseTranscription('Ta1 hui4', 3)).toBeNull();
+    expect(parseTranscription('xyz', 1)).toBeNull();
+  });
+  it('the syllable list is the one of src/lib/pinyin.ts', () => {
+    expect(new Set(SYLLABLE_LIST.split(' '))).toEqual(SYLLABLES);
+  });
+  it('matches a read occurrence to a CC-CEDICT reading: exact, else same letters, else tones that agree', () => {
+    expect(matchReading(['hang2'], ['hang2', 'xing2'])).toBe('hang2');
+    expect(matchReading(['xue2', 'sheng1'], ['xue2 sheng5'])).toBe('xue2 sheng5');
+    expect(matchReading(['liao3'], ['le5', 'liao3', 'liao4'])).toBe('liao3');
+    expect(matchReading(['liao2'], ['le5', 'liao3', 'liao4'])).toBeNull();
+    expect(matchReading(['dong1', 'xi5'], ['dong1 xi1', 'dong1 xi5'])).toBe('dong1 xi5');
+    expect(matchReading(['dong1', 'xi3'], ['dong1 xi1', 'dong1 xi5'])).toBe('dong1 xi5');
+    expect(matchReading(['', 'xi5'], ['dong1 xi5'])).toBeNull();
+  });
+  it('reads with reviewed transcriptions first, then pinyin-pro in context', () => {
+    const read = makeReader({ pinyin, transcriptions: new Map([[2, ['wo3', 'ming2', 'tian1', 'huan2', 'ni3', 'shu1']]]) });
+    expect(read({ id: 1, zh: '我去银行。' })).toEqual(['wo3', 'qu4', 'yin2', 'hang2', '']);
+    expect(read({ id: 2, zh: '我明天还你书。' })[3]).toBe('huan2');
+    // pinyin-pro alone reads 还 there as hai2 (its default): the reason transcriptions come first
+    expect(makeReader({ pinyin })({ id: 2, zh: '我明天还你书。' })[3]).toBe('hai2');
+    expect(makeReader({})).toBeNull();
+  });
 });
 
 describe('buildShards', () => {
@@ -168,7 +300,8 @@ describe('buildShards', () => {
     { id: 11, zh: '我们是好朋友。', en: 'We are good friends.', fr: 'Nous sommes de bons amis.' },
     { id: 12, zh: '他会说中文。', en: 'He can speak Chinese.', fr: '' },
   ];
-  const build = () => buildShards({ cedict, cfdict, sentences, segmenter: zh, built: '2026-11-07', sources: [] });
+  const heads = new Set(cedict.map((e) => e.simp));
+  const build = () => buildShards({ cedict, cfdict, sentences, segmenter: dictSegmenter(zh, heads), built: '2026-11-07', sources: [] });
   const shardFor = (files, w) => JSON.parse(files.get(`${shardName(shardOf(w))}.json`));
 
   it('writes 128 v1 shards, each word in its own shard', () => {
@@ -183,6 +316,8 @@ describe('buildShards', () => {
     expect(shardFor(files, '汉堡').w['汉堡']).toEqual({ f: [['han4 bao3', 'hamburger']] });
     expect(index).toMatchObject({ v: 1, shards: 128, built: '2026-11-07', sentences: 2 });
     expect(index.sample).toBeUndefined();
+    // no reader: no reading lists
+    expect(index.xr).toBeUndefined();
     let total = 0;
     for (const [name, json] of files) {
       const parsed = JSON.parse(json);
@@ -199,6 +334,36 @@ describe('buildShards', () => {
     const b = build();
     expect([...a.files.entries()]).toEqual([...b.files.entries()]);
     expect(JSON.stringify(a.index)).toBe(JSON.stringify(b.index));
+  });
+  it('D7: a word with several readings gets `xr` lists next to `x`; a list equal to `x` is left out', () => {
+    const more = [
+      { id: 21, zh: '这样做行不行？', en: 'Is it OK?', fr: 'Ça va ?' },
+      { id: 22, zh: '我不喜欢这一行。', en: 'I do not like this trade.', fr: '' },
+      { id: 23, zh: '我去银行取钱。', en: 'To the bank.', fr: '' },
+      { id: 24, zh: '他会说中文。', en: 'He can speak Chinese.', fr: '', native: true, audio: true },
+      { id: 25, zh: '你还好吗？', en: 'Still OK?', fr: '' },
+    ];
+    const reader = makeReader({ pinyin, transcriptions: new Map([[22, ['wo3', 'bu4', 'xi3', 'huan5', 'zhe4', 'yi1', 'hang2']]]) });
+    const out = buildShards({ cedict, cfdict, sentences: more, segmenter: dictSegmenter(zh, heads), reader, built: '2026-11-27', sources: [] });
+    const sh = shardFor(out.files, '行');
+    const e = sh.w['行'];
+    const zhOf = (l) => l.map((i) => sh.s[i][1]);
+    // 银行 is a word: its 行 is not an example of 行
+    expect(zhOf(e.x)).toEqual(['这样做行不行？', '我不喜欢这一行。']);
+    expect(Object.keys(e.xr)).toEqual(['hang2', 'xing2']);
+    expect(zhOf(e.xr.hang2)).toEqual(['我不喜欢这一行。']);
+    expect(zhOf(e.xr.xing2)).toEqual(['这样做行不行？']);
+    // 还 has one sentence, read hai2: that list is x itself, so no xr
+    const h = shardFor(out.files, '还').w['还'];
+    expect(h.x).toHaveLength(1);
+    expect(h.xr).toBeUndefined();
+    // the shard keeps the sentence format (no quality flags, no owners)
+    for (const json of out.files.values()) for (const row of JSON.parse(json).s) expect(row).toHaveLength(4);
+    expect(out.index.xr).toBe(true);
+    expect(out.stats.xr).toMatchObject({ words: 1, lists: 2 });
+    // the same bytes twice
+    const again = buildShards({ cedict, cfdict, sentences: more, segmenter: dictSegmenter(zh, heads), reader, built: '2026-11-27', sources: [] });
+    expect([...again.files.entries()]).toEqual([...out.files.entries()]);
   });
   it('shardOf matches lexiconShard in the app', () => {
     const words = cedict.map((e) => e.simp).slice(0, 50);
@@ -386,6 +551,23 @@ describe('buildSimilar', () => {
     expect(sim.get('朋友')).toEqual(['友人']);
     expect(sim.get('盆友')).toEqual(['友人', '朋友']);
   });
+  it('never offers bookish words (literary/archaic/classical, a lone formal sense) or, for a frequent word, words in no sentence', () => {
+    const ced = [
+      e('开始', 'kai1 shi3', 'to begin', 'to start'),
+      e('开头', 'kai1 tou2', 'to begin'),
+      e('发轫', 'fa1 ren4', 'to begin (of an enterprise)'), // CFDICT only, in no sentence
+      e('肇始', 'zhao4 shi3', '(literary) to begin'),
+      e('伊始', 'yi1 shi3', '(formal) to begin'),
+      e('起头', 'qi3 tou2', '(formal) to begin', 'to start'), // formal, but not its only sense
+    ];
+    const cf = new Map([['发轫', [['fa1 ren4', 'commencer']]]]);
+    const freq = new Map([['开始', 5], ['开头', 3], ['肇始', 2], ['伊始', 2], ['起头', 1]]);
+    expect(buildSimilar({ cedict: ced, cfdict: cf, freq }).get('开始')).toEqual(['起头', '开头']);
+    // under minCount, a word in no sentence is still offered
+    expect(buildSimilar({ cedict: ced, cfdict: cf, freq: new Map([...freq, ['开始', 4]]) }).get('开始')).toContain('发轫');
+    // bookish words still get their own row
+    expect(buildSimilar({ cedict: ced, cfdict: cf, freq }).get('肇始')).toEqual(expect.arrayContaining(['开始']));
+  });
   it('pairs words that share a rare meaning, scored by Σ 1/log2(1 + df); a generic meaning is ignored', () => {
     const ced = [
       e('帮助', 'bang1 zhu4', 'to help', 'to assist', 'thing'),
@@ -496,10 +678,13 @@ describe('charReusable', () => {
 });
 
 describe('reusable', () => {
-  const idx = { v: 1, shards: 128, built: '2026-11-01', words: 100000, sentences: 30000 };
+  const idx = { v: 1, shards: 128, built: '2026-11-01', words: 100000, sentences: 30000, xr: true };
   const opts = { minWords: 80000, minSentences: 5000, today: '2026-11-07' };
   it('reuses recent plausible real data only', () => {
     expect(reusable(idx, opts).ok).toBe(true);
+    // a build from before D6–D8 (no reading lists) is rebuilt
+    const { xr: _, ...old } = idx;
+    expect(reusable(old, opts)).toMatchObject({ ok: false, why: 'index without reading lists' });
     expect(reusable({ ...idx, built: '2026-09-01' }, opts)).toMatchObject({ ok: false, stale: true });
     expect(reusable({ ...idx, words: 10 }, opts).ok).toBe(false);
     expect(reusable({ ...idx, sample: true }, opts).ok).toBe(false);
@@ -548,6 +733,24 @@ describe('build-lexicon.mjs', () => {
       expect(n('学习')).toBeUndefined();
       expect(n('学')).toEqual(['学习']);
       expect(JSON.parse(c['index.json']).similar).toBeGreaterThan(0);
+      // D6–D8 on the sample: strict match, the doubtful sentence dropped, reading lists from transcriptions
+      const idx = JSON.parse(out['index.json']);
+      expect(idx.xr).toBe(true);
+      const entry = (w) => {
+        const sh = JSON.parse(out[`${shardName(shardOf(w))}.json`]);
+        const zhOf = (l) => (l ?? []).map((i) => sh.s[i][1]);
+        const xr = Object.fromEntries(Object.entries(sh.w[w].xr ?? {}).map(([r, l]) => [r, zhOf(l)]));
+        return { x: zhOf(sh.w[w].x), xr, s: sh.s };
+      };
+      expect(entry('行').xr).toEqual({ hang2: ['我不喜欢这一行。'], xing2: ['这样做行不行？'] });
+      expect(entry('还').xr).toEqual({ hai2: ['你还好吗？'], huan2: ['我明天还你书。'] });
+      expect(entry('只').x).toEqual(['我家有三只猫。', '我只喝茶。']); // 我只喝水 (@check) dropped
+      expect(entry('了').x).toEqual(['我吃了饭。']); // not 我了解他
+      expect(entry('学').x).toEqual([]); // only inside 学校, 学习, 学生
+      // quality first: 我喜欢喝茶 has a native owner (谢谢你的茶: OK tag; 汤姆喜欢喝茶: audio)
+      expect(entry('茶').x[0]).toBe('我喜欢喝茶。');
+      // no usernames in the shards
+      for (const json of Object.values(out)) expect(json).not.toMatch(/\bmei\b|\blin\b/);
     } finally {
       rmSync(a, { recursive: true, force: true });
       rmSync(b, { recursive: true, force: true });
@@ -559,7 +762,7 @@ describe('build-lexicon.mjs', () => {
     const dir = join(b, 'tatoeba');
     try {
       mkdirSync(dir);
-      for (const f of ['cmn_sentences.tsv', 'eng_sentences.tsv', 'fra_sentences.tsv', 'links.csv']) copyFileSync(join(FIX, f), join(dir, f));
+      for (const f of readdirSync(FIX)) if (/^(cmn_|eng_sentences|fra_sentences|links\.csv)/.test(f)) copyFileSync(join(FIX, f), join(dir, f));
       expect(run(a, { LEXICON_SAMPLE: '1' }).status).toBe(0);
       const r = run(b, { LEXICON_SAMPLE: '1', TATOEBA_DIR: dir });
       expect(r.status).toBe(0);
@@ -569,6 +772,26 @@ describe('build-lexicon.mjs', () => {
       expect(run(a, { LEXICON_SAMPLE: '1' }).stdout).toContain('Lexicon: similar 朋友 (friend) → 友人 (friend)');
     } finally {
       rmSync(a, { recursive: true, force: true });
+      rmSync(b, { recursive: true, force: true });
+    }
+  });
+  it('D8 inputs are optional: without them it builds as before, and says so', () => {
+    const b = tmp();
+    const dir = join(b, 'tatoeba');
+    try {
+      mkdirSync(dir);
+      for (const f of readdirSync(FIX)) if (/_links\.tsv$|^(cmn|eng|fra)_sentences\.tsv$/.test(f)) copyFileSync(join(FIX, f), join(dir, f));
+      const r = run(b, { LEXICON_SAMPLE: '1', TATOEBA_DIR: dir });
+      expect(r.status).toBe(0);
+      const log = r.stdout + r.stderr;
+      expect(log).toContain('using cmn_sentences (no owners)');
+      for (const what of ['tags', 'audio', 'native speakers', 'transcriptions']) expect(log).toContain(`built without ${what}`);
+      const out = read(join(b, 'public/dict/w'));
+      const sh = (w) => JSON.parse(out[`${shardName(shardOf(w))}.json`]);
+      // 我只喝水 is kept without tags; 还 is read by pinyin-pro alone (hai2 twice: x only)
+      expect(sh('只').w['只'].x).toHaveLength(3);
+      expect(sh('还').w['还'].xr).toBeUndefined();
+    } finally {
       rmSync(b, { recursive: true, force: true });
     }
   });

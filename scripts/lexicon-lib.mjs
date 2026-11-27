@@ -1,5 +1,6 @@
 // Pure functions for scripts/build-lexicon.mjs (no I/O), tested in scripts/lexicon-lib.test.mjs.
-// Format and rules: .claude/plans/2026-11-07-word-explain.md, D2 (dict/w); 2026-11-23-word-panel-v2.md, D9 (dict/c), D11 (`n`).
+// Format and rules: .claude/plans/2026-11-07-word-explain.md, D2 (dict/w); 2026-11-23-word-panel-v2.md, D9 (dict/c), D11 (`n`);
+// 2026-11-27-word-panel-settings.md, D6 (strict match), D7 (`xr` reading lists), D8 (sentence quality).
 // The runtime reader is src/lib/lexicon.ts.
 
 export const SHARDS = 128;
@@ -180,60 +181,263 @@ export function addLink(links, a, b) {
   t.add(a);
 }
 
+// ---------- segmentation and strict match (plan 2026-11-27-word-panel-settings, D6) ----------
+
 /**
- * Which headwords each sentence illustrates (index into sentences): every word segment that is a headword, every
- * headword inside a segment, and headwords of 3+ characters anywhere in the sentence. Two-character words that only
- * straddle a word boundary (说中 in 他会说中文) are not counted.
- * segmenter: an Intl.Segmenter('zh', { granularity: 'word' }) or anything with the same segment() shape.
+ * Intl.Segmenter over-merges (我会说中文 → 我|会说|中文, 吃了饭 is one segment). This wrapper re-splits every Han segment
+ * of 2+ characters that is not itself a dictionary word into dictionary words: the fewest pieces, ties to the longest
+ * first piece, single characters always allowed (会说 → 会|说, 我还没 → 我|还没). Segments that are words stay whole
+ * (会议, 学生, 银行), so their characters don't count as the 1–2 character words 会, 学, 行.
+ * segmenter: anything with Intl.Segmenter's segment() shape; words: Set of headwords (CC-CEDICT simplified forms).
  */
-export function indexSentences(sentences, headwords, segmenter, { maxWord = DEFAULTS.maxWord } = {}) {
-  const index = new Map();
-  const add = (w, i) => {
-    let list = index.get(w);
-    if (!list) index.set(w, (list = []));
-    if (list[list.length - 1] !== i) list.push(i);
-  };
-  sentences.forEach((s, i) => {
-    const hits = new Set();
-    const subs = (chars, minLen) => {
-      for (let a = 0; a < chars.length; a++) {
-        if (!HAN.test(chars[a])) continue;
-        for (let n = minLen; n <= maxWord && a + n <= chars.length; n++) {
-          const w = chars.slice(a, a + n).join('');
-          if (headwords.has(w)) hits.add(w);
-        }
+export function dictSegmenter(segmenter, words, { maxWord = DEFAULTS.maxWord } = {}) {
+  const split = (cps) => {
+    const n = cps.length;
+    const best = Array(n + 1).fill(null);
+    best[n] = [];
+    for (let i = n - 1; i >= 0; i--) {
+      for (let l = Math.min(maxWord, n - i); l >= 1; l--) {
+        const w = cps.slice(i, i + l).join('');
+        if (l > 1 && !words.has(w)) continue;
+        const rest = best[i + l];
+        if (rest && (!best[i] || rest.length + 1 < best[i].length)) best[i] = [w, ...rest];
       }
-    };
-    for (const seg of segmenter.segment(s.zh)) {
-      const chars = [...seg.segment];
-      if (!chars.some((c) => HAN.test(c))) continue;
-      subs(chars, 1);
     }
-    subs([...s.zh], 3);
-    for (const w of [...hits].sort(cmp)) add(w, i);
+    return best[0];
+  };
+  return {
+    segment(text) {
+      const out = [];
+      for (const { segment } of segmenter.segment(text)) {
+        const cps = [...segment];
+        if (cps.length > 1 && !words.has(segment) && cps.some((c) => HAN.test(c))) for (const p of split(cps)) out.push({ segment: p });
+        else out.push({ segment });
+      }
+      return out;
+    },
+  };
+}
+
+/**
+ * Which headwords each sentence illustrates (index into sentences), D6 strict match: a word of 1–2 characters counts
+ * only when it is a whole segment or the exact join of consecutive whole segments (会 in 我|会|说, not in 会议; 中文 in
+ * 中|文); a word of 3+ characters counts anywhere in the sentence. Two-character words that only straddle a word
+ * boundary (说中 in 他会说中文) are not counted.
+ * segmenter: an Intl.Segmenter('zh', { granularity: 'word' }) (best wrapped in dictSegmenter) or anything with the same
+ * segment() shape. at (optional): Map<word, Map>; for the words that are keys, the code-point starts of every hit go
+ * into at.get(word) as sentence index → starts (used for the reading check, D7).
+ */
+export function indexSentences(sentences, headwords, segmenter, { maxWord = DEFAULTS.maxWord, at } = {}) {
+  const index = new Map();
+  sentences.forEach((s, i) => {
+    const hits = new Map(); // word → starts
+    const hit = (w, start) => {
+      let l = hits.get(w);
+      if (!l) hits.set(w, (l = []));
+      if (!l.includes(start)) l.push(start);
+    };
+    const segs = [];
+    let pos = 0;
+    for (const { segment } of segmenter.segment(s.zh)) {
+      const cps = [...segment];
+      segs.push({ start: pos, cps });
+      pos += cps.length;
+    }
+    for (let a = 0; a < segs.length; a++) {
+      let w = '';
+      let n = 0;
+      for (let b = a; b < segs.length; b++) {
+        n += segs[b].cps.length;
+        if (n > 2) break;
+        w += segs[b].cps.join('');
+        if (HAN.test(w) && headwords.has(w)) hit(w, segs[a].start);
+      }
+    }
+    const chars = [...s.zh];
+    for (let a = 0; a < chars.length; a++) {
+      if (!HAN.test(chars[a])) continue;
+      for (let n = 3; n <= maxWord && a + n <= chars.length; n++) {
+        const w = chars.slice(a, a + n).join('');
+        if (headwords.has(w)) hit(w, a);
+      }
+    }
+    for (const w of [...hits.keys()].sort(cmp)) {
+      let list = index.get(w);
+      if (!list) index.set(w, (list = []));
+      list.push(i);
+      if (at?.has(w)) at.get(w).set(i, hits.get(w).sort((x, y) => x - y));
+    }
   });
   return index;
 }
 
-/** Best examples first: with both en and fr, then length closest to targetHan Han characters, then lowest id. */
+// ---------- sentence quality (D8) ----------
+
+/** Tatoeba tags that mean "this sentence may be wrong": such sentences are dropped. */
+export const DOUBTFUL_TAGS = ['@change', '@check', '@needs native check', '@delete', '@delete maybe'];
+/** The tag that says a sentence was checked. */
+export const OK_TAG = 'OK';
+const normTag = (t) => String(t).trim().toLowerCase().replace(/\s+/g, ' ');
+const DOUBTFUL = new Set(DOUBTFUL_TAGS.map(normTag));
+
+/** A sentence's tags (any iterable of tag names) contain a doubtful one. */
+export const isDoubtful = (tags) => !!tags && [...tags].some((t) => DOUBTFUL.has(normTag(t)));
+
+/** Usernames that give Mandarin (cmn) skill level 5 in user_languages rows [lang, skillLevel, username, …]. */
+export function nativeSpeakers(rows) {
+  const out = new Set();
+  for (const [lang, level, user] of rows) if (lang === 'cmn' && String(level).trim() === '5' && user && user !== '\\N') out.add(user);
+  return out;
+}
+
+/**
+ * D8 flags on attachTranslations(...) sentences: native (owner is a native Mandarin speaker), audio, ok (tagged OK).
+ * Sentences with a doubtful tag are dropped. owners: Map<id, username>; natives: Set<username>; audio: Set<id>;
+ * tags: Map<id, Set<tag>>. Returns { kept, dropped } (dropped: the number left out). The flags only rank; they are
+ * never written to the shards.
+ */
+export function markQuality(sentences, { owners = new Map(), natives = new Set(), audio = new Set(), tags = new Map() } = {}) {
+  const kept = [];
+  let dropped = 0;
+  const ok = normTag(OK_TAG);
+  for (const s of sentences) {
+    const t = tags.get(s.id);
+    if (isDoubtful(t)) {
+      dropped++;
+      continue;
+    }
+    const out = { ...s };
+    const owner = owners.get(s.id);
+    if (owner && natives.has(owner)) out.native = true;
+    if (audio.has(s.id)) out.audio = true;
+    if (t && [...t].some((x) => normTag(x) === ok)) out.ok = true;
+    kept.push(out);
+  }
+  return { kept, dropped };
+}
+
+/**
+ * Best examples first: the D8 quality boosts (native owner, audio, OK tag: one point each, most points first), then
+ * both en and fr, then length closest to targetHan Han characters, then lowest id.
+ */
 export function rankExamples(idxs, sentences, { examples = DEFAULTS.examples, targetHan = DEFAULTS.targetHan } = {}) {
   const key = (i) => {
     const s = sentences[i];
-    return [s.en && s.fr ? 0 : 1, Math.abs(hanCount(s.zh) - targetHan), s.id];
+    return [-((s.native ? 1 : 0) + (s.audio ? 1 : 0) + (s.ok ? 1 : 0)), s.en && s.fr ? 0 : 1, Math.abs(hanCount(s.zh) - targetHan), s.id];
   };
   return [...idxs]
     .map((i) => ({ i, k: key(i) }))
-    .sort((a, b) => a.k[0] - b.k[0] || a.k[1] - b.k[1] || a.k[2] - b.k[2])
+    .sort((a, b) => a.k[0] - b.k[0] || a.k[1] - b.k[1] || a.k[2] - b.k[2] || a.k[3] - b.k[3])
     .slice(0, examples)
     .map((x) => x.i);
 }
 
+// ---------- reading check (D7) ----------
+
+// The syllable list of src/lib/pinyin.ts (SYLLABLES), for reading Tatoeba's pinyin transcriptions; a test keeps them equal.
+export const SYLLABLE_LIST =
+  'a ai an ang ao ba bai ban bang bao bei ben beng bi bian biao bie bin bing bo bu ca cai can cang cao ce cen ceng cha chai chan chang chao che chen cheng chi chong chou chu chua chuai chuan chuang chui chun chuo ci cong cou cu cuan cui cun cuo da dai dan dang dao de dei den deng di dia dian diao die ding diu dong dou du duan dui dun duo e ei en eng er fa fan fang fei fen feng fo fou fu ga gai gan gang gao ge gei gen geng gong gou gu gua guai guan guang gui gun guo ha hai han hang hao he hei hen heng hong hou hu hua huai huan huang hui hun huo ji jia jian jiang jiao jie jin jing jiong jiu ju juan jue jun ka kai kan kang kao ke kei ken keng kong kou ku kua kuai kuan kuang kui kun kuo la lai lan lang lao le lei leng li lia lian liang liao lie lin ling liu lo long lou lu luan lun luo lv lve ma mai man mang mao me mei men meng mi mian miao mie min ming miu mo mou mu na nai nan nang nao ne nei nen neng ni nian niang niao nie nin ning niu nong nou nu nuan nuo nv nve o ou pa pai pan pang pao pei pen peng pi pian piao pie pin ping po pou pu qi qia qian qiang qiao qie qin qing qiong qiu qu quan que qun ran rang rao re ren reng ri rong rou ru ruan rui run ruo sa sai san sang sao se sen seng sha shai shan shang shao she shei shen sheng shi shou shu shua shuai shuan shuang shui shun shuo si song sou su suan sui sun suo ta tai tan tang tao te tei teng ti tian tiao tie ting tong tou tu tuan tui tun tuo wa wai wan wang wei wen weng wo wu xi xia xian xiang xiao xie xin xing xiong xiu xu xuan xue xun ya yan yang yao ye yi yin ying yo yong you yu yuan yue yun za zai zan zang zao ze zei zen zeng zha zhai zhan zhang zhao zhe zhei zhen zheng zhi zhong zhou zhu zhua zhuai zhuan zhuang zhui zhun zhuo zi zong zou zu zuan zui zun zuo m n ng hm hng r';
+const SYL = new Set(SYLLABLE_LIST.split(' '));
+const MARK = {};
+for (const [base, marks] of [['a', 'āáǎà'], ['e', 'ēéěè'], ['i', 'īíǐì'], ['o', 'ōóǒò'], ['u', 'ūúǔù'], ['v', 'ǖǘǚǜ']]) [...marks].forEach((c, i) => (MARK[c] = [base, i + 1]));
+
+/**
+ * A Tatoeba pinyin transcription (tone numbers, tone marks or both; words written together: Zhong1wen2, Zhōngwén) →
+ * one numbered syllable per Han character (neutral tone 5), or null when it doesn't split into exactly `n` syllables.
+ */
+export function parseTranscription(text, n) {
+  const out = [];
+  for (const chunk of String(text).normalize('NFC').toLowerCase().replace(/[uü]:/g, 'v').replace(/ü/g, 'v').split(/[^a-zāáǎàēéěèīíǐìōóǒòūúǔùǖǘǚǜ1-5]+/)) {
+    if (!chunk) continue;
+    // letters with their tone (from a mark, or a digit after the syllable); a digit also ends a syllable
+    let run = [];
+    const flush = () => {
+      if (!run.length) return true;
+      // split the run into syllables: fewest syllables, longest first
+      const m = run.length;
+      const best = Array(m + 1).fill(null);
+      best[m] = [];
+      for (let i = m - 1; i >= 0; i--) {
+        for (let l = Math.min(6, m - i); l >= 1; l--) {
+          if (!best[i + l] || !SYL.has(run.slice(i, i + l).map((x) => x.c).join(''))) continue;
+          if (!best[i] || best[i + l].length + 1 < best[i].length) best[i] = [[i, l], ...best[i + l]];
+        }
+      }
+      if (!best[0]) return false;
+      for (const [i, l] of best[0]) {
+        const part = run.slice(i, i + l);
+        out.push(`${part.map((x) => x.c).join('')}${part.reduce((t, x) => x.t || t, 0) || 5}`);
+      }
+      run = [];
+      return true;
+    };
+    for (const c of chunk) {
+      if (/[1-5]/.test(c)) {
+        if (!run.length) return null;
+        run[run.length - 1].t = Number(c);
+        if (!flush()) return null;
+      } else run.push(MARK[c] ? { c: MARK[c][0], t: MARK[c][1] } : { c, t: 0 });
+    }
+    if (!flush()) return null;
+  }
+  return out.length === n ? out : null;
+}
+
+/**
+ * Reader for the reading check (D7): sentence → one numbered syllable per code point of zh ('' for non-Han).
+ * transcriptions: Map<id, string[]> (parseTranscription output, one per Han character), used first; then pinyin, the
+ * pinyin function of pinyin-pro (in context, tone sandhi off, as lineReadings in src/lib/lexicon.ts); null: no reader.
+ */
+export function makeReader({ pinyin, transcriptions = new Map() } = {}) {
+  if (!pinyin && !transcriptions.size) return null;
+  return (s) => {
+    const cps = [...s.zh];
+    const t = transcriptions.get(s.id);
+    if (t) {
+      let k = 0;
+      const out = cps.map((c) => (HAN.test(c) ? t[k++] ?? '' : ''));
+      if (k === t.length) return out;
+    }
+    if (!pinyin) return cps.map(() => '');
+    const out = [];
+    for (const r of pinyin(s.zh, { toneType: 'num', type: 'all', v: true, toneSandhi: false })) {
+      const o = [...r.origin];
+      if (r.isZh && o.length === 1 && r.pinyin) out.push(r.pinyin.replace(/0$/, '5'));
+      else out.push(...o.map(() => ''));
+    }
+    while (out.length < cps.length) out.push('');
+    return out.slice(0, cps.length);
+  };
+}
+
+/**
+ * Which of a word's CC-CEDICT readings a read occurrence is: syls (one numbered syllable per character) against
+ * readings ('hang2', 'xing2'): the exact reading, else the only reading with the same letters, else among those the
+ * only one whose tones agree where both are toned (5 = neutral matches any tone). null when unsure.
+ */
+export function matchReading(syls, readings) {
+  if (!syls.length || syls.some((x) => !x)) return null;
+  const got = syls.join(' ');
+  if (readings.includes(got)) return got;
+  const split = (r) => r.split(' ');
+  const letters = (r) => split(r).map((x) => x.replace(/[0-5]$/, ''));
+  const gl = letters(got).join(' ');
+  const same = readings.filter((r) => split(r).length === syls.length && letters(r).join(' ') === gl);
+  if (same.length === 1) return same[0];
+  const tone = (x) => x.slice(-1);
+  const agree = same.filter((r) => split(r).every((x, k) => tone(x) === '5' || tone(syls[k]) === '5' || tone(x) === tone(syls[k])));
+  return agree.length === 1 ? agree[0] : null;
+}
+
 /**
  * Build the shard files.
- * cedict: parseCedict(...).entries; cfdict: parseCfdictTsv(...); sentences: attachTranslations(...) output.
+ * cedict: parseCedict(...).entries; cfdict: parseCfdictTsv(...); sentences: attachTranslations(...) output, optionally
+ * with markQuality(...) flags; reader (D7, optional): makeReader(...). With a reader, a word with 2+ CC-CEDICT readings
+ * gets `xr`: reading → its examples (indices into `s`, ranked and capped like `x`), from the reading of the word in each
+ * sentence; a list equal to `x` is left out (the app falls back to `x`), and index.xr is true.
  * Returns { files: Map<'00.json'…'7f.json', string>, index } with deterministic bytes (sorted words, stable order).
  */
-export function buildShards({ cedict, cfdict = new Map(), sentences = [], segmenter, built, sample = false, sources = [], options = {} }) {
+export function buildShards({ cedict, cfdict = new Map(), sentences = [], segmenter, reader, built, sample = false, sources = [], options = {} }) {
   const opt = { ...DEFAULTS, ...options };
   const words = new Map(); // simp → { e, f }
   for (const e of cedict) {
@@ -249,7 +453,43 @@ export function buildShards({ cedict, cfdict = new Map(), sentences = [], segmen
     for (const [py, senses] of list) w.f.push([py, senses]);
   }
   const headwords = new Set(words.keys());
-  const hits = segmenter ? indexSentences(sentences, headwords, segmenter, opt) : new Map();
+  // D7: words with several CC-CEDICT readings, and where each of their hits is
+  const poly = new Map();
+  if (reader) {
+    for (const [simp, w] of words) {
+      const rs = [...new Set(w.e.map((r) => r[0]))];
+      if (rs.length > 1) poly.set(simp, rs);
+    }
+  }
+  const at = new Map([...poly.keys()].map((w) => [w, new Map()]));
+  const hits = segmenter ? indexSentences(sentences, headwords, segmenter, { ...opt, at }) : new Map();
+  const readCache = new Map();
+  const readOf = (i) => {
+    let r = readCache.get(i);
+    if (!r) readCache.set(i, (r = reader(sentences[i])));
+    return r;
+  };
+  const xrStats = { words: 0, lists: 0, read: 0, unsure: 0 };
+  /** reading → sentence indices for a polyphonic word, in CC-CEDICT order; a sentence can carry two readings. */
+  const byReading = (simp) => {
+    const rs = poly.get(simp);
+    const n = [...simp].length;
+    const out = new Map(rs.map((r) => [r, []]));
+    for (const [i, starts] of at.get(simp) ?? []) {
+      const syl = readOf(i);
+      for (const st of starts) {
+        const r = matchReading(syl.slice(st, st + n), rs);
+        if (r === null) {
+          xrStats.unsure++;
+          continue;
+        }
+        xrStats.read++;
+        const l = out.get(r);
+        if (l[l.length - 1] !== i) l.push(i);
+      }
+    }
+    return out;
+  };
 
   const byShard = Array.from({ length: SHARDS }, () => []);
   for (const simp of [...words.keys()].sort(cmp)) byShard[shardOf(simp)].push(simp);
@@ -269,17 +509,31 @@ export function buildShards({ cedict, cfdict = new Map(), sentences = [], segmen
       if (src.e.length) entry.e = src.e;
       if (src.f.length) entry.f = src.f;
       const best = hits.has(simp) ? rankExamples(hits.get(simp), sentences, opt) : [];
+      const place = (i) => {
+        if (!pos.has(i)) {
+          const t = sentences[i];
+          pos.set(i, s.length);
+          s.push([t.id, t.zh, t.en || '', t.fr || '']);
+          used.add(t.id);
+        }
+        return pos.get(i);
+      };
       if (best.length) {
-        entry.x = best.map((i) => {
-          if (!pos.has(i)) {
-            const t = sentences[i];
-            pos.set(i, s.length);
-            s.push([t.id, t.zh, t.en || '', t.fr || '']);
-            used.add(t.id);
-          }
-          return pos.get(i);
-        });
+        entry.x = best.map(place);
         withExamples++;
+        if (poly.has(simp)) {
+          const xr = {};
+          for (const [r, list] of byReading(simp)) {
+            const ranked = list.length ? rankExamples(list, sentences, opt) : [];
+            if (!ranked.length || (ranked.length === best.length && ranked.every((i, k) => i === best[k]))) continue;
+            xr[r] = ranked.map(place);
+            xrStats.lists++;
+          }
+          if (Object.keys(xr).length) {
+            entry.xr = xr;
+            xrStats.words++;
+          }
+        }
       }
       w[simp] = entry;
     }
@@ -292,9 +546,12 @@ export function buildShards({ cedict, cfdict = new Map(), sentences = [], segmen
   const index = { v: 1, shards: SHARDS, built };
   if (sample) index.sample = true;
   Object.assign(index, { words: words.size, sentences: used.size, bytes, sources });
+  if (reader) index.xr = true;
   const freq = new Map();
   for (const [w, list] of hits) freq.set(w, list.length);
-  return { files, index, stats: { words: words.size, withExamples, sentences: used.size, bytes, biggest }, freq };
+  const stats = { words: words.size, withExamples, sentences: used.size, bytes, biggest };
+  if (reader) stats.xr = { polyphones: poly.size, ...xrStats };
+  return { files, index, stats, freq };
 }
 
 // ---------- character index: public/dict/c (plan 2026-11-23-word-panel-v2, D9) ----------
@@ -473,9 +730,10 @@ export function buildCharIndex({ cedict, cfdict = new Map(), freq = new Map(), s
  * maxDf/minDf: a meaning counts when 2–40 common words share it; perWord: similar words kept per word; freqWeight: the
  * Tatoeba bonus that settles near-ties (rank = score × (1 + freqWeight × log2(1 + count)): +3 % for 1 sentence, +20 %
  * for 100, +30 % for 1,000), so a common word passes a rare one with a slightly rarer shared meaning, but not one that
- * shares more meanings.
+ * shares more meanings. minCount: a word in at least this many Tatoeba sentences gets no candidate that is in none
+ * (plan 2026-11-27, WP6: 发轫 for 开始).
  */
-export const SIMILAR_DEFAULTS = { maxDf: 40, minDf: 2, perWord: 4, properMin: CHAR_DEFAULTS.properMin, freqWeight: 0.03 };
+export const SIMILAR_DEFAULTS = { maxDf: 40, minDf: 2, perWord: 4, properMin: CHAR_DEFAULTS.properMin, freqWeight: 0.03, minCount: 5 };
 
 // Placeholders and leading words that don't change a meaning: "to help sb" = "help", "un ami" = "ami".
 const GLOSS_NOISE = /(?:^|\s)(?:sb|sth|qqn|qqch|qn|qch|qc)(?:'s)?(?=\s|$)|\betc\b\.?/gu;
@@ -526,10 +784,17 @@ export function glossKeys(enSenses, frSenses) {
  * French from every CFDICT row. A meaning counts when minDf–maxDf words share it; score = Σ 1/log2(1 + df) over the
  * shared meanings, times the Tatoeba bonus (freqWeight); ties by Tatoeba count, then code point. A word of 2 or more
  * characters gets no single-character candidates: those are mostly bound morphemes (朋, 识, 始) that the Characters
- * section already shows; a single character keeps them. Returns Map<word, string[]> (≤ perWord, best first), only
- * for words with at least one similar word; deterministic.
+ * section already shows; a single character keeps them. Never offered: slang, dialect, old and bookish words (every
+ * sense literary/archaic/classical/old, or one sense marked formal), and words in no Tatoeba sentence when the word
+ * itself is in minCount or more. Returns Map<word, string[]> (≤ perWord, best first), only for words with at least one
+ * similar word; deterministic.
  */
 const ODD_SENSE = /^\((?:Internet |coll\. |)slang|^\((?:dialect|old|archaic|Cantonese|Taiwanese|Tw)\b/i;
+// Bookish words (the 发轫 for 开始 noise, plan 2026-11-27 WP6): every sense literary, archaic, classical or old, or a
+// single sense marked formal.
+const BOOKISH_SENSE = /^\((?:literary|archaic|classical|old)\b/i;
+const FORMAL_SENSE = /^\(formal\)/i;
+const bookish = (senses) => senses.length > 0 && (senses.every((t) => BOOKISH_SENSE.test(t)) || (senses.length === 1 && FORMAL_SENSE.test(senses[0])));
 
 export function buildSimilar({ cedict, cfdict = new Map(), freq = new Map(), options = {} }) {
   const opt = { ...SIMILAR_DEFAULTS, ...options };
@@ -541,7 +806,8 @@ export function buildSimilar({ cedict, cfdict = new Map(), freq = new Map(), opt
     const keys = glossKeys(ce.flatMap((x) => x.senses), cf.flatMap((x) => sensesOf(x[1])));
     // Slang, dialect and old words (every sense marked so, 盆友 "(Internet slang) friend") get a row but are never
     // offered as a similar word: Hugo should not pick them up in place of the common word.
-    const odd = ce.flatMap((x) => x.senses).every((t) => ODD_SENSE.test(t));
+    const all = ce.flatMap((x) => x.senses);
+    const odd = all.every((t) => ODD_SENSE.test(t)) || bookish(all);
     if (keys.length) words.push({ w, n, keys, one: [...w].length === 1, odd });
   }
   words.sort((a, b) => cmpCp(a.w, b.w));
@@ -561,7 +827,12 @@ export function buildSimilar({ cedict, cfdict = new Map(), freq = new Map(), opt
       const l = post.get(k);
       if (l.length < opt.minDf || l.length > opt.maxDf) continue;
       const wgt = 1 / Math.log2(1 + l.length);
-      for (const j of l) if (j !== i && !words[j].odd && (one || !words[j].one)) score.set(j, (score.get(j) ?? 0) + wgt);
+      for (const j of l) {
+        if (j === i || words[j].odd || (!one && words[j].one)) continue;
+        // a word never seen in Tatoeba is not offered for a word seen often (minCount): rare or bookish
+        if (words[j].n === 0 && x.n >= opt.minCount) continue;
+        score.set(j, (score.get(j) ?? 0) + wgt);
+      }
     }
     if (!score.size) return;
     // rounded, so sums of the same weights in another order still tie
@@ -585,6 +856,8 @@ export function charReusable(index, { present = true, sample = false, minChars =
 /** Is an existing index.json good enough to reuse? */
 export function reusable(index, { sample = false, minWords = 0, minSentences = 0, today, maxAgeDays = 30 } = {}) {
   if (!index || index.v !== 1 || index.shards !== SHARDS) return { ok: false, why: 'no usable index' };
+  // a build from before the strict match, quality ranking and reading lists (plan 2026-11-27, D6–D8) is rebuilt
+  if (index.xr !== true) return { ok: false, why: 'index without reading lists' };
   if (!!index.sample !== sample) return { ok: false, why: index.sample ? 'sample data' : 'real data in a sample run' };
   if (!sample && (index.words < minWords || index.sentences < minSentences)) return { ok: false, why: 'implausible counts' };
   const age = (Date.parse(today) - Date.parse(index.built)) / 86400000;
