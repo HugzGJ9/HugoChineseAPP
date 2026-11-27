@@ -4,7 +4,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory, IDBKeyRange } from 'fake-indexeddb';
 import Dexie from 'dexie';
 import type { Note, PendingImport, ReviewEvent, StatusMark, VocabFile } from './types';
+import { gunzipSync, strFromU8 } from 'fflate';
 import { deriveCards, resolveEventCards } from './engine/schedule';
+import { memoEnv } from './engine/memo';
 
 /** A fresh copy of the app's modules. Pass the `idb` of another one for a second tab on the same database. */
 async function device(idb = new IDBFactory()) {
@@ -486,6 +488,165 @@ describe('speed', () => {
     expect(performance.now() - t0).toBeLessThan(3000);
     expect(again.store.getState().events).toHaveLength(20000 - 1);
   }, 30000);
+
+  it('a warm start derives the cards in under a third of the time of a cold one', async () => {
+    const { store, db, idb } = await device();
+    await store.setVocab(vocab(notes));
+    await db.db.events.bulkPut(Array.from({ length: 20000 }, (_, i) => event(i)));
+    await db.db.kv.delete('cardsMemo');
+    const cold = await device(idb);
+    expect(cold.store.cardStats()).toMatchObject({ total: N_NOTES, replayed: N_NOTES, full: true });
+    await cold.store.flushCardMemo();
+    // Two warm starts, the faster one counts (a single run on a busy machine can catch a garbage collection).
+    let best = Infinity;
+    for (let k = 0; k < 2; k++) {
+      const warm = await device(idb);
+      expect(warm.store.cardStats()).toMatchObject({ total: N_NOTES, cached: N_NOTES, replayed: 0 });
+      expect(warm.store.getState().cards).toEqual(cold.store.getState().cards);
+      best = Math.min(best, warm.store.cardStats().ms);
+    }
+    const ms = { cold: cold.store.cardStats().ms, warm: best };
+    console.info(`card derive, 2,000 words and 20,000 reviews: cold ${ms.cold.toFixed(1)} ms, warm ${ms.warm.toFixed(1)} ms`);
+    expect(ms.warm).toBeLessThan(ms.cold / 3);
+  }, 30000);
+});
+
+describe('card memo', () => {
+  type Dev = Awaited<ReturnType<typeof device>>;
+  const words = Array.from({ length: 30 }, (_, i) => note(i, { studied: i % 3 === 0 }));
+  const seeds = Object.fromEntries(words.filter((n) => n.studied).map((n) => [n.id, T0 - 86400000 * 3]));
+  const W = words[1].id;
+
+  /** Cards derived from scratch from what is stored now (no aliases here, so the views are the stored rows). */
+  async function fresh(d: Dev) {
+    const s = d.store.getState();
+    const events = await d.db.db.events.toArray();
+    const cards = deriveCards(await d.db.db.notes.orderBy('order').toArray(), events, s.meta?.seeds ?? {}, s.settings, s.marks);
+    return new Map(cards.map((c) => [c.id, c]));
+  }
+
+  async function seeded(): Promise<Dev> {
+    const a = await device();
+    await a.store.setVocab(vocab(words, { seeds }));
+    for (let i = 0; i < 40; i++) {
+      const n = words[(i * 7) % words.length];
+      await a.db.db.events.put({ id: `o${i}`, card: `${n.id}#recog`, r: ((i % 4) + 1) as 1 | 2 | 3 | 4, t: T0 + i * 3600000, d: 1, m: 'reveal', dev: 'iphone-1', mo: '2026-11' });
+    }
+    return a;
+  }
+
+  it('a second start takes every card from the memo, equal to a fresh derive', async () => {
+    const a = await seeded();
+    const first = await device(a.idb);
+    // Events written behind the store's back: every word replays here.
+    expect(first.store.cardStats()).toMatchObject({ total: words.length, replayed: words.length });
+    await first.store.flushCardMemo();
+    const again = await device(a.idb);
+    const st = again.store.cardStats();
+    expect(st).toMatchObject({ total: words.length, cached: words.length, replayed: 0, full: false });
+    expect(again.store.getState().cards).toEqual(await fresh(again));
+    const m = performance.getEntriesByName('hz:cards', 'measure').at(-1) as PerformanceMeasure;
+    expect(m.detail).toEqual({ total: words.length, cached: words.length, replayed: 0, full: false });
+  });
+
+  it('the very first start has no memo: a full replay', async () => {
+    const a = await device();
+    expect(a.store.cardStats()).toMatchObject({ total: 0, full: true });
+    await a.store.setVocab(vocab(words, { seeds }));
+    await a.db.db.kv.delete('cardsMemo');
+    const b = await device(a.idb);
+    expect(b.store.cardStats()).toMatchObject({ total: words.length, cached: 0, replayed: words.length, full: true });
+  });
+
+  it('after a review, a status change or an undone mark, only that word is replayed at the next start', async () => {
+    let d = await device((await seeded()).idb);
+    await d.store.flushCardMemo();
+    const restart = async (word: string) => {
+      d = await device(d.idb);
+      expect(d.store.cardStats(), word).toMatchObject({ total: words.length, replayed: 1, cached: words.length - 1 });
+      expect(d.store.getState().cards).toEqual(await fresh(d));
+      await d.store.flushCardMemo();
+    };
+    await d.store.recordReview(`${W}#recog`, 3, 'reveal', 1000, T0 + 86400000 * 2);
+    await restart(W);
+    const m = await d.store.setNoteStatus(words[2].id, 'known', T0 + 86400000 * 2);
+    await restart(words[2].id);
+    await d.store.undoMark(m.id);
+    await restart(words[2].id);
+    d = await device(d.idb);
+    expect(d.store.cardStats().replayed).toBe(0);
+  });
+
+  it('a merge that drops and adds events of another device replays only those words', async () => {
+    const d = await device((await seeded()).idb);
+    const before = d.store.getState().cards;
+    const month = (await d.db.db.events.toArray()).filter((e) => e.dev === 'iphone-1');
+    // o0 (word 0) dropped, one new event on word 5; the rest of the month as it was.
+    const next = [...month.filter((e) => e.id !== 'o0'), { ...month[1], id: 'o-new', card: `${words[5].id}#recog`, t: T0 + 86400000 }];
+    expect(await d.store.mergeDeviceEvents('iphone-1', '2026-11', next, { rebuild: false })).toBe(true);
+    d.store.rebuildAll();
+    expect(d.store.cardStats()).toMatchObject({ total: words.length, replayed: 2, full: false });
+    const cards = d.store.getState().cards;
+    expect(cards).toEqual(await fresh(d));
+    for (const [id, c] of cards) if (c.note !== words[0].id && c.note !== words[5].id) expect(c).toBe(before.get(id));
+  });
+
+  it('a time zone change between two starts replays everything', async () => {
+    env.TZ = 'Asia/Shanghai';
+    const a = await device((await seeded()).idb);
+    await a.store.flushCardMemo();
+    expect((await device(a.idb)).store.cardStats().replayed).toBe(0);
+    env.TZ = 'America/New_York';
+    const b = await device(a.idb);
+    expect(b.store.cardStats()).toMatchObject({ replayed: words.length, full: true });
+    expect(b.store.getState().cards).toEqual(await fresh(b));
+  });
+
+  it('a corrupt row, a newer format or other settings: a full replay, then the row is replaced', async () => {
+    const a = await device((await seeded()).idb);
+    await a.store.flushCardMemo();
+    const good = await a.db.kvGet<{ v: number; env: string; json: string }>('cardsMemo', null as never);
+    expect(good.v).toBe(1);
+    const settings = a.store.getState().settings;
+    const others = [
+      'garbage',
+      { ...good, json: good.json.slice(0, 50) },
+      { ...good, v: 2 },
+      { ...good, env: memoEnv({ retention: 0.8, spreadDays: settings.spreadDays, recall: settings.recall, listen: settings.listen }) },
+    ];
+    for (const row of others) {
+      await a.db.kvSet('cardsMemo', row);
+      const b = await device(a.idb);
+      expect(b.store.cardStats(), JSON.stringify(row).slice(0, 60)).toMatchObject({ replayed: words.length, full: true });
+      expect(b.store.getState().cards).toEqual(await fresh(b));
+      await b.store.flushCardMemo();
+      const back = await b.db.kvGet<{ v: number; env: string; at: number }>('cardsMemo', null as never);
+      expect(back.v).toBe(1);
+      expect(back.env).toBe(good.env);
+    }
+  });
+
+  it('is never in a backup', async () => {
+    const a = await device((await seeded()).idb);
+    await a.store.flushCardMemo();
+    const row = await a.db.kvGet<{ json: string } | null>('cardsMemo', null);
+    expect(row?.json.length).toBeGreaterThan(100);
+    const { buildBackup } = await import('./backup');
+    const text = strFromU8(gunzipSync((await buildBackup()).bytes));
+    expect(text).not.toContain('cardsMemo');
+    expect(text).not.toContain(row!.json.slice(0, 40));
+    expect(text).not.toContain('"stability"');
+  });
+
+  it('a pending save is dropped by "Erase everything"', async () => {
+    vi.stubGlobal('location', { reload: vi.fn() });
+    const a = await device();
+    await a.store.setVocab(vocab(words, { seeds }));
+    await a.store.wipeAll();
+    await a.store.flushCardMemo();
+    expect(a.db.db.isOpen()).toBe(false);
+    expect((await a.idb.databases()).map((x) => x.name)).not.toContain(a.db.db.name);
+  });
 });
 
 describe('useAppPick', () => {
