@@ -78,3 +78,16 @@ async def dump(page, who=''):
     except Exception as e:  # the page may be closed or navigating
         return f'[{who}] page not readable: {e}'
     return (f"[{who}] url={info['url']} onLine={info['online']}\n  notices={info['notices']}\n  #sync={info['sync']!r}\n  body={info['body']!r}")
+
+
+if __name__ == '__main__':
+    # Standalone: print what this environment supports (HUGO_URL must point at a running preview build).
+    from playwright.async_api import async_playwright
+
+    async def _main():
+        async with async_playwright() as p:
+            b = await p.chromium.launch()
+            await probe(b)
+            await b.close()
+
+    asyncio.run(_main())
