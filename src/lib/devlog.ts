@@ -14,7 +14,7 @@
 //   5. quoted text: “…” ‘…’ «…» always emptied (the app quotes folder and file names that way); "…" and '…' emptied
 //      when they hold a non-ASCII character or more than 32 characters (keeps `reading 'note'`); the source snippet of a
 //      V8 JSON error ("… is not valid JSON") always;
-//   6. Han, kana, hangul, fullwidth runs, and words with a pinyin macron or caron → …;
+//   6. Han, kana, hangul, fullwidth runs, and words with a pinyin tone mark (any of the four) → …;
 //   7. at most 300 characters per message, 400 per stack.
 // The logger never throws and never logs its own storage errors. Entries live in memory first; the stored ones are
 // merged in once the store is ready, and writes wait for that (debounced 1 s, only while the database is open).
@@ -72,7 +72,9 @@ const EMAIL = /[\w.%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/g;
 const URL_RE = /\b(?:blob:)?(?:https?|wss?|file):\/\/[^\s()"'<>{}]+/g;
 const WORKBOOK = /[^\s"'“”‘’«»<>|\\/:*?()[\]]+(?: \([^()\s]*\))?\.(?:xlsx|xlsm|xls|csv)\b/gi;
 const CJK = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}\p{Script=Bopomofo}　-〿＀-￯]+/gu;
-const TONED = /[\p{L}\p{M}]*[āēīōūǎěǐǒǔǖǘǚǜĀĒĪŌŪǍĚǏǑǓǕǗǙǛ̄̌][\p{L}\p{M}]*/gu;
+// Any tone mark, rising and falling included (kèrén, xuéxí): browser error messages are English, so a French word
+// caught here (réseau) costs little, a pinyin word let through would be one of Hugo's words.
+const TONED = /[\p{L}\p{M}]*[āēīōūǎěǐǒǔǖǘǚǜáéíóúàèìòùĀĒĪŌŪǍĚǏǑǓǕǗǙǛÁÉÍÓÚÀÈÌÒÙ\u0300\u0301\u0304\u030C][\p{L}\p{M}]*/gu;
 
 function appOrigin(): string | undefined {
   try {

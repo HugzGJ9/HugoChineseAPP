@@ -273,3 +273,14 @@ describe('device log', () => {
     }
   });
 });
+
+describe('scrub: tones 2 and 4 only', () => {
+  it('hides pinyin that has only rising or falling marks', async () => {
+    const { scrub } = await import('./devlog');
+    const out = scrub('Row kèrén failed, then xuéxí and dàjiā');
+    for (const w of ['kèrén', 'xuéxí', 'dàjiā']) expect(out).not.toContain(w);
+    expect(out).toContain('Row');
+    expect(out).toContain('failed');
+  });
+});
+
