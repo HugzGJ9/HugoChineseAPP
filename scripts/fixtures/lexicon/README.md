@@ -19,3 +19,6 @@ pinyin for 1103 行 hang2, 1105 还 huan2, 1107 只 zhi3; an unreviewed, wrong o
 行, 还, 只, 了 with 银行 and 了解 (whose 行 / 了 must not count). 友人 has one sentence so 朋友 → 友人 survives the
 "no candidate in no sentence" rule. `traps.tsv` (sentence, word, 1 when the word itself is used, its reading) and
 `traps-words.txt` (a hand-written stand-in for CC-CEDICT headwords) are the segmenter test set.
+After the first real run (2026-11-28): 音乐会 and 下一场音乐会将在六月份举办 (会 must not count inside 音乐会), 1112
+他在这一行工作 (reviewed hang2, so 行 has a hang2 list of 2), and the real failures appended to `traps.tsv` (了 le5, 得 de5,
+只 zhi1/zhi3, 觉 jiao4, 多行不义必自毙), on which no reading may be wrong.

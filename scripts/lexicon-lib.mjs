@@ -223,15 +223,27 @@ export function dictSegmenter(segmenter, words, { maxWord = DEFAULTS.maxWord } =
  * only when it is a whole segment or the exact join of consecutive whole segments (会 in 我|会|说, not in 会议; 中文 in
  * 中|文); a word of 3+ characters counts anywhere in the sentence. Two-character words that only straddle a word
  * boundary (说中 in 他会说中文) are not counted.
+ * Whatever the segmentation, a 1–2 character hit does not count where a 3+ character word of `guard` (default: the
+ * headwords; buildShards passes the CC-CEDICT forms) covers it in the sentence: 会 in 音乐会, 得 in 不得不, 行 in
+ * 多行不义必自毙.
  * segmenter: an Intl.Segmenter('zh', { granularity: 'word' }) (best wrapped in dictSegmenter) or anything with the same
  * segment() shape. at (optional): Map<word, Map>; for the words that are keys, the code-point starts of every hit go
  * into at.get(word) as sentence index → starts (used for the reading check, D7).
  */
-export function indexSentences(sentences, headwords, segmenter, { maxWord = DEFAULTS.maxWord, at } = {}) {
+export function indexSentences(sentences, headwords, segmenter, { maxWord = DEFAULTS.maxWord, at, guard = headwords } = {}) {
   const index = new Map();
   sentences.forEach((s, i) => {
+    const chars = [...s.zh];
+    // spans [a, b) of 3+ character guard words
+    const cover = [];
+    for (let a = 0; a < chars.length; a++) {
+      if (!HAN.test(chars[a])) continue;
+      for (let n = 3; n <= maxWord && a + n <= chars.length; n++) if (guard.has(chars.slice(a, a + n).join(''))) cover.push([a, a + n]);
+    }
     const hits = new Map(); // word → starts
     const hit = (w, start) => {
+      const n = [...w].length;
+      if (n < 3 && cover.some(([a, b]) => a <= start && start + n <= b)) return;
       let l = hits.get(w);
       if (!l) hits.set(w, (l = []));
       if (!l.includes(start)) l.push(start);
@@ -253,7 +265,6 @@ export function indexSentences(sentences, headwords, segmenter, { maxWord = DEFA
         if (HAN.test(w) && headwords.has(w)) hit(w, segs[a].start);
       }
     }
-    const chars = [...s.zh];
     for (let a = 0; a < chars.length; a++) {
       if (!HAN.test(chars[a])) continue;
       for (let n = 3; n <= maxWord && a + n <= chars.length; n++) {
@@ -384,23 +395,20 @@ export function parseTranscription(text, n) {
 }
 
 /**
- * Reader for the reading check (D7): sentence → one numbered syllable per code point of zh ('' for non-Han).
- * transcriptions: Map<id, string[]> (parseTranscription output, one per Han character), used first; then pinyin, the
- * pinyin function of pinyin-pro (in context, tone sandhi off, as lineReadings in src/lib/lexicon.ts); null: no reader.
+ * Reader for the reading check (D7): read(s) → { syl, reviewed }, syl = one numbered syllable per code point of zh ('' for
+ * non-Han), reviewed = it comes from a reviewed Tatoeba transcription; alone(text) → pinyin-pro's reading of the text
+ * on its own (its default, for telling a reading found in context from one it falls back to).
+ * transcriptions: Map<id, string[]> (parseTranscription output, one per Han character, reviewed only), used first;
+ * then pinyin, the pinyin function of pinyin-pro, on the whole sentence (context; tone sandhi off, as lineReadings in
+ * src/lib/lexicon.ts). null when there is neither.
  */
 export function makeReader({ pinyin, transcriptions = new Map() } = {}) {
   if (!pinyin && !transcriptions.size) return null;
-  return (s) => {
-    const cps = [...s.zh];
-    const t = transcriptions.get(s.id);
-    if (t) {
-      let k = 0;
-      const out = cps.map((c) => (HAN.test(c) ? t[k++] ?? '' : ''));
-      if (k === t.length) return out;
-    }
+  const nums = (text) => {
+    const cps = [...text];
     if (!pinyin) return cps.map(() => '');
     const out = [];
-    for (const r of pinyin(s.zh, { toneType: 'num', type: 'all', v: true, toneSandhi: false })) {
+    for (const r of pinyin(text, { toneType: 'num', type: 'all', v: true, toneSandhi: false })) {
       const o = [...r.origin];
       if (r.isZh && o.length === 1 && r.pinyin) out.push(r.pinyin.replace(/0$/, '5'));
       else out.push(...o.map(() => ''));
@@ -408,33 +416,91 @@ export function makeReader({ pinyin, transcriptions = new Map() } = {}) {
     while (out.length < cps.length) out.push('');
     return out.slice(0, cps.length);
   };
+  const alone = new Map();
+  return {
+    read(s) {
+      const t = transcriptions.get(s.id);
+      if (t) {
+        let k = 0;
+        const syl = [...s.zh].map((c) => (HAN.test(c) ? t[k++] ?? '' : ''));
+        if (k === t.length) return { syl, reviewed: true };
+      }
+      return { syl: nums(s.zh), reviewed: false };
+    },
+    alone(text) {
+      let r = alone.get(text);
+      if (!r) alone.set(text, (r = nums(text)));
+      return r;
+    },
+  };
 }
 
 /**
  * Which of a word's CC-CEDICT readings a read occurrence is: syls (one numbered syllable per character) against
- * readings ('hang2', 'xing2'): the exact reading, else the only reading with the same letters, else among those the
- * only one whose tones agree where both are toned (5 = neutral matches any tone). null when unsure.
+ * readings ('hang2', 'xing2'): the exact reading, else the only reading with the same letters (a light tone written
+ * with a tone: xue2 sheng1 → xue2 sheng5). null when unsure.
  */
 export function matchReading(syls, readings) {
   if (!syls.length || syls.some((x) => !x)) return null;
   const got = syls.join(' ');
   if (readings.includes(got)) return got;
-  const split = (r) => r.split(' ');
-  const letters = (r) => split(r).map((x) => x.replace(/[0-5]$/, ''));
-  const gl = letters(got).join(' ');
-  const same = readings.filter((r) => split(r).length === syls.length && letters(r).join(' ') === gl);
-  if (same.length === 1) return same[0];
-  const tone = (x) => x.slice(-1);
-  const agree = same.filter((r) => split(r).every((x, k) => tone(x) === '5' || tone(syls[k]) === '5' || tone(x) === tone(syls[k])));
-  return agree.length === 1 ? agree[0] : null;
+  const letters = (r) => r.split(' ').map((x) => x.replace(/[0-5]$/, '')).join(' ');
+  const gl = letters(got);
+  const same = readings.filter((r) => letters(r) === gl);
+  return same.length === 1 ? same[0] : null;
+}
+
+/** Words whose reading pinyin-pro can't be trusted with, whatever their readings: only a reviewed transcription counts. */
+export const UNRELIABLE_READING = new Set(['了']);
+
+/** Two readings of the word differ only by tone (de2 / de5, zhi1 / zhi3, liao3 / liao4). */
+const sharesLetters = (readings) => {
+  const l = readings.map((r) => r.split(' ').map((x) => x.replace(/[0-5]$/, '')).join(' '));
+  return new Set(l).size < l.length;
+};
+
+/**
+ * The reading of a word at one hit (D7), or null (unsure: the sentence goes to no `xr` list).
+ * word, readings: its CC-CEDICT readings; s: the sentence; start: code-point start of the hit; reader: makeReader(...);
+ * compounds: Map<word, readings[]> of CC-CEDICT words (2+ characters) for the lexical override.
+ * - A reviewed transcription decides (exact reading, else the only one with the same letters).
+ * - Else, for a word with readings that differ only by tone, or in UNRELIABLE_READING (了): unsure.
+ * - Else pinyin-pro in context, when it reads the word differently from the word on its own (the context decided).
+ *   When it gives the word's own default, the context said nothing: the reading comes from a longer CC-CEDICT word of
+ *   the sentence covering the hit (睡觉 → jiao4, 银行 → hang2), when all such words agree; otherwise unsure.
+ */
+export function readingAt({ word, readings, s, start, reader, compounds = new Map(), maxWord = DEFAULTS.maxWord }) {
+  const n = [...word].length;
+  const { syl, reviewed } = reader.read(s);
+  const at = syl.slice(start, start + n);
+  if (reviewed) return matchReading(at, readings);
+  if (UNRELIABLE_READING.has(word) || sharesLetters(readings)) return null;
+  const own = reader.alone(word);
+  if (at.join(' ') !== own.join(' ')) return matchReading(at, readings);
+  const chars = [...s.zh];
+  const found = new Set();
+  for (let a = Math.max(0, start + n - maxWord); a <= start; a++) {
+    for (let b = start + n; b <= Math.min(chars.length, a + maxWord); b++) {
+      if (b - a <= n) continue;
+      const rs = compounds.get(chars.slice(a, b).join(''));
+      if (!rs) continue;
+      for (const r of rs) {
+        const p = r.split(' ');
+        if (p.length !== b - a) continue;
+        const m = matchReading(p.slice(start - a, start - a + n), readings);
+        found.add(m);
+      }
+    }
+  }
+  return found.size === 1 ? [...found][0] : null;
 }
 
 /**
  * Build the shard files.
  * cedict: parseCedict(...).entries; cfdict: parseCfdictTsv(...); sentences: attachTranslations(...) output, optionally
  * with markQuality(...) flags; reader (D7, optional): makeReader(...). With a reader, a word with 2+ CC-CEDICT readings
- * gets `xr`: reading → its examples (indices into `s`, ranked and capped like `x`), from the reading of the word in each
- * sentence; a list equal to `x` is left out (the app falls back to `x`), and index.xr is true.
+ * gets `xr`: reading → its examples (indices into `s`, ranked and capped like `x`), from readingAt for each hit; a list
+ * of fewer than 2 sentences or equal to `x` is left out (the app falls back to `x`), and index.xr is true.
  * Returns { files: Map<'00.json'…'7f.json', string>, index } with deterministic bytes (sorted words, stable order).
  */
 export function buildShards({ cedict, cfdict = new Map(), sentences = [], segmenter, reader, built, sample = false, sources = [], options = {} }) {
@@ -462,23 +528,28 @@ export function buildShards({ cedict, cfdict = new Map(), sentences = [], segmen
     }
   }
   const at = new Map([...poly.keys()].map((w) => [w, new Map()]));
-  const hits = segmenter ? indexSentences(sentences, headwords, segmenter, { ...opt, at }) : new Map();
+  const cedictForms = new Set(cedict.map((e) => e.simp));
+  const hits = segmenter ? indexSentences(sentences, headwords, segmenter, { ...opt, at, guard: cedictForms }) : new Map();
+  // the lexical override (readingAt) reads CC-CEDICT words of 2+ characters; one read per sentence
+  const compounds = new Map();
+  if (reader) for (const [simp, w] of words) if ([...simp].length > 1 && w.e.length) compounds.set(simp, [...new Set(w.e.map((r) => r[0]))]);
   const readCache = new Map();
-  const readOf = (i) => {
-    let r = readCache.get(i);
-    if (!r) readCache.set(i, (r = reader(sentences[i])));
-    return r;
+  const cached = reader && {
+    read: (s) => {
+      let r = readCache.get(s);
+      if (!r) readCache.set(s, (r = reader.read(s)));
+      return r;
+    },
+    alone: (t) => reader.alone(t),
   };
   const xrStats = { words: 0, lists: 0, read: 0, unsure: 0 };
   /** reading → sentence indices for a polyphonic word, in CC-CEDICT order; a sentence can carry two readings. */
   const byReading = (simp) => {
     const rs = poly.get(simp);
-    const n = [...simp].length;
     const out = new Map(rs.map((r) => [r, []]));
     for (const [i, starts] of at.get(simp) ?? []) {
-      const syl = readOf(i);
       for (const st of starts) {
-        const r = matchReading(syl.slice(st, st + n), rs);
+        const r = readingAt({ word: simp, readings: rs, s: sentences[i], start: st, reader: cached, compounds, maxWord: opt.maxWord });
         if (r === null) {
           xrStats.unsure++;
           continue;
@@ -524,7 +595,8 @@ export function buildShards({ cedict, cfdict = new Map(), sentences = [], segmen
         if (poly.has(simp)) {
           const xr = {};
           for (const [r, list] of byReading(simp)) {
-            const ranked = list.length ? rankExamples(list, sentences, opt) : [];
+            // fewer than 2 sentences, or the same list as x: left out (the app shows x)
+            const ranked = list.length >= 2 ? rankExamples(list, sentences, opt) : [];
             if (!ranked.length || (ranked.length === best.length && ranked.every((i, k) => i === best[k]))) continue;
             xr[r] = ranked.map(place);
             xrStats.lists++;
