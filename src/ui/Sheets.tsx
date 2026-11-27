@@ -2,7 +2,7 @@
 // and a status per row that Hugo sets himself (menu, or Paint mode for one tap per row).
 import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import type { Note, WordStatus } from '../lib/types';
-import { clearExcelChanges, setLang, setNoteStatus, setWrong, undoMark, useApp } from '../lib/store';
+import { clearExcelChanges, setLang, setNoteStatus, setWrong, undoMark, useApp, useAppPick } from '../lib/store';
 import { pref, setPref } from '../lib/db';
 import { cardId } from '../lib/engine/schedule';
 import { buildQueue } from '../lib/engine/queue';
@@ -206,7 +206,7 @@ function AnswerField({ row, init, onCommit }: { row: SheetRow; init?: Answer; on
 }
 
 export function Sheets() {
-  const { notes, cards, events, settings, noteMap, marks, meta, lang } = useApp((s) => s);
+  const { notes, cards, events, settings, noteMap, marks, meta, lang } = useAppPick('notes', 'cards', 'events', 'settings', 'noteMap', 'marks', 'meta', 'lang');
   const now = useNow(300000);
   const { shown, preset, listen, setShown, toggle } = useQmShown('sh');
   const [tab, setTab] = useState<string>(() => pref('sh.tab', ''));
