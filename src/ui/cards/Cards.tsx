@@ -8,7 +8,7 @@
 // (marks, mobile-ux D6). The session (deck order, position, counts) is device-only UI state, see QUICK-1.
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Note } from '../../lib/types';
-import { meaning, recordReview, setLang, setWrong, useApp } from '../../lib/store';
+import { meaning, recordReview, setLang, setWrong, useAppPick } from '../../lib/store';
 import { pref, setPref } from '../../lib/db';
 import { speak } from '../../lib/speech';
 import { cardId } from '../../lib/engine/schedule';
@@ -49,7 +49,7 @@ interface Deck {
 }
 
 export function CardsPage() {
-  const { notes, events, lang, marks, meta } = useApp((s) => s);
+  const { notes, events, lang, marks, meta } = useAppPick('notes', 'events', 'lang', 'marks', 'meta');
   const { shown, preset, listen, setShown, toggle } = useQmShown('qm');
   const [q] = useState(() => readCardsQuery(location.hash));
   const [deck] = useState<Deck>(() => {

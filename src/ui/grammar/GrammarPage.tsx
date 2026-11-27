@@ -4,7 +4,7 @@
 // Content comes from the 语法 sheet's extra columns (GRAM-1); plan .claude/plans/2026-11-22-grammar-v3.md.
 import { useEffect, useMemo, useState } from 'react';
 import type { WordStatus } from '../../lib/types';
-import { setNoteStatus, useApp } from '../../lib/store';
+import { setNoteStatus, useApp, useAppPick } from '../../lib/store';
 import { noteStatuses, sheetRows, STATUS_LABEL, STATUS_MARK, WORD_STATUSES } from '../../lib/status';
 import { family as familyOf, FAMILIES, hskLabel, HSK_LEVELS, REGISTER_LABEL } from '../../lib/grammar/families';
 import { activeCount, applyFilter, filterCounts, neighbours, NO_FILTER, readFilter, saveFilter, toggle, type FilterGroup, type GrammarFilter } from '../../lib/grammar/filters';
@@ -24,7 +24,7 @@ const href = (id: string) => `${BASE}/${encodeURIComponent(id)}`;
 const Fallback = ({ lang }: { lang?: ReadLang }) => (lang ? <span className="tag gr-fb">{lang.toUpperCase()}</span> : null);
 
 export function GrammarPage({ id }: { id?: string }) {
-  const { notes, marks, meta, lang } = useApp((s) => s);
+  const { notes, marks, meta, lang } = useAppPick('notes', 'marks', 'meta', 'lang');
   const [q, setQ] = useState('');
   const [filter, setFilterState] = useState<GrammarFilter>(readFilter);
   const setFilter = (f: GrammarFilter) => {

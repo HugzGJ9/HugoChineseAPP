@@ -6,6 +6,9 @@ import asyncio, base64, hashlib, io, json, re, sys, os, zipfile
 from urllib.parse import urlsplit
 from playwright.async_api import async_playwright
 
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from sandbox import prepare, dump  # noqa: E402
+
 U = os.environ.get('HUGO_URL', 'http://localhost:4173/HugoChineseAPP/')
 ORIGIN = '{0.scheme}://{0.netloc}'.format(urlsplit(U))
 S = os.environ.get('E2E_OUT', 'e2e-out').rstrip('/') + '/'
@@ -69,7 +72,21 @@ n = [0]
 CORS = {'access-control-allow-origin': '*', 'access-control-allow-headers': 'authorization, content-type, x-github-api-version, accept',
         'access-control-allow-methods': 'GET, PUT, OPTIONS', 'content-type': 'application/json'}
 
+errs = []           # console and page errors of the pages, plus problems found by the checks
+handler_errs = []   # errors raised inside the fake API (a raised handler leaves the request pending forever)
+
 async def github(route):
+    try:
+        await github_inner(route)
+    except Exception as e:
+        msg = f'fake GitHub raised on {route.request.method} {route.request.url}: {e!r}'
+        handler_errs.append(msg)
+        try:
+            await route.fulfill(status=500, headers=CORS, body=json.dumps({'message': msg}))
+        except Exception:
+            pass
+
+async def github_inner(route):
     req = route.request
     if req.method == 'OPTIONS':
         return await route.fulfill(status=204, headers=CORS)
@@ -142,15 +159,45 @@ new MutationObserver(() => {
 }).observe(document, { childList: true, subtree: true });
 """
 
+
+async def poll(fn, seconds, step=0.5):
+    """Calls the async/sync predicate `fn` until it is truthy or `seconds` pass; returns the last value."""
+    end = asyncio.get_event_loop().time() + seconds
+    while True:
+        v = fn()
+        if asyncio.iscoroutine(v): v = await v
+        if v or asyncio.get_event_loop().time() > end: return v
+        await asyncio.sleep(step)
+
+def stop(why):
+    print('FAIL: ' + why)
+    sys.exit(1)
+
+async def fail_with(why, *pages):
+    """Prints why the script stops: each page's dump, the fake repository and the API log tail; exits 1."""
+    print('FAIL: ' + why)
+    for who, page in pages:
+        print(await dump(page, who))
+    print('repo files:', sorted(files))
+    print('API log tail:', log[-15:])
+    if handler_errs: print('fake API errors:', handler_errs[:5])
+    if errs: print('console errors:', errs[:8])
+    sys.exit(1)
+
+EVENTS_JS = "() => new Promise(r => { const q = indexedDB.open('hugo-zhongwen'); q.onsuccess = () => { const t = q.result.transaction('events').objectStore('events').count(); t.onsuccess = () => r(t.result); }; })"
+
+def event_files(prefix=''):
+    return sorted(p for p in files if p.startswith('events/' + prefix))
+
 async def main():
     if not os.path.isfile(XLSX):
         sys.exit(f'HUGO_XLSX is not a file: {XLSX}')
     os.makedirs(S, exist_ok=True)
-    errs = []
     async with async_playwright() as p:
         b = await p.chromium.launch()
         # ---------- computer ----------
         pc = await b.new_context(viewport={'width': 1280, 'height': 860}, service_workers='block')
+        await prepare(pc, b)
         await pc.add_init_script(PICKER)
         await pc.add_init_script(UNFOLD)
         await pc.route('https://api.github.com/**', github)
@@ -177,11 +224,7 @@ async def main():
         orig_before = await opfs_read(pg, ORIG_NAME)
 
         # Offline warm-up: stroke data of the imported words is saved in the background (cache API, no worker needed).
-        strokes = 0
-        for _ in range(40):
-            strokes = await pg.evaluate("caches.open('strokes').then(c => c.keys()).then(k => k.length)")
-            if strokes > 0: break
-            await pg.wait_for_timeout(500)
+        strokes = await poll(lambda: pg.evaluate("caches.open('strokes').then(c => c.keys()).then(k => k.length)"), 60) or 0
         print('Stroke files cached by the warm-up:', strokes)
         if strokes == 0:
             errs.append('PC warm-up saved no stroke data')
@@ -193,6 +236,8 @@ async def main():
         await pg.fill('input[type=password]', TOKEN)
         await pg.click('text=Turn on sync')
         await pg.wait_for_selector('text=/Synced with HugzGJ9\\/HugoChineseData/', timeout=20000)
+        if not await poll(lambda: 'vocab.json.gz' in files, 30):
+            await fail_with("the computer's first sync sent no word list", ('PC', pg))
         print('Repo after link:', sorted(files))
 
         # Study a few cards.
@@ -203,7 +248,8 @@ async def main():
             await pg.keyboard.press('3'); await pg.wait_for_timeout(250)
         await pg.goto(U + '#/settings')
         await pg.click('text=Sync now')
-        await pg.wait_for_timeout(1500)
+        if not await poll(lambda: event_files(), 30):
+            await fail_with("the computer's Sync now sent no review events", ('PC', pg))
         await pg.click('text=Write the copy now')
         await pg.wait_for_timeout(1500)
         await pg.click('text=Add another device')
@@ -212,13 +258,14 @@ async def main():
         sync_panel = pg.locator('#sync')
         await sync_panel.screenshot(path=S + 's-pc-sync.png')
         await pg.locator('.main:visible').first.screenshot(path=S + 's-pc-words.png')
-        ev_pc = [p for p in files if p.startswith('events/')]
+        ev_pc = event_files()
         print('Repo after reviews:', sorted(files))
         print('key length', len(key))
 
         # ---------- iPhone ----------
         iphone = p.devices['iPhone 13']
         ph = await b.new_context(**iphone, service_workers='block')
+        await prepare(ph, b)
         await ph.route('https://api.github.com/**', github)
         # Safari on iPhone has no folder picker.
         await ph.add_init_script("delete Window.prototype.showDirectoryPicker; delete window.showDirectoryPicker;")
@@ -236,8 +283,19 @@ async def main():
         await pp.wait_for_selector('text=Get your words from your computer')
         await pp.screenshot(path=S + 's-phone-first.png', full_page=True)
         await pp.fill('textarea', key)
+        # A real tap with the field still focused: the tab bar used to come back mid-tap and take the click (keyboard.ts
+        # `nav-hold` now keeps it hidden until the tap ends).
         await pp.click('text=Link this device')
-        await pp.wait_for_selector('.sheets', timeout=30000)
+        async def phone_state():
+            if await pp.locator('.sheets').first.is_visible(): return 'sheets'
+            if await pp.locator('.notice.bad').first.is_visible(): return 'bad'
+            if await pp.get_by_text('no device has sent words yet', exact=False).first.is_visible(): return 'nowords'
+            return None
+        state = await poll(phone_state, 60)
+        if state != 'sheets':
+            why = {'bad': 'the phone shows an error notice', 'nowords': 'the phone says no device has sent words yet'}.get(
+                state, 'the phone shows no sheets after 60 s')
+            await fail_with(why, ('PHONE', pp), ('PC', pg))
         await pp.wait_for_timeout(800)
         await pp.screenshot(path=S + 's-phone-sheets.png')
         print('PHONE sheet tabs:', await pp.locator('.sheets [role=tab]').all_inner_texts())
@@ -247,7 +305,9 @@ async def main():
             await pp.keyboard.press('Space'); await pp.wait_for_timeout(150)
             await pp.keyboard.press('3'); await pp.wait_for_timeout(250)
         await pp.goto(U + '#/settings'); await pp.wait_for_timeout(300)
-        await pp.click('text=Sync now'); await pp.wait_for_timeout(1500)
+        await pp.click('text=Sync now')
+        if not await poll(lambda: len(event_files()) >= 2, 30):
+            await fail_with("the phone's Sync now sent no review events", ('PHONE', pp), ('PC', pg))
         await pp.locator('#sync').screenshot(path=S + 's-phone-sync.png')
 
         # The phone sets a blank HSK五级 row to Mastered; the PC's copy of the workbook must then show it as green.
@@ -264,10 +324,16 @@ async def main():
             await pp.wait_for_timeout(500)
             await pp.screenshot(path=S + 's-phone-mastered.png')
         await pp.goto(U + '#/settings'); await pp.wait_for_timeout(300)
-        await pp.click('text=Sync now'); await pp.wait_for_timeout(1500)
+        await pp.click('text=Sync now')
+        if target is not None and not await poll(lambda: any(f.startswith('marks/') for f in files), 30):
+            await fail_with("the phone's Sync now sent no status marks", ('PHONE', pp), ('PC', pg))
 
         # Computer picks up the iPhone's reviews and status.
-        await pg.click('text=Sync now'); await pg.wait_for_timeout(1500)
+        await pg.click('text=Sync now')
+        phone_n = await pp.evaluate(EVENTS_JS)
+        async def pc_has_phone_events(): return await pg.evaluate(EVENTS_JS) >= phone_n
+        if not await poll(pc_has_phone_events, 30):
+            await fail_with("the computer never received the phone's reviews", ('PC', pg), ('PHONE', pp))
         await pg.click('text=Write the copy now'); await pg.wait_for_timeout(2500)
         copy_bytes = await opfs_read(pg, COPY_NAME)
         orig_after = await opfs_read(pg, ORIG_NAME)
@@ -279,16 +345,19 @@ async def main():
             for problem in check_copy(orig_after, copy_bytes, target):
                 errs.append('copy: ' + problem); copy_ok = False
             print('Copy check:', 'ok' if copy_ok else 'FAILED', f'(row {target[0]} of {TARGET_SHEET})')
-        pc_events = await pg.evaluate("() => new Promise(r => { const q = indexedDB.open('hugo-zhongwen'); q.onsuccess = () => { const t = q.result.transaction('events').objectStore('events').count(); t.onsuccess = () => r(t.result); }; })")
-        ph_events = await pp.evaluate("() => new Promise(r => { const q = indexedDB.open('hugo-zhongwen'); q.onsuccess = () => { const t = q.result.transaction('events').objectStore('events').count(); t.onsuccess = () => r(t.result); }; })")
+        for _ in range(60):
+            pc_events, ph_events = await pg.evaluate(EVENTS_JS), await pp.evaluate(EVENTS_JS)
+            if pc_events == ph_events: break
+            await asyncio.sleep(0.5)
         print('events: computer', pc_events, 'iphone', ph_events)
         print('Repo at end:', sorted(files))
         await pg.goto(U + '#/stats'); await pg.wait_for_timeout(600)
         await pg.screenshot(path=S + 's-pc-stats.png', full_page=True)
         print('API calls:', len(log))
+        errs.extend(handler_errs)
         print('\n'.join(errs[:20]) or 'no console errors')
         await b.close()
-    ok = pc_events == ph_events and pc_events > 0 and not any('warm-up' in e for e in errs) and copy_ok
+    ok = pc_events == ph_events and pc_events > 0 and not any('warm-up' in e for e in errs) and not handler_errs and copy_ok
     print('PASS' if ok else 'FAIL: devices disagree')
     sys.exit(0 if ok else 1)
 

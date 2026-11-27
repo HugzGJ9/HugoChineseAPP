@@ -7,6 +7,7 @@ don't run `playwright install`.
 npm run build && npx vite preview --port 4173 &   # serves http://localhost:4173/HugoChineseAPP/
 python3 e2e/offline.py                            # service worker, dictionary warm-up, offline reload, update flow
 python3 e2e/sync.py                               # uses a synthetic workbook from make_sample.py
+python3 e2e/sandbox.py                            # probe: Web Locks, onLine; sync scripts shim only what fails here
 python3 e2e/cards.py                              # Sheets › Cards: typed answers, tones, Draw, deck kept, the Wrong label
 python3 e2e/layout.py                             # phone layout, light and dark: Check in view, panel top edge, menu drags, colours
 python3 e2e/grammar.py                            # Grammar tab: 中/FR/EN titles, families, search, meaning card, underlined words, phone back
@@ -70,6 +71,15 @@ It fakes the GitHub API in memory, so nothing is sent anywhere. It exits non-zer
   no real key and no real request. It checks the panel on desktop and iPhone 13 emulation (bottom flush with the viewport,
   16 px key input, no sideways scroll), the no-key message, the request headers, the cache on reopen, offline reload, and
   that the key is not in `localStorage`.
+- `make_big.py OUT.xlsx` writes a Hugo-sized synthetic workbook (HSK四级 570 words, HSK五级 1,200, Grammar 40; deterministic, made up
+  from ~60 common characters, no personal data); needs `openpyxl`. `perf.py` uses it.
+- `perf.py` (iPhone 13, CPU throttled 4x, `service_workers='block'`, 8,000 review events seeded in the page) times the boot
+  (cold, and warm when the build reports `hz:cards`), the first Grammar visit, sheet tabs, back to a kept tab, peek, a status
+  change and the word panel, with "Try new animations" off and then on (`PERF_MOTION=off|on|both`). Median of `PERF_RUNS`
+  (default 3) is judged against the budgets: tab < 150 ms, back to a tab < 50 ms, boot first row < 1,200 ms, peek < 50 ms,
+  status < 150 ms, 0 empty frames; with `hz:cards`: warm first row < 800 ms, longest boot task < 200 ms. Budgets are soft (exit 0)
+  unless `PERF_STRICT=1`; a flow whose target never appears always exits 1. Writes `$E2E_OUT/perf.json` and appends a
+  markdown table to `$GITHUB_STEP_SUMMARY` when set. It ignores `HUGO_XLSX` and takes about 3 minutes.
 - CI runs the e2e scripts in the `e2e` job of `.github/workflows/deploy.yml`; a failure blocks the deploy.
 - `HUGO_URL` changes the app URL.
 - `E2E_OUT` changes the output folder (default `e2e-out/`). It holds screenshots and `copy-e2e.xlsx` (the workbook copy), which show

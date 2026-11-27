@@ -49,3 +49,10 @@
 .st .st-n { font-family: var(--font-display); font-size: var(--fs-body); color: var(--label); font-weight: 600; }
 .st .cell-label .status { font-size: var(--fs-subhead); padding: 3px 12px; }
 .st .cell-detail { overflow-wrap: anywhere; }
+
+/* Settings › About › Show diagnostics (Settings.tsx Diagnostics): small, wraps, scrolls past ~12 lines. */
+.diag-text {
+  margin: 0; max-height: calc(12 * 1.4em); overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+  font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--label-2);
+  background: var(--fill); border-radius: var(--radius-m); padding: 8px 10px; -webkit-user-select: text; user-select: text;
+}
