@@ -65,7 +65,10 @@ div.pp-panel::before { display: none; }
 
 /* One sheet (panel.tsx). Phones: a "full" sheet has a fixed height so its top edge never moves between modes; a "content"
    sheet is sized by content. The page behind is locked while a sheet is open; the keyboard inset (--kb) pads the bottom. */
-html.sheet-open, html.sheet-open body { overflow: hidden; overscroll-behavior: none; }
+/* The lock is on <html> only: html and body are both height: 100%, so overflow: hidden on body as well turned body into a
+   viewport-tall clip box and the page scroll fell to 0 (open a word halfway down Sheets, close it: back at the top). */
+html.sheet-open { overflow: hidden; overscroll-behavior: none; }
+html.sheet-open body { overscroll-behavior: none; }
 .pp-backdrop, .pop-backdrop { touch-action: none; }
 .pp-panel.pp-full { height: calc(100dvh - env(safe-area-inset-top) - 10px); }
 .pop.pp-sheet { max-height: 92dvh; padding-bottom: calc(16px + max(var(--kb, 0px), env(safe-area-inset-bottom))); }

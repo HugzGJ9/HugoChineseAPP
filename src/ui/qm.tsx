@@ -118,7 +118,8 @@ export function QmList<T extends Item>({
   answer?: (it: T) => ReactNode;
   rowClass?: (it: T) => string;
   /**
-   * Everything the lead, trail and answer slots show for a row, as one string. Rows are memoised (a list of 150–400 rows
+   * Slot functions are fresh on every list render and ignored by `sameRow`; what they show reaches a row only through
+   * this string: everything the lead, trail and answer slots show for a row, as one string. Rows are memoised (a list of 150–400 rows
    * re-rendered on every tap or store change was the main slowness on the iPhone): a row renders again only when its
    * note, its peeks, the shown layers, its classes or this string change. Slot handlers must therefore read changing
    * state through a ref, not through their closure.
@@ -155,7 +156,12 @@ export function QmList<T extends Item>({
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [items, cur, onKey]);
+  // Only when the focus moves: effects run again when a kept screen is shown (App <Activity>), and scrolling to the
+  // focused row then would throw away the page's scroll position.
+  const lastCur = useRef(cur);
   useEffect(() => {
+    if (lastCur.current === cur) return;
+    lastCur.current = cur;
     document.getElementById(`qm-${cur}`)?.scrollIntoView({ block: 'nearest' });
   }, [cur]);
   return (
@@ -172,9 +178,10 @@ export function QmList<T extends Item>({
           peek={peek}
           focused={i === cur}
           extra={`${lead || trail || answer ? 'x' : ''} ${answer ? 'a' : ''} ${hidePinyin ? 'nopy' : ''} ${rowClass?.(it) ?? ''}`}
-          lead={lead?.(it)}
-          trail={trail?.(it)}
-          answer={answer?.(it)}
+          item={it}
+          lead={lead as ((it: Item) => ReactNode) | undefined}
+          trail={trail as ((it: Item) => ReactNode) | undefined}
+          answer={answer as ((it: Item) => ReactNode) | undefined}
           sig={rowSig?.(it) ?? ''}
           noPinyin={hidePinyin}
           onPeek={(k) => setPeek((p) => ({ ...p, [it.key + ':' + k]: !p[it.key + ':' + k] }))}
@@ -189,13 +196,14 @@ export function QmList<T extends Item>({
 
 interface RowProps {
   id: string; note: Note; pk: string; shown: Shown; listen: boolean; all: boolean; peek: Record<string, boolean>; focused: boolean;
-  extra: string; lead?: ReactNode; trail?: ReactNode; answer?: ReactNode; sig: string; noPinyin: boolean;
+  extra: string; item: Item;
+  lead?: (it: Item) => ReactNode; trail?: (it: Item) => ReactNode; answer?: (it: Item) => ReactNode; sig: string; noPinyin: boolean;
   onPeek: (k: Layer) => void; onAll: (on: boolean) => void; onFocus: () => void; onOpen?: () => void;
 }
 
 const LAYERS: Layer[] = ['hz', 'py', 'mn'];
 
-/** Same row on screen: the slots and handlers are new objects on every list render and are left out (see QmList.rowSig). */
+/** Same row on screen: `item`, the slot functions and handlers are new on every list render and are left out; slot content reaches a row only through `sig` (see QmList.rowSig). */
 export function sameRow(a: RowProps, b: RowProps): boolean {
   return (
     a.id === b.id && a.note === b.note && a.pk === b.pk && a.shown === b.shown && a.listen === b.listen && a.all === b.all &&
@@ -205,9 +213,12 @@ export function sameRow(a: RowProps, b: RowProps): boolean {
 }
 
 const QmRow = memo(function QmRow({
-  id, note, pk, shown, listen, all, peek, focused, extra, lead, trail, answer, noPinyin, onPeek, onAll, onFocus, onOpen,
+  id, note, pk, shown, listen, all, peek, focused, extra, item, lead, trail, answer, noPinyin, onPeek, onAll, onFocus, onOpen,
 }: RowProps) {
   const hold = useHold(onAll);
+  const leadEl = lead?.(item);
+  const trailEl = trail?.(item);
+  const answerEl = answer?.(item);
   const vis = (k: Layer) => all || shown[k] !== !!peek[pk + ':' + k];
   const tap = (k: Layer) => () => {
     if (hold.held.current) return;
@@ -228,9 +239,9 @@ const QmRow = memo(function QmRow({
   };
   return (
     <div id={id} role="listitem" className={`ql-row ${focused ? 'focus' : ''} ${extra}`} {...hold.props} onClick={() => listen && speak(note.hanzi)}>
-      {lead != null && (
+      {leadEl != null && (
         <span className="ql-lead" {...own}>
-          {lead}
+          {leadEl}
         </span>
       )}
       <div className="ql-main">
@@ -248,16 +259,16 @@ const QmRow = memo(function QmRow({
           <button type="button" className="ql-cell ql-mn" onClick={tap('mn')} aria-label={vis('mn') ? 'Meaning' : 'Hidden meaning, tap to show'}>
             {vis('mn') ? <Meaning note={note} className="peek" /> : <span className="ql-hide" />}
           </button>
-          {answer != null && (
+          {answerEl != null && (
             <div className="ql-answer" {...own}>
-              {answer}
+              {answerEl}
             </div>
           )}
         </div>
       </div>
-      {trail != null && (
+      {trailEl != null && (
         <div className="ql-trail" {...own}>
-          {trail}
+          {trailEl}
         </div>
       )}
     </div>

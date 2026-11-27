@@ -57,6 +57,8 @@ points (filters, EN|FR, tap any word in examples). Sheets is the one list (All t
   unreachable. Check deploys with `gh run …`; test real lexicon data with the `data.yml` workflow on a branch.
 - The Pages settings API is blocked: Hugo changes repository settings himself, from exact click-steps.
 - Headless Chromium crashes reading a FileSystemDirectoryHandle back from IndexedDB; `e2e/sync.py` works around it.
+- `e2e/sandbox.py` probes Web Locks and `navigator.onLine` and shims only what fails; in cloud sessions both work, so all
+  sync e2e scripts run as in CI (their old stop at "Link this device" was an app bug, fixed by `nav-hold` in keyboard.ts).
 
 ## How work is run
 The main session is the lead: it talks to Hugo, routes work, integrates, commits and pushes. Agents: `.claude/agents/`.

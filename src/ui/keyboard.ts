@@ -30,6 +30,9 @@ function lastKb(): number {
   }
 }
 
+/** Text fields whose focus hides the tab bar on phones (same list as the styles.css rule). */
+const TEXT_FIELD = 'input:not([type=checkbox], [type=radio], [type=range], [type=button], [type=submit]), textarea, [contenteditable]';
+
 /** Pixels covered by the keyboard (0 when closed). Also sets `--kb`, `--vvh`, `--vvt` on documentElement. Mount once, in App. */
 export function useKeyboardInset(): number {
   const [kb, setKb] = useState(0);
@@ -57,7 +60,30 @@ export function useKeyboardInset(): number {
     update();
     vv?.addEventListener('resize', update);
     vv?.addEventListener('scroll', update);
+    // A tap outside a focused text field blurs it, and the tab bar (hidden while typing) came back in the middle of the
+    // tap: the bar, or the page shifted by the bottom padding, took the click ("Link this device" under the key field
+    // was lost). `nav-hold` keeps the typing layout until that tap has ended (plan 2026-11-26-boot-and-guards, B1 note).
+    let hold: ReturnType<typeof setTimeout> | undefined;
+    const typing = () => (document.activeElement as HTMLElement | null)?.matches?.(TEXT_FIELD) ?? false;
+    const down = (e: PointerEvent) => {
+      if (!typing() || (e.target as HTMLElement | null)?.matches?.(TEXT_FIELD)) return;
+      clearTimeout(hold);
+      root.classList.add('nav-hold');
+    };
+    const up = () => {
+      if (!root.classList.contains('nav-hold')) return;
+      clearTimeout(hold);
+      hold = setTimeout(() => root.classList.remove('nav-hold'), 350);
+    };
+    document.addEventListener('pointerdown', down, true);
+    document.addEventListener('pointerup', up, true);
+    document.addEventListener('pointercancel', up, true);
     return () => {
+      clearTimeout(hold);
+      document.removeEventListener('pointerdown', down, true);
+      document.removeEventListener('pointerup', up, true);
+      document.removeEventListener('pointercancel', up, true);
+      root.classList.remove('nav-hold');
       refresh = null;
       vv?.removeEventListener('resize', update);
       vv?.removeEventListener('scroll', update);

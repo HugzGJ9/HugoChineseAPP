@@ -2,9 +2,9 @@
 // short title in the app's reading language (EN | FR, GRAM-2), narrowed by search and tick-box filters (HSK, family,
 // status). A point's page: formula, meaning, when to use, examples where any word can be tapped, status, previous/next.
 // Content comes from the 语法 sheet's extra columns (GRAM-1); plan .claude/plans/2026-11-22-grammar-v3.md.
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { WordStatus } from '../../lib/types';
-import { setNoteStatus, useApp } from '../../lib/store';
+import { setNoteStatus, useApp, useAppPick } from '../../lib/store';
 import { noteStatuses, sheetRows, STATUS_LABEL, STATUS_MARK, WORD_STATUSES } from '../../lib/status';
 import { family as familyOf, FAMILIES, hskLabel, HSK_LEVELS, REGISTER_LABEL } from '../../lib/grammar/families';
 import { activeCount, applyFilter, filterCounts, neighbours, NO_FILTER, readFilter, saveFilter, toggle, type FilterGroup, type GrammarFilter } from '../../lib/grammar/filters';
@@ -24,7 +24,7 @@ const href = (id: string) => `${BASE}/${encodeURIComponent(id)}`;
 const Fallback = ({ lang }: { lang?: ReadLang }) => (lang ? <span className="tag gr-fb">{lang.toUpperCase()}</span> : null);
 
 export function GrammarPage({ id }: { id?: string }) {
-  const { notes, marks, meta, lang } = useApp((s) => s);
+  const { notes, marks, meta, lang } = useAppPick('notes', 'marks', 'meta', 'lang');
   const [q, setQ] = useState('');
   const [filter, setFilterState] = useState<GrammarFilter>(readFilter);
   const setFilter = (f: GrammarFilter) => {
@@ -254,6 +254,8 @@ function GrammarDetail({ item, shown, lang, statuses }: { item: GrammarItem; sho
   const index = useMemo(() => vocabIndex(notes), [notes]);
   const pattern = useMemo(() => patternChars(note), [note]);
   const [tap, setTap] = useState<{ zh: string; start: number; length: number } | null>(null);
+  // The tab stays mounted while hidden (App <Activity>): the word sheet is portalled to <body>, so close it on leaving.
+  useEffect(() => () => setTap(null), []);
   const [revealed, setRevealed] = useState<Set<number>>(new Set());
   const title = itemTitle(item, lang);
   const def = pick(info.def, lang);

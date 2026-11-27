@@ -1,5 +1,6 @@
 // App state in memory, persisted to IndexedDB. Cards are always derived from notes + seeds + events.
-import { useSyncExternalStore } from 'react';
+// Full derivations reuse a per-word card memo (engine/memo.ts, kv `cardsMemo`, a device-only cache, STORE-2).
+import { useRef, useSyncExternalStore } from 'react';
 import {
   SHARED_PREFS,
   collectPrefs,
@@ -23,6 +24,7 @@ import {
 } from './db';
 import type { CardState, Grade, MarkKind, Note, PendingImport, ReviewEvent, StatusChange, StatusMark, VocabFile, WordStatus } from './types';
 import { addDays, applyReview, dayStart, deriveCards, noteOfCard, resolveEventCards, resolveMarkNotes } from './engine/schedule';
+import { decodeMemo, deriveWithMemo, deriveWithMemoAsync, encodeMemo, memoEnv, yieldToMain, type CardMemo, type DeriveResult } from './engine/memo';
 import { noteStatuses, sheetRows } from './status';
 import { latestWrongMarks, WRONG_OFF, WRONG_ON } from './wrong';
 
@@ -146,13 +148,105 @@ export function useApp<T>(sel: (s: AppState) => T): T {
   return useSyncExternalStore(subscribe, () => sel(state));
 }
 
+/** `prev` when every picked field is the same object (===), else a new pick. Pure; `useAppPick` keeps the last one. */
+export function pickState<K extends keyof AppState>(s: AppState, keys: K[], prev: Pick<AppState, K> | null): Pick<AppState, K> {
+  if (prev && keys.every((k) => prev[k] === s[k])) return prev;
+  const out = {} as Pick<AppState, K>;
+  for (const k of keys) out[k] = s[k];
+  return out;
+}
+
+/**
+ * Some fields of the state: the screen re-renders only when one of them changes (plan 2026-11-26-boot-and-guards D6).
+ * Screens use this or a narrow `useApp` selector, never `useApp((s) => s)` (a sync or Excel tick re-rendered them all).
+ */
+export function useAppPick<K extends keyof AppState>(...keys: K[]): Pick<AppState, K> {
+  const last = useRef<Pick<AppState, K> | null>(null);
+  return useSyncExternalStore(subscribe, () => (last.current = pickState(state, keys, last.current)));
+}
+
 function engineSettings(s: Settings) {
   return { retention: s.retention, spreadDays: s.spreadDays, recall: s.recall, listen: s.listen };
 }
 
+// ---------- card memo (engine/memo.ts) ----------
+// A cache of derived cards per word, kept in memory and saved to kv `cardsMemo` a few seconds after a full derivation
+// replayed something. Only init() and rebuild() produce it (plan boot-and-guards D3).
+
+export interface CardStats {
+  /** Words derived. */
+  total: number;
+  /** Words whose cards came from the memo. */
+  cached: number;
+  /** Words replayed through deriveCards. */
+  replayed: number;
+  /** No usable memo: every word was replayed. */
+  full: boolean;
+  /** How long the derivation took. */
+  ms: number;
+}
+
+const MEMO_KEY = 'cardsMemo';
+const MEMO_SAVE_MS = 3000;
+let memo: CardMemo | null = null;
+let stats: CardStats = { total: 0, cached: 0, replayed: 0, full: true, ms: 0 };
+let memoTimer: ReturnType<typeof setTimeout> | undefined;
+let memoPending = false;
+let memoWatched = false;
+
+/** Numbers of the last full derivation (start or rebuild). */
+export function cardStats(): CardStats {
+  return { ...stats };
+}
+
+/** Keep the memo of a full derivation, and queue a save when it differs from the one before. */
+function keepMemo(prev: CardMemo | null, r: DeriveResult, total: number, ms: number) {
+  memo = r.memo;
+  stats = { total, cached: total - r.replayed, replayed: r.replayed, full: r.full, ms };
+  if (r.replayed > 0 || (prev?.notes.size ?? 0) !== r.memo.notes.size) scheduleMemoSave();
+}
+
+function scheduleMemoSave() {
+  memoPending = true;
+  clearTimeout(memoTimer);
+  memoTimer = setTimeout(() => void saveMemo(), MEMO_SAVE_MS);
+  (memoTimer as unknown as { unref?: () => void }).unref?.();
+}
+
+async function saveMemo(): Promise<void> {
+  clearTimeout(memoTimer);
+  memoTimer = undefined;
+  if (!memoPending) return;
+  memoPending = false;
+  // Closed for an upgrade by another tab, or deleted by "Erase everything": nothing to save into.
+  if (!memo || !db.isOpen()) return;
+  try {
+    await kvSet(MEMO_KEY, encodeMemo(memo, Date.now()));
+  } catch {
+    // A failed save only costs a replay at the next start.
+  }
+}
+
+/** Save the card memo now if a save is pending (the app is being hidden). */
+export async function flushCardMemo(): Promise<void> {
+  if (memoPending) await saveMemo();
+}
+
+function watchMemo() {
+  if (memoWatched || typeof document === 'undefined') return;
+  memoWatched = true;
+  // iPhone: the app may be suspended once hidden; save a pending memo first.
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') void flushCardMemo();
+  });
+}
+
 function rebuild(notes: Note[], events: ReviewEvent[], seeds: Record<string, number>, settings: Settings, marks: StatusMark[]): Map<string, CardState> {
-  const cards = deriveCards(notes, events, seeds, engineSettings(settings), marks);
-  return new Map(cards.map((c) => [c.id, c]));
+  const t0 = performance.now();
+  const prev = memo;
+  const r = deriveWithMemo(notes, events, seeds, engineSettings(settings), marks, prev);
+  keepMemo(prev, r, notes.length, performance.now() - t0);
+  return new Map(r.cards.map((c) => [c.id, c]));
 }
 
 // Every stored event, as stored (raw card ids). `state.events` is a view of it with renamed words resolved (aliases);
@@ -289,20 +383,43 @@ async function migrateMonths(me: string): Promise<void> {
 export async function init(): Promise<void> {
   const me = await deviceId();
   await migrateMonths(me);
-  const [settings, notes, events, meta, pendingImport, marks] = await Promise.all([
+  const [settings, notes, events, meta, pendingImport, marks, memoRow] = await Promise.all([
     getSettings(),
     db.notes.orderBy('order').toArray(),
     db.events.toArray(),
     kvGet<VocabMeta | null>('vocabMeta', null),
     kvGet<PendingImport | null>('pendingImport', null),
     loadMarks(),
+    kvGet<unknown>(MEMO_KEY, null),
   ]);
   raw = events;
   rawMarks = marks;
-  gen++;
-  const view = eventsView(events, notes, meta);
-  const mview = marksView(marks, notes, meta);
-  const cards = rebuild(notes, view, meta?.seeds ?? {}, settings, mview);
+  const g = ++gen;
+  let view = eventsView(events, notes, meta);
+  let mview = marksView(marks, notes, meta);
+  const seeds = meta?.seeds ?? {};
+  const es = engineSettings(settings);
+  const prev = decodeMemo(memoRow, memoEnv(es));
+  // Words whose cards match their memo entry are not replayed; a full replay runs in slices (D5).
+  const t0 = performance.now();
+  const r = await deriveWithMemoAsync(notes, view, seeds, es, mview, prev);
+  const t1 = performance.now();
+  keepMemo(prev, r, notes.length, t1 - t0);
+  const detail = { total: stats.total, cached: stats.cached, replayed: stats.replayed, full: stats.full };
+  let cards = new Map(r.cards.map((c) => [c.id, c]));
+  if (g !== gen) {
+    // Guard: nothing should change the store before `ready`; if something did, derive again from what is in memory.
+    view = eventsView(raw, notes, meta);
+    mview = marksView(rawMarks, notes, meta);
+    cards = rebuild(notes, view, seeds, settings, mview);
+  }
+  try {
+    performance.measure('hz:cards', { start: t0, end: t1, detail });
+  } catch {
+    // no User Timing here
+  }
+  // The first render gets a task of its own.
+  await yieldToMain();
   // Shared preferences saved in the settings (from sync) take over, unless one was changed here after them.
   applySharedPrefs(settings);
   set({
@@ -320,6 +437,7 @@ export async function init(): Promise<void> {
   });
   openChannel();
   watchSharedPrefs();
+  watchMemo();
   onDbVersionChange(() => set({ needsReload: true }));
   if (typeof navigator !== 'undefined' && navigator.storage?.persist) navigator.storage.persist().catch(() => undefined);
 }
@@ -537,7 +655,7 @@ export function clearMarkDirty(month: string, stamp: number): Promise<void> {
   return clearDirtyKey('marksDirty', month, stamp);
 }
 
-/** Record one review on this device and update the card at once. */
+/** Record one review on this device and update the card at once. The card memo is left alone (memo D3). */
 export async function recordReview(cardId: string, r: Grade, mode: string, durationMs: number, t = Date.now()): Promise<ReviewEvent> {
   const ev: ReviewEvent = { id: uid(), card: cardId, r, t, d: Math.round(durationMs), m: mode, dev: state.device, mo: monthKey(t) };
   // The event and its dirty month are saved together: a review is never stored without being queued for upload.
@@ -594,7 +712,10 @@ export function rebuildAll(): void {
 
 // ---------- status marks set by Hugo ----------
 
-/** New marks view, and the cards of one note derived again (a mark changes only its own word). */
+/**
+ * New marks view, and the cards of one note derived again (a mark changes only its own word). The card memo is left
+ * alone (memo D3): the word no longer matches its fingerprint and is replayed by the next full derivation.
+ */
 function rebuildNote(noteIds: string[]): void {
   const marks = marksView(rawMarks, state.notes, state.meta);
   const cards = new Map(state.cards);
@@ -875,6 +996,8 @@ export function meaning(note: Note, lang: Lang): { text: string; source: 'excel'
 }
 
 export async function wipeAll(): Promise<void> {
+  clearTimeout(memoTimer);
+  memoPending = false;
   await db.delete();
   try {
     for (const k of Object.keys(localStorage)) if (k.startsWith('hz.')) localStorage.removeItem(k);

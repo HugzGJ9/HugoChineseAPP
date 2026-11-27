@@ -13,6 +13,7 @@ from playwright.async_api import async_playwright
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fake_graph import FakeMicrosoft, recolour, quick_xor_hash  # noqa: E402
+from sandbox import prepare  # noqa: E402
 
 U = os.environ.get('HUGO_URL', 'http://localhost:4173/HugoChineseAPP/')
 ORIGIN = '{0.scheme}://{0.netloc}'.format(urlsplit(U))
@@ -23,7 +24,7 @@ NAME = 'Hugo_chinese_vocab.xlsx'
 SHEET = 'HSK五级'
 SEL = dict(
     signin='button:has-text("Sign in with Microsoft")', read_now='button:has-text("Read now")', sign_out='text=Sign out', reconnect='text=Reconnect',
-    banner='text=Microsoft sign-in expired', restore='button:has-text("Restore")', ok='button:has-text("OK")',
+    banner='text=Microsoft sign-in expired', restore='button:has-text("Restore"):visible', ok='button:has-text("OK")',
     changed='text=/Excel changed \\d+ status/',
 )
 
@@ -101,6 +102,7 @@ async def main():
 
         pc = await b.new_context(viewport={'width': 1280, 'height': 860}, service_workers='block')
         ph = await b.new_context(**p.devices['iPhone 13'], service_workers='block')
+        await prepare(pc, b); await prepare(ph, b)
         await ph.add_init_script("delete Window.prototype.showDirectoryPicker; delete window.showDirectoryPicker;")
         for c in (pc, ph):
             await ms.install(c)
@@ -183,6 +185,7 @@ async def main():
         ms2.add_workbook('Chinese words.xlsx', data, folder='Documents', item_id='FAKEITEM2')
         ms2.add_workbook('notes.docx', b'x', folder='Documents', item_id='FAKEDOC')
         c3 = await b.new_context(viewport={'width': 1280, 'height': 860}, service_workers='block')
+        await prepare(c3, b)
         await ms2.install(c3)
         p3 = await c3.new_page(); listeners(p3, 'PC2')
         await sign_in(p3, '#/settings')

@@ -7,6 +7,7 @@ from urllib.parse import urlsplit
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from fake_graph import FakeMicrosoft  # noqa: E402,F401
+from sandbox import dump  # noqa: E402
 
 U = os.environ.get('HUGO_URL', 'http://localhost:4173/HugoChineseAPP/')
 ORIGIN = '{0.scheme}://{0.netloc}'.format(urlsplit(U))
@@ -27,7 +28,9 @@ SEL = dict(
     confirm_write='button:text-is("Write")', confirm_later='button:text-is("Not now")',
     confirm_text='text=/Apps . Hugo Chinese . backups/',
     write_now='button:has-text("Write now")',
-    written='text=/statuses written/', waiting_n='text=/\\d+ waiting/', open_in_excel='text=/open in Excel/',
+    # '>> visible=true': the Sheets screen stays mounted (hidden) with its own write status, first in DOM order.
+    written='text=/statuses written/ >> visible=true', waiting_n='text=/\\d+ waiting/ >> visible=true',
+    open_in_excel='text=/open in Excel/ >> visible=true',
     # status chip in a Sheets row, its menu items, the language switch
     chip='button.status-chip', menu_item='menuitemradio', lang_group='Meaning language',
 )
@@ -92,9 +95,30 @@ async def sign_in(page, route_hash):
     await page.wait_for_function("() => !location.search.includes('code=')", timeout=20000)
 
 
-async def show_words(page):
+async def show_words(page, ms=None, timeout=90):
+    """Opens Sheets and waits until a sheet tab is visible. Every 10 s it nudges the app's own workbook triggers; it fails
+    fast on a visible error notice; on a timeout it prints what the page and (with `ms`) the fake Microsoft saw, then raises."""
     await page.goto(U + '#/sheets')
-    await page.wait_for_selector('.sheets [role=tab]', timeout=30000)
+    tab, bad = page.locator('.sheets [role=tab]').first, page.locator('.notice.bad').first
+    loop = asyncio.get_event_loop()
+    end = loop.time() + timeout
+    next_nudge = loop.time() + 10
+    why = f'no sheet tab after {timeout} s'
+    while loop.time() < end:
+        if await tab.is_visible():
+            return
+        if await bad.is_visible():
+            why = 'the page shows an error notice'
+            break
+        if loop.time() >= next_nudge:
+            await poll_for_change(page)
+            next_nudge = loop.time() + 10
+        await asyncio.sleep(0.5)
+    print('FAIL: ' + why)
+    print(await dump(page, 'page'))
+    if ms is not None:
+        print('Microsoft log tail:', ms.log[-15:])
+    raise RuntimeError('show_words: ' + why)
 
 
 async def has(page, selector, timeout=20000):

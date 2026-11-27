@@ -13,6 +13,7 @@ from playwright.async_api import async_playwright
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from od_common import (SEL, S, U, NAME, SHEET, Checks, FakeMicrosoft, sample_workbook, blank_rows, skip, sign_in, show_words,
                        has, status_of, set_status, study, sync_now, event_count, preflight)  # noqa: E402
+from sandbox import prepare  # noqa: E402
 
 
 async def main():
@@ -36,6 +37,7 @@ async def main():
 
         pc = await b.new_context(viewport={'width': 1280, 'height': 860}, service_workers='block')
         ph = await b.new_context(**p.devices['iPhone 13'], service_workers='block')
+        await prepare(pc, b); await prepare(ph, b)
         await ph.add_init_script("delete Window.prototype.showDirectoryPicker; delete window.showDirectoryPicker;")
         for c in (pc, ph):
             await ms.install(c)
@@ -48,10 +50,10 @@ async def main():
         if not await has(pg, SEL['synced'], 30000):
             await b.close()
             skip('Signed in, but no "Synced through OneDrive" line: this build has no app-folder sync (WP6/WP7) yet.')
-        await show_words(pg)
+        await show_words(pg, ms)
         await sign_in(pp, '#/settings')
         check('phone: synced through OneDrive after sign-in', await has(pp, SEL['synced'], 30000))
-        await show_words(pp)
+        await show_words(pp, ms)
         check('both devices show the sheets', await pg.locator('.sheets [role=tab]').count() >= 3
               and await pp.locator('.sheets [role=tab]').count() >= 3)
         await pg.screenshot(path=S + 'odsync-pc.png'); await pp.screenshot(path=S + 'odsync-phone.png')

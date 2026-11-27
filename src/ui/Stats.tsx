@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useApp } from '../lib/store';
+import { useApp, useAppPick } from '../lib/store';
 import { daily, forecast, groupCards, markCounts, retention30, statusCounts, streak } from '../lib/stats';
 import { Cell, Row, Section, StatusPill, TopBar } from './common';
 import './screens.css';
@@ -55,7 +55,7 @@ function Bars({ values, labels, cls, title, extra }: { values: number[]; labels:
 }
 
 export function Stats() {
-  const { notes, cards, events, device, marks } = useApp((s) => s);
+  const { notes, cards, events, device, marks } = useAppPick('notes', 'cards', 'events', 'device', 'marks');
   const now = Date.now();
   const days = useMemo(() => daily(events, 30, now), [events, now]);
   const fc = useMemo(() => forecast([...cards.values()], 30, now), [cards, now]);

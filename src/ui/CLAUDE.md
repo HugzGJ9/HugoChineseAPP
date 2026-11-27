@@ -13,7 +13,7 @@
 ## Map
 | Screen | Files |
 |---|---|
-| Shell, routes (default `sheets`) | `App.tsx` |
+| Shell, routes (default `sheets`; Sheets/Grammar/Settings kept mounted, UI-3) | `App.tsx` |
 | Sheets (home, the one list) | `Sheets.tsx`, `sheets/Menus.tsx`, `sheets/ScratchPad.tsx` (`ScratchPanel`) |
 | Hide/show list (shared) | `qm.tsx` |
 | Cards (`#/cards`, focus shell) | `cards/Cards.tsx` (`CardsPage`) |
@@ -40,7 +40,16 @@
 - "Try new animations" (`motion.ts`, `hz.motion`, device only): new motion and the WenKai font are scoped under `html.motion`
   (CSS) or `motionOn()` (scripts); off = the app as before. Route transitions in `motion.css`, sheet exits (`.closing`) in
   `panel.css`. Font chunks: `scripts/copy-kai.mjs` → `public/kai/` (only `kai.css` is precached).
-- `QmRow` is memoised (`sameRow`): row content that can change must be in `QmList.rowSig`, and row buttons read changing
-  state through a ref (Sheets `live`), or a skipped row keeps a stale closure.
+- `QmRow` is memoised (`sameRow`): row content that can change must be in `QmList.rowSig`; lead/trail/answer slots are render
+  functions called inside the row, and row buttons read changing state through a ref (Sheets `live`), or a skipped row keeps
+  a stale closure.
 - Cards dock buttons prevent the `mousedown` default while the field has focus: losing it closes the iPhone keyboard and drops the screen.
 - iOS pans the page to a field focused below the keyboard line: Cards stops it with `useNoPan` (field moved off-page for one frame while it takes focus) and sits on `top: var(--vvt); height: var(--vvh, 100dvh)`, never `top: 0` / `100vh`. Test with the stand-in keyboard in `e2e/layout.py` (`cards_no_pan`).
+- Sheets, Grammar and Settings stay mounted, hidden, once visited (`<Activity>` in App.tsx): effects re-run each time the
+  tab shows again (never scroll or reset there), portalled panels must close in a cleanup, and e2e must select
+  `:visible` (`.main:visible`) because hidden screens stay in the DOM.
+- With "Try new animations" on, any `startTransition` update starts a page-wide View Transition: grow lists with plain
+  updates (Sheets `grow`). Per-row code must not read layout at mount (the old ios-haptics did: 3 s freezes).
+- The sheet lock is `overflow: hidden` on `<html>` only: html and body are `height: 100%`, so locking body too resets
+  the page scroll to 0.
+- Screens use `useAppPick(...)` or a narrow `useApp` selector, never `useApp((s) => s)` (every sync or Excel tick re-rendered them).

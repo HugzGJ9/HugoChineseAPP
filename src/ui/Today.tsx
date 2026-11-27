@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
-import { getState, useApp } from '../lib/store';
+import { getState, useApp, useAppPick } from '../lib/store';
 import { buildQueue, moreNew, reviewAhead } from '../lib/engine/queue';
 import { streak } from '../lib/stats';
 import { acceptPendingImport, importFile, rejectPendingImport, summary, type ImportOutcome } from '../lib/sources';
@@ -10,7 +10,7 @@ import { allowFolder } from '../lib/folder';
 
 export function Today() {
   const now = useNow();
-  const { notes, cards, noteMap, events, settings, sync } = useApp((s) => s);
+  const { notes, cards, noteMap, events, settings, sync } = useAppPick('notes', 'cards', 'noteMap', 'events', 'settings', 'sync');
   const q = useMemo(() => buildQueue([...cards.values()], noteMap, events, settings, now), [cards, noteMap, events, settings, now]);
   const days = useMemo(() => streak(events, now), [events, now]);
 

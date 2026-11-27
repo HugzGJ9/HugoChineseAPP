@@ -17,7 +17,7 @@
 | Storage | `db.ts` | tables: notes, events, kv (settings, sync state, dirty months, marks, folderHandle, copySig, msAuth…) |
 | State | `store.ts` | init (migrations), setVocab, recordReview/undoReview, setNoteStatus/undoMark, BroadcastChannel `hz` |
 | Status | `status.ts` | colour → status rules, labels/fills/marks, `sheetRows` |
-| Engine | `engine/schedule.ts`, `queue.ts`, `grade.ts` | FSRS (ts-fsrs pinned), day starts 04:00, `deriveCards` |
+| Engine | `engine/schedule.ts`, `queue.ts`, `grade.ts`, `memo.ts` | FSRS (ts-fsrs pinned), day starts 04:00, `deriveCards`; `memo.ts` per-word card memo (kv `cardsMemo`, cache only, STORE-2) |
 | Import | `import/build.ts`, `guard.ts`, `renames.ts`, `worker.ts`; `sources.ts` | Excel → VocabFile in a worker; guard holds suspicious imports |
 | Excel files | `xlsx/read.ts`, `write.ts`, `patch.ts` (+ worker, client) | in-place fill patch |
 | PC folder | `folder.ts` | File System Access link, re-import on change, `writeCopy()` (no-Microsoft path) |
@@ -28,6 +28,7 @@
 | Explain | `explain/` | Claude client, key in kv `claudeKey` (never synced/backed up), cache, prompt |
 | Grammar | `grammar/` (types, families, excel, list, filters) | 语法 extra columns → `Note.grammar` (GRAM-1); titles in EN/FR (GRAM-2), search, tick-box filters (`hz.gr.f`), sentence tokens for the Grammar tab |
 | Drill | `quick.ts` (Cards targets, session, deep link, `filterRows`/`allRows`), `wrong.ts` (Wrong label), `answer.ts` (list answer field) | ENG-5, QUICK-1/2, UI-2 |
+| Device log | `devlog.ts` | kv `devlog` (60 entries), scrubbed at capture, device-only; `diagnosticsText()` for Settings › About (DIAG-1) |
 | Other | `backup.ts`, `stats.ts`, `pinyin.ts`, `speech.ts`, `strokes.ts`, `pwa.ts` | `progress.ts` = legacy, not written |
 
 `progress.ts` is dormant (only its test imports it); deleting it is connected-saving WP13.
@@ -48,3 +49,6 @@ OneDrive uses flat names (`events.<dev>.<YYYY-MM>.json`), see `syncstore.ts`. Wr
 
 ## Gotchas
 - Add one line each, at the end of sessions that hit them.
+- `deriveCards` must stay a pure function of notes, seeds, events, marks, settings and the time zone: anything new it reads
+  goes into the memo fingerprint or env (`engine/memo.ts`; `memo.test.ts` field and purity guards), or stale cards are reused.
+- Anything that lands in `devlog` passes `scrub()` first: no words (hanzi, toned pinyin), file or folder names, accounts or keys.
