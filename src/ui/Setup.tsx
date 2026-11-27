@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react';
-import qrcode from 'qrcode-generator';
 import { useApp } from '../lib/store';
+import type qrcode from 'qrcode-generator';
 import { allowFolder, checkFolder, folderSupported, linkFolder, unlinkFolder, writeCopy } from '../lib/folder';
 import {
   decodeKey,
@@ -446,16 +446,25 @@ function linkUrl(key: string): string {
   return new URL(`${import.meta.env.BASE_URL}#/link/${key}`, location.origin).href;
 }
 
+type QrGen = typeof qrcode;
+
 function QrCode({ text }: { text: string }) {
+  const [gen, setGen] = useState<QrGen | null>(null);
+  useEffect(() => {
+    let live = true;
+    void import('qrcode-generator').then((m) => live && setGen(() => m.default));
+    return () => { live = false; };
+  }, []);
   const path = useMemo(() => {
-    const qr = qrcode(0, 'L');
+    if (!gen) return { d: '', size: 33 };
+    const qr = gen(0, 'L');
     qr.addData(text);
     qr.make();
     const n = qr.getModuleCount();
     let d = '';
     for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) d += `M${c + 4} ${r + 4}h1v1h-1z`;
     return { d, size: n + 8 };
-  }, [text]);
+  }, [text, gen]);
   return (
     <svg className="qr" viewBox={`0 0 ${path.size} ${path.size}`} role="img" aria-label="QR code of the sync link" shapeRendering="crispEdges">
       <rect width={path.size} height={path.size} fill="#fff" />

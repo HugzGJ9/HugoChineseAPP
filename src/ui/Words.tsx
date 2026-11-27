@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { MarkKind, Note, StatusMark } from '../lib/types';
-import { meaning, setNoteStatus, undoMark, useApp } from '../lib/store';
+import { meaning, setNoteStatus, undoMark, useAppPick } from '../lib/store';
 import { markStatus, noteStatuses, sheetRows, STATUS_LABEL, STATUS_MARK } from '../lib/status';
 import { cardStatus, formatInterval, noteStatus, type Status } from '../lib/engine/schedule';
 import { groupCards } from '../lib/stats';
@@ -26,7 +26,7 @@ const markHistory = (a: string) => { const s = markStatus(a); return s && a.star
 const fmt = (t: number) => new Date(t).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
 
 export function Words({ id, kinds = ['vocab', 'measure', 'synonym'], title = 'Words', base = '#/words' }: { id?: string; kinds?: Note['kind'][]; title?: string; base?: string }) {
-  const { notes, cards, lang, marks } = useApp((s) => s);
+  const { notes, cards, lang, marks } = useAppPick('notes', 'cards', 'lang', 'marks');
   const marked = useMemo(() => new Set(marks.map((m) => m.note)), [marks]);
   const [q, setQ] = useState('');
   const [tag, setTag] = useState('all');
@@ -129,7 +129,7 @@ export function Words({ id, kinds = ['vocab', 'measure', 'synonym'], title = 'Wo
 }
 
 export function NoteDetail({ note }: { note: Note }) {
-  const { notes, cards, events, device, marks, meta } = useApp((s) => s);
+  const { notes, cards, events, device, marks, meta } = useAppPick('notes', 'cards', 'events', 'device', 'marks', 'meta');
   const wordStatus = useMemo(() => noteStatuses(sheetRows(notes, marks, meta?.colourSince)).get(note.id) ?? 'new', [notes, marks, meta, note.id]);
   const ownMarks = useMemo(() => marks.filter((m) => m.note === note.id).sort((a, b) => b.t - a.t || (a.id < b.id ? 1 : -1)), [marks, note.id]);
   const [undoable, setUndoable] = useState<{ id: string; text: string } | null>(null);
