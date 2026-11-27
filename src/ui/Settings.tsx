@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { updateSettings, useApp, wipeAll } from '../lib/store';
+import { updateSettings, useApp, useAppPick, wipeAll } from '../lib/store';
+import { clearDevLog, devLogSummary, diagnosticsText, onDevLogChange } from '../lib/devlog';
 import { pref, setPref } from '../lib/db';
 import { chineseVoices, setVoice, speak, speechAvailable } from '../lib/speech';
 import { countCached, getWarmStatus, onWarmStatus, prefetchStrokes, uniqueChars } from '../lib/strokes';
@@ -13,10 +14,11 @@ import { motionOn, setMotion } from './motion';
 import { FileImportButton } from './Today';
 import { SourceSettings, SyncSettings } from './Setup';
 import { MicrosoftDiagnostics } from './Microsoft';
+import './screens.css';
 
 // Settings follows the iOS Settings app: inset grouped lists, grey section headers, footers for the fine print.
 export function Settings() {
-  const { settings, meta, notes } = useApp((s) => s);
+  const { settings, meta, notes } = useAppPick('settings', 'meta', 'notes');
   return (
     <div className="main">
       <TopBar title="Settings" />
@@ -554,8 +556,12 @@ function AboutSection() {
   }, []);
   return (
     <>
-      <Section title="About">
+      <Section
+        title="About"
+        footer="Diagnostics hold the app version, sync state, counts and the last errors on this device, never your words, files or account. Paste them into a chat when something goes wrong."
+      >
         <Row label="Hugo 中文" value={typeof __APP_VERSION__ === 'string' ? __APP_VERSION__ : 'dev'} />
+        <Diagnostics />
       </Section>
       <Section
         title="Sources"
@@ -574,3 +580,84 @@ function AboutSection() {
     </>
   );
 }
+
+/** Settings › About: problems logged on this device (lib/devlog, plan 2026-11-26-boot-and-guards WP7). */
+function Diagnostics() {
+  const sum = useSyncExternalStore(onDevLogChange, () => {
+    const n = devLogSummary();
+    return n.errors * 1000 + n.warnings;
+  });
+  const errors = Math.floor(sum / 1000);
+  const warnings = sum % 1000;
+  const [text, setText] = useState('');
+  const [open, setOpen] = useState(false);
+  const pre = useRef<HTMLPreElement>(null);
+  const load = async () => {
+    const t = await diagnosticsText();
+    setText(t);
+    return t;
+  };
+  const copy = async () => {
+    const t = await load();
+    try {
+      await navigator.clipboard.writeText(t);
+      toast('Diagnostics copied');
+    } catch {
+      setOpen(true);
+      requestAnimationFrame(() => {
+        const el = pre.current;
+        if (!el) return;
+        const r = document.createRange();
+        r.selectNodeContents(el);
+        const sel = window.getSelection();
+        sel?.removeAllRanges();
+        sel?.addRange(r);
+      });
+      toast('Select the text and copy it');
+    }
+  };
+  const count = errors + warnings;
+  const value = count === 0 ? 'None' : [errors && `${errors} error${errors > 1 ? 's' : ''}`, warnings && `${warnings} warning${warnings > 1 ? 's' : ''}`].filter(Boolean).join(', ');
+  return (
+    <>
+      <Row label="Problems on this device" value={value} />
+      <Row tone="action" label="Copy diagnostics" chevron={false} onClick={() => void copy()} />
+      <details
+        className="cell-details"
+        open={open}
+        onToggle={(e) => {
+          const o = (e.currentTarget as HTMLDetailsElement).open;
+          setOpen(o);
+          if (o) void load();
+        }}
+      >
+        <summary className="cell tap">
+          <span className="cell-body">
+            <span className="cell-label">Show diagnostics</span>
+          </span>
+          <Icon name="chevron" className="cell-chev" />
+        </summary>
+        <div className="cell cell-pad">
+          <pre className="diag-text" ref={pre}>
+            {text || '…'}
+          </pre>
+          {count > 0 && (
+            <button
+              type="button"
+              className="btn small"
+              onClick={() =>
+                void clearDevLog().then(() => {
+                  void load();
+                  toast('Problems cleared');
+                })
+              }
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      </details>
+    </>
+  );
+}
+
