@@ -53,3 +53,4 @@ and the xlsx file input. Sync, data, Study and About live on `#/settings/advance
 - The sheet lock is `overflow: hidden` on `<html>` only: html and body are `height: 100%`, so locking body too resets
   the page scroll to 0.
 - Screens use `useAppPick(...)` or a narrow `useApp` selector, never `useApp((s) => s)` (every sync or Excel tick re-rendered them).
+- e2e: kept-mounted screens duplicate controls in the DOM (LangSwitch, "Change workbook"): select with `:visible` and exact text; `sign_in` waits for the token request, never only a clean URL.

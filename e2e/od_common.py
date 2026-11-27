@@ -91,7 +91,11 @@ async def sign_in(page, route_hash):
     """Starts on `route_hash`, signs in through the fake, waits until the return URL is clean."""
     await page.goto(U + route_hash)
     await page.wait_for_selector(SEL['signin'], timeout=15000)
-    await page.click(SEL['signin'])
+    # Wait for the token exchange itself: right after the click the URL has no `code=` yet, so waiting only for a clean
+    # URL returned before the redirect and a following goto() cancelled the sign-in (the onedrive_* flakes).
+    async with page.expect_request(lambda r: re.search(r'/oauth2/v2\.0/token$', r.url.split('?')[0]) is not None,
+                                   timeout=30000):
+        await page.click(SEL['signin'])
     await page.wait_for_function("() => !location.search.includes('code=')", timeout=20000)
 
 

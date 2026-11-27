@@ -52,7 +52,7 @@ async def subs(pg):
 
 
 async def lang(pg, l):
-    await pg.get_by_role('group', name='Meaning language').first.get_by_role('button', name=l).click()
+    await pg.locator('[role=group][aria-label="Meaning language"]:visible').first.get_by_role('button', name=l).click()
 
 
 async def filt(pg, labels):
@@ -107,7 +107,7 @@ async def run(p, name, ctx_args, phone):
     await pg.reload()
     await pg.locator('.gr-row').first.wait_for()
     check(await pg.locator('.gr-row').count() == 2, f'{name}: filters kept after a reload')
-    pressed = await pg.get_by_role('group', name='Meaning language').first.get_by_role('button', name='FR').get_attribute('aria-pressed')
+    pressed = await pg.locator('[role=group][aria-label="Meaning language"]:visible').first.get_by_role('button', name='FR').get_attribute('aria-pressed')
     check(pressed == 'true', f'{name}: language kept after a reload')
     await pg.locator('.gr-active button', has_text='Clear').click()
     check(await pg.locator('.gr-row').count() == 3, f'{name}: Clear shows everything')
