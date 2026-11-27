@@ -12,6 +12,7 @@ import {
   lexiconShard,
   lineReadings,
   lookupWord,
+  pickExamples,
   prefetchLexicon,
   resetLexicon,
   sensesText,
@@ -28,12 +29,17 @@ const WORDS: ShardFile['w'] = {
   长: { e: [['zhang3', 'to grow'], ['chang2', 'long']] },
   使劲儿: { e: [['shi3 jin4 r5', 'to exert all one\'s strength']] },
   乐子: { e: [['le4 zi5', 'fun/see also 快樂|快乐[kuai4 le4]']] },
+  // D7: x is the overall best list; xr has the lists that differ from it
+  行: { e: [['hang2', 'row'], ['xing2', 'to walk/OK']], x: [2, 3], xr: { hang2: [3], xing2: [2] } },
+  了: { e: [['le5', 'completed action'], ['liao3', 'to finish'], ['liao4', 'to look far']], x: [2, 3], xr: { liao4: [3] } },
 };
 const SENTENCES: ShardFile['s'] = [
   [11, '我们是好朋友。', 'We are good friends.', 'Nous sommes de bons amis.'],
   [12, '他是好人。', 'He is a good person.', ''],
+  [13, '这样行不行？', 'Is this OK?', ''],
+  [14, '我不喜欢这一行。', 'I do not like this trade.', ''],
 ];
-const INDEX = { v: 1, shards: 128, built: '2026-11-07', words: 5, sentences: 2, bytes: 1, sources: [] };
+const INDEX = { v: 1, shards: 128, built: '2026-11-07', words: 7, sentences: 4, bytes: 1, sources: [] };
 // Synthetic character rows.
 const CHARS: CharShardFile['c'] = {
   学: [['学生', 'xue2 sheng5', 'student', 'étudiant'], ['学习', 'xue2 xi2', 'to study'], ['汉堡', 'han4 bao3', '', 'hamburger']],
@@ -150,6 +156,38 @@ describe('lookupWord', () => {
     // nothing failed is remembered: back online, it works
     serve();
     expect((await lookupWord('好', 'hao3')).ok).toBe(true);
+  });
+  it('D7: picks the examples of the note\'s reading (xr), else the word\'s best examples (x)', async () => {
+    serve();
+    const zh = async (w: string, py?: string) => {
+      const r = await lookupWord(w, py);
+      if (!r.ok) throw new Error(r.reason);
+      return r.info.examples.map((e) => e.zh);
+    };
+    expect(await zh('行', 'hang2')).toEqual(['我不喜欢这一行。']);
+    expect(await zh('行', 'xing2')).toEqual(['这样行不行？']);
+    // toneless: the only reading with the same letters
+    expect(await zh('行', 'xing')).toEqual(['这样行不行？']);
+    expect(await zh('行', 'Xing2')).toEqual(['这样行不行？']);
+    // no reading, or one that is not the word's: x
+    expect(await zh('行')).toEqual(['这样行不行？', '我不喜欢这一行。']);
+    expect(await zh('行', 'heng2')).toEqual(['这样行不行？', '我不喜欢这一行。']);
+    // a reading of the word without its own list means its list is x (equal lists are left out by the build):
+    // liao3 must not fall to the liao4 list by letters
+    expect(await zh('了', 'liao3')).toEqual(['这样行不行？', '我不喜欢这一行。']);
+    expect(await zh('了', 'liao4')).toEqual(['我不喜欢这一行。']);
+    // two readings with the same letters (liao3, liao4): toneless is ambiguous → x
+    expect(await zh('了', 'liao')).toEqual(['这样行不行？', '我不喜欢这一行。']);
+    // a word without xr (an older build) works as before
+    expect(await zh('好', 'hao3')).toEqual(['我们是好朋友。', '他是好人。']);
+  });
+  it('pickExamples ignores malformed xr', () => {
+    const e = { e: [['hang2', 'row'], ['xing2', 'OK']] as [string, string][], x: [0, 1] };
+    expect(pickExamples({ ...e, xr: { hang2: 'no' } as unknown as Record<string, number[]> }, 'hang2')).toEqual([0, 1]);
+    expect(pickExamples({ ...e, xr: { hang2: [] } }, 'hang2')).toEqual([0, 1]);
+    expect(pickExamples({ ...e, xr: null as unknown as Record<string, number[]> }, 'hang2')).toEqual([0, 1]);
+    expect(pickExamples({ ...e, xr: { toString: [5] } as Record<string, number[]> }, 'toString')).toEqual([0, 1]);
+    expect(pickExamples({ xr: { hang2: [1] } }, 'hang2')).toEqual([]);
   });
   it('keeps parsed shards in memory', async () => {
     const f = serve();

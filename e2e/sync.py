@@ -230,7 +230,7 @@ async def main():
             errs.append('PC warm-up saved no stroke data')
 
         # Turn on sync (first device).
-        await pg.goto(U + '#/settings')
+        await pg.goto(U + '#/settings/advanced')
         await pg.click('text=First device: set up the repository')
         await pg.fill('input[placeholder="HugzGJ9/HugoChineseData"]', 'https://github.com/HugzGJ9/HugoChineseData')
         await pg.fill('input[type=password]', TOKEN)
@@ -246,11 +246,13 @@ async def main():
         for _ in range(4):
             await pg.keyboard.press('Space'); await pg.wait_for_timeout(150)
             await pg.keyboard.press('3'); await pg.wait_for_timeout(250)
-        await pg.goto(U + '#/settings')
+        await pg.goto(U + '#/settings/advanced')
         await pg.click('text=Sync now')
         if not await poll(lambda: event_files(), 30):
             await fail_with("the computer's Sync now sent no review events", ('PC', pg))
+        await pg.goto(U + '#/settings')  # "Write the copy now" is in Your workbook
         await pg.click('text=Write the copy now')
+        await pg.goto(U + '#/settings/advanced')
         await pg.wait_for_timeout(1500)
         await pg.click('text=Add another device')
         await pg.wait_for_selector('svg.qr')
@@ -304,7 +306,7 @@ async def main():
         for _ in range(3):
             await pp.keyboard.press('Space'); await pp.wait_for_timeout(150)
             await pp.keyboard.press('3'); await pp.wait_for_timeout(250)
-        await pp.goto(U + '#/settings'); await pp.wait_for_timeout(300)
+        await pp.goto(U + '#/settings/advanced'); await pp.wait_for_timeout(300)
         await pp.click('text=Sync now')
         if not await poll(lambda: len(event_files()) >= 2, 30):
             await fail_with("the phone's Sync now sent no review events", ('PHONE', pp), ('PC', pg))
@@ -323,7 +325,7 @@ async def main():
             await pp.get_by_role('menuitemradio', name='Mastered').click()
             await pp.wait_for_timeout(500)
             await pp.screenshot(path=S + 's-phone-mastered.png')
-        await pp.goto(U + '#/settings'); await pp.wait_for_timeout(300)
+        await pp.goto(U + '#/settings/advanced'); await pp.wait_for_timeout(300)
         await pp.click('text=Sync now')
         if target is not None and not await poll(lambda: any(f.startswith('marks/') for f in files), 30):
             await fail_with("the phone's Sync now sent no status marks", ('PHONE', pp), ('PC', pg))
@@ -334,6 +336,7 @@ async def main():
         async def pc_has_phone_events(): return await pg.evaluate(EVENTS_JS) >= phone_n
         if not await poll(pc_has_phone_events, 30):
             await fail_with("the computer never received the phone's reviews", ('PC', pg), ('PHONE', pp))
+        await pg.goto(U + '#/settings')
         await pg.click('text=Write the copy now'); await pg.wait_for_timeout(2500)
         copy_bytes = await opfs_read(pg, COPY_NAME)
         orig_after = await opfs_read(pg, ORIG_NAME)

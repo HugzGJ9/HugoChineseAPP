@@ -61,6 +61,11 @@
   write from being read as an Excel edit; `WorkbookChangedError` stops a row being coloured if it doesn't hold the
   expected word. Source: connected-saving D5–D7.
 
+- **XL-6. Vocab sheets may carry "Don't confuse" and "Register" columns** → additive `Note.confuse` / `Note.register`.
+  Excel is the only source (written by Claude in chat, pasted by Hugo, never in the repo). Line format
+  `词 | register | usage FR | usage EN`; register = 口语 / 书面 / 中性 (lenient reader shared with the 语法 Register
+  column). Old app versions ignore the fields. Source: word-panel-settings D3–D5, 2026-11-27.
+
 ## Microsoft
 - **MS-1. Sign-in is a small PKCE client by top-level redirect: no MSAL, no popups, no iframes.** Popups open outside the
   iOS Home Screen app and Safari blocks iframes. Tokens stay in kv `msAuth`, never synced or backed up.
@@ -80,6 +85,17 @@
   (characters → common words, plus `n` similar-meaning rows, 64 shards) are rebuilt together when either is unusable;
   common/similar words need a CEDICT entry, rare proper nouns (Tatoeba < 10) and slang/dialect/old words are left out.
   Source: word-panel-v2 D9, D11.
+
+- **EXP-5. No Claude in the word panel (2026-11-27).** The panel shows Dictionary, Characters, Similar words, Examples;
+  similar words come from his groups/sets, then `Note.confuse`, then the offline dictionary, with a crown for 口语.
+  `lib/explain` and the `explain/` sync files stay (old devices still read and write them); the stored key is removed
+  once per device. Source: word-panel-settings D1–D4.
+
+- **EXP-6. Tatoeba examples: strict match, quality, reading lists (2026-11-27).** A 1–2 character word counts only as a
+  whole segment (Intl.Segmenter, re-split into CC-CEDICT words); sentences with a doubtful tag are dropped; native owner,
+  audio and OK tag rank first. Polyphones get additive `xr: {reading: [ids]}` next to `x` (x stays the overall list for
+  old versions; an xr list equal to x is omitted); the index carries `xr: true`. No usernames in shards.
+  Source: word-panel-settings D6–D8.
 
 ## Grammar
 - **GRAM-1. Grammar content comes from extra columns of the 语法 sheet** (HSK, Family, Title EN/FR, Definition EN/FR,
@@ -120,9 +136,13 @@
   "Try new animations" every transition update starts a View Transition, so background work in a screen uses plain
   updates. Source: page-stability D1–D3, 2026-11-26.
 
+- **UI-4. Settings = Your workbook + Audio; the rest under Settings › Advanced** (`#/settings/advanced`, same kept-mounted
+  screen). Claude, Offline and Look and feel sections are gone; the motion switch was turned off once per device.
+  Source: word-panel-settings D9–D10, 2026-11-27.
+
 - **DIAG-1. Device log** in kv `devlog` (60 entries): uncaught errors and the store's sync, Excel, folder and Microsoft
   warnings, scrubbed when captured (no words, names, accounts or keys), device-only, never synced or backed up; Settings ›
-  About › Copy diagnostics. Source: boot-and-guards D11, 2026-11-26.
+  Advanced › About › Copy diagnostics. Source: boot-and-guards D11, 2026-11-26.
 
 ## Agent team
 - **AGENT-1. Review strength follows data risk.** qa runs on opus for batches that touch `src/lib`, sync files or

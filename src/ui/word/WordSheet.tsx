@@ -1,12 +1,13 @@
 // One word sheet with a navigation stack (plan 2026-11-23 D3, D5). The first level is what opened it (his word, or a
 // word tapped in a sentence). Tapping a word in any line pushes a level, with a "‹ word" button to go back. Lower levels
-// stay mounted but hidden, so the selection, Claude's progress and computed pinyin survive; the scroll is saved on push
+// stay mounted but hidden, so the selection and computed pinyin survive; the scroll is saved on push
 // and restored on pop. × , the backdrop and a swipe down close the whole sheet.
 import { lazy, Suspense, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Note, WordStatus } from '../../lib/types';
 import { setNoteStatus } from '../../lib/store';
 import { STATUS_MARK } from '../../lib/status';
-import { lineReadings } from '../../lib/lexicon';
+import { lineReadings, lookupWord } from '../../lib/lexicon';
+import { isSpoken } from '../../lib/register';
 import { numberedToMarked } from '../../lib/pinyin';
 import { vocabLinks } from '../../lib/sentence';
 import { AudioButton, Icon, LangSwitch, Pinyin } from '../common';
@@ -47,6 +48,26 @@ function resolve(l: Level, v: Vocab): Resolved {
   }
   const id = v.index.forms.get(word);
   return { word, note: id ? v.byId.get(id) : undefined, reading };
+}
+
+/** 口语 for the title crown: his note's register / meaning first, then the dictionary senses (lookupWord is cached). */
+function useSpoken(word: string, note: Note | undefined, reading: string | undefined): boolean {
+  const quick = !!note && note.kind !== 'grammar' && isSpoken(note);
+  const [senses, setSenses] = useState<string[] | null>(null);
+  const grammar = note?.kind === 'grammar';
+  useEffect(() => {
+    let live = true;
+    setSenses(null);
+    if (quick || grammar) return;
+    lookupWord(word, reading ?? note?.pinyinNum, note?.alts).then(
+      (l) => live && l.ok && setSenses([...l.info.en, ...l.info.fr].filter((d) => d.match !== 'other').flatMap((d) => d.senses)),
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [word, reading, note?.id, quick, grammar]); // eslint-disable-line react-hooks/exhaustive-deps
+  return quick || (!grammar && !!senses && isSpoken(note, senses));
 }
 
 const shorten = (w: string) => [...w].slice(0, 6).join('');
@@ -127,6 +148,7 @@ export function WordSheet({ root, onClose, className = 'wp tall' }: { root: Word
   const t = resolve(top, vocab);
   const prev = shown.length > 1 ? resolve(shown[shown.length - 2], vocab) : null;
   const rootNote = top.entry.t === 'note' && top.id === 0 ? top.entry : null;
+  const spoken = useSpoken(t.word, t.note, t.reading);
   const titlePy = t.note
     ? t.note.kind !== 'grammar' ? t.note.pinyin : ''
     : t.reading ? numberedToMarked(t.reading.split(' ')) : '';
@@ -142,6 +164,11 @@ export function WordSheet({ root, onClose, className = 'wp tall' }: { root: Word
           <span className="wp-title">
             <span className="zh wp-hz" lang="zh-CN">{t.word}</span>
             {titlePy && <Pinyin text={titlePy} className="wp-py" />}
+            {spoken && (
+              <span className="wp-crown" role="img" aria-label="Colloquial (口语)">
+                <Icon name="crown" />
+              </span>
+            )}
             {rootNote?.rowId != null && <span className="wp-id">#{rootNote.rowId}</span>}
           </span>
         }

@@ -1,5 +1,14 @@
-import type { GrammarInfo } from './grammar/types';
+import type { GrammarInfo, Register } from './grammar/types';
+export type { Register } from './grammar/types';
 export type NoteKind = 'vocab' | 'grammar' | 'measure' | 'synonym';
+
+/** One line of a vocab sheet's "Don't confuse" column: `词 | register | usage FR | usage EN` (import/confuse.ts). */
+export interface ConfuseItem {
+  word: string;
+  register?: Register;
+  fr?: string;
+  en?: string;
+}
 
 export interface Example {
   zh: string;
@@ -53,6 +62,10 @@ export interface Note {
   extra?: Record<string, string>;
   /** Grammar points only: what the 语法 sheet's extra columns say (GRAM-1). Optional and additive. */
   grammar?: GrammarInfo;
+  /** Vocab words only: the "Don't confuse" column, one item per line, in Excel order. Optional and additive. */
+  confuse?: ConfuseItem[];
+  /** Vocab words only: the "Register" column (口语, 书面…). Optional and additive. */
+  register?: Register;
 }
 
 export type CardType = 'recog' | 'recall' | 'listen' | 'grammar' | 'measure' | 'synonym';

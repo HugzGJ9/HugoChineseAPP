@@ -6,6 +6,8 @@
 // the common words containing a character, read by charWords with the same rules. It is cached and prefetched with
 // dict/w when its index exists; a build without it (an old dict/w kept after a failed rebuild) gives 'nodata'.
 // The same shards carry `n` (D11): a word → words sharing a dictionary meaning, read by similarWords.
+// Word entries may carry `xr` (plan 2026-11-27-word-panel-settings, D7): examples per reading for words with several
+// CC-CEDICT readings; lookupWord picks the list of the note's reading and falls back to `x` (older builds have no `xr`).
 import { HAN, numberedToMarked } from './pinyin';
 import { fnv1a, sentencePinyin } from './import/build';
 
@@ -19,12 +21,18 @@ const LRU_SIZE = 12;
 const CHAR_LRU_SIZE = 8;
 const CACHE = 'dictionary';
 
-/** Shard file format v1 (see .claude/plans/2026-11-07-word-explain.md, D2). */
+/**
+ * Shard file format v1 (see .claude/plans/2026-11-07-word-explain.md, D2; additive since: `xr`, plan
+ * 2026-11-27-word-panel-settings D7). Per word: e = CC-CEDICT [pinyin, senses '/', measure words?], f = CFDICT
+ * [pinyin, senses], x = best examples (indices into s), xr = numbered CC-CEDICT reading ('hang2', 'xue2 sheng5') → best
+ * examples where the word is read so (same indices and cap as x; only for words with 2+ readings, and only lists that
+ * differ from x). Old app versions read x only.
+ */
 export interface ShardFile {
   v: 1;
   /** Sentences used in this shard: [tatoebaId, zh, en, fr] ('' when missing). */
   s: [number, string, string, string][];
-  w: Record<string, { e?: [string, string, string?][]; f?: [string, string][]; x?: number[] }>;
+  w: Record<string, { e?: [string, string, string?][]; f?: [string, string][]; x?: number[]; xr?: Record<string, number[]> }>;
 }
 
 export interface LexiconIndex {
@@ -35,6 +43,8 @@ export interface LexiconIndex {
   words: number;
   sentences: number;
   bytes: number;
+  /** Built with the strict match, quality ranking and `xr` reading lists (D6–D8). Absent in older builds. */
+  xr?: true;
   sources: { name: string; url: string; licence: string; licenceUrl: string; date?: string }[];
 }
 
@@ -318,9 +328,31 @@ function toSenses(list: ([string, string, string?] | [string, string])[] | undef
 
 const lookupable = (w: string) => HAN.test(w) && [...w].length <= MAX_WORD;
 
+type WordEntry = ShardFile['w'][string];
+
+/**
+ * The example indices to show (D7): the note's reading is resolved to one of the word's CC-CEDICT readings (exact,
+ * else the only one with the same letters); its `xr` list when there is one, else `x`. Exported for tests.
+ */
+export function pickExamples(entry: WordEntry, pinyinNum?: string): number[] {
+  const x = Array.isArray(entry.x) ? entry.x : [];
+  const xr = entry.xr;
+  if (!pinyinNum || !xr || typeof xr !== 'object') return x;
+  const readings = (entry.e ?? []).map((r) => r?.[0]).filter((r): r is string => typeof r === 'string');
+  const want = normPy(pinyinNum);
+  let reading = readings.find((r) => normPy(r) === want);
+  if (!reading) {
+    const same = [...new Set(readings.filter((r) => tonelessPy(r) === tonelessPy(pinyinNum)))];
+    if (same.length === 1) reading = same[0];
+  }
+  const list = reading !== undefined && Object.prototype.hasOwnProperty.call(xr, reading) ? xr[reading] : undefined;
+  return Array.isArray(list) && list.length ? list : x;
+}
+
 /**
  * Dictionary senses and examples for a note's word. Tries the hanzi, then its alternative forms. A word that is not in
- * the dictionary (most grammar patterns) gives empty lists.
+ * the dictionary (most grammar patterns) gives empty lists. With pinyinNum (the note's or the tapped reading), the
+ * examples are those of that reading when the build has them (`xr`), else the word's best examples (`x`).
  */
 export async function lookupWord(hanzi: string, pinyinNum?: string, alts?: string[]): Promise<Lookup> {
   const forms = [...new Set([hanzi, ...(alts ?? [])].map((w) => w.trim()))].filter(lookupable);
@@ -335,7 +367,7 @@ export async function lookupWord(hanzi: string, pinyinNum?: string, alts?: strin
     const entry = r.shard.w[w];
     if (!entry) continue;
     const examples: ExampleSentence[] = [];
-    for (const i of entry.x ?? []) {
+    for (const i of pickExamples(entry, pinyinNum)) {
       const s = r.shard.s[i];
       if (!s) continue;
       const ex: ExampleSentence = { id: s[0], zh: s[1] };

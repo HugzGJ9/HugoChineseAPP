@@ -74,7 +74,7 @@ export function Stats() {
 
   return (
     <div className="main">
-      <TopBar title="Stats" back="#/settings" />
+      <TopBar title="Stats" back="#/settings/advanced" />
       <div className="stack-l st">
         <div className="counts">
           <div><b>{week}</b><span>reviews this week</span></div>
@@ -120,7 +120,7 @@ export function Stats() {
 
 export function Report() {
   const meta = useApp((s) => s.meta);
-  if (!meta) return <div className="main"><TopBar title="Import report" back="#/settings" /><p className="muted">Import your Excel file first.</p></div>;
+  if (!meta) return <div className="main"><TopBar title="Import report" back="#/settings/advanced" /><p className="muted">Import your Excel file first.</p></div>;
   const fixes = meta.issues.filter((i) => i.level === 'fix');
   const infos = meta.issues.filter((i) => i.level === 'info');
   const Issues = ({ rows }: { rows: typeof meta.issues }) => (
@@ -140,7 +140,7 @@ export function Report() {
   );
   return (
     <div className="main wide">
-      <TopBar title="Import report" back="#/settings" />
+      <TopBar title="Import report" back="#/settings/advanced" />
       <div className="stack-l st">
         <Section
           title="Source"

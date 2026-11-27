@@ -1,6 +1,6 @@
 // A word tapped in a grammar example sentence (plan 2026-11-22-grammar-v3, D4–D5), now the first level of a WordSheet
 // (plan 2026-11-23 D3). The sentence sits at the top with the word highlighted: tap a character outside it to widen, its
-// first or last character to narrow, one inside to keep only that one. One of his words → his meaning, dictionary, Claude,
+// first or last character to narrow, one inside to keep only that one. One of his words → his meaning, dictionary,
 // status; any other word → the offline dictionary only, plus links to his words that contain it or sit inside it.
 import { createPortal } from 'react-dom';
 import { WordSheet } from './WordSheet';

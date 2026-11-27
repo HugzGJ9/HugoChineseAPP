@@ -3,8 +3,12 @@
 // In the same run, from the same inputs: public/dict/c/ (64 shards + index.json + SOURCES.txt), the common words for
 // each character, ranked by Tatoeba sentence counts, and (D11) for each common word up to 4 words sharing a dictionary
 // meaning (`n`).
-// Rules and format: .claude/plans/2026-11-07-word-explain.md (D2), 2026-11-23-word-panel-v2.md (D9, D11); the pure parts
-// are in lexicon-lib.mjs.
+// Rules and format: .claude/plans/2026-11-07-word-explain.md (D2), 2026-11-23-word-panel-v2.md (D9, D11),
+// 2026-11-27-word-panel-settings.md (D6 strict match, D7 `xr` reading lists, D8 sentence quality); the pure parts are in
+// lexicon-lib.mjs.
+// Tatoeba inputs (per_language/cmn/): cmn_sentences_detailed (owner; else cmn_sentences), and, each optional (missing →
+// logged, built without it): cmn_tags (doubtful tags dropped, OK boosted), cmn_sentences_with_audio, cmn_user_languages
+// (level 5 = native owner), cmn_transcriptions (reviewed pinyin, for the reading check). Usernames never reach the shards.
 //
 // Env: CEDICT_URL / CEDICT_FILE (plain or .gz), TATOEBA_BASE / TATOEBA_DIR (pre-downloaded files, plain or .bz2),
 // LEXICON_REFRESH=1 (rebuild even when the data is recent), LEXICON_SAMPLE=1 (synthetic fixtures from
@@ -29,6 +33,12 @@ import {
   SOURCES_TITLE,
   addLink,
   attachTranslations,
+  dictSegmenter,
+  isDoubtful,
+  makeReader,
+  markQuality,
+  nativeSpeakers,
+  parseTranscription,
   buildCharIndex,
   buildShards,
   buildSimilar,
@@ -39,9 +49,11 @@ import {
   parseCfdictTsv,
   reusable,
   shardName,
+  shardOf,
   shortGloss,
   sourcesText,
   tradOnlyChars,
+  hanCount,
 } from './lexicon-lib.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -179,16 +191,46 @@ async function globalLinks() {
   return download(TATOEBA_LINKS, 'links.tar.bz2', 3 * DOWNLOAD_MS);
 }
 
-async function readSentences(file, keep) {
+/**
+ * id → text of a sentences file (id, lang, text). With owners (a Map), the file is sentences_detailed
+ * (id, lang, text, username, date_added, date_last_modified): the text stops at the next tab and the owner is kept.
+ */
+async function readSentences(file, keep, owners) {
   const out = new Map();
   for await (const line of lines(file)) {
     const a = line.indexOf('\t');
     const b = line.indexOf('\t', a + 1);
     if (a < 0 || b < 0) continue;
     const id = Number(line.slice(0, a));
-    if (!keep || keep(id)) out.set(id, line.slice(b + 1));
+    if (keep && !keep(id)) continue;
+    if (owners) {
+      const c = line.indexOf('\t', b + 1);
+      if (c < 0) {
+        out.set(id, line.slice(b + 1));
+        continue;
+      }
+      out.set(id, line.slice(b + 1, c));
+      const d = line.indexOf('\t', c + 1);
+      const user = line.slice(c + 1, d < 0 ? undefined : d);
+      if (user && user !== '\\N') owners.set(id, user);
+    } else out.set(id, line.slice(b + 1));
   }
   return out;
+}
+
+/** Rows (tab-separated fields) of an optional Tatoeba file; null when it is not there (logged). */
+async function optionalRows(rel, what) {
+  let file;
+  try {
+    file = await tatoeba(rel);
+  } catch (e) {
+    if (!(e instanceof NotFound)) throw e;
+    console.warn(`Lexicon: ${e.message}; built without ${what}.`);
+    return null;
+  }
+  const rows = [];
+  for await (const line of lines(file)) if (line) rows.push(line.split('\t'));
+  return rows;
 }
 
 /** Add links touching ids in `from` (either column), from one or more link files. */
@@ -231,9 +273,36 @@ try {
   if (!cfdict.size) console.warn(`Lexicon: ${cfFile} missing; no French senses.`);
 
   const tradOnly = tradOnlyChars(cedict.entries);
-  const cmn = filterSentences([...(await readSentences(await tatoeba('cmn/cmn_sentences.tsv.bz2'))).entries()], { tradOnly });
+  // D8: owners from sentences_detailed (else plain sentences, no owners), tags, audio, native speakers
+  const owners = new Map();
+  let cmnRaw;
+  try {
+    cmnRaw = await readSentences(await tatoeba('cmn/cmn_sentences_detailed.tsv.bz2'), null, owners);
+  } catch (e) {
+    if (!(e instanceof NotFound)) throw e;
+    console.warn(`Lexicon: ${e.message}; using cmn_sentences (no owners).`);
+    cmnRaw = await readSentences(await tatoeba('cmn/cmn_sentences.tsv.bz2'));
+  }
+  const tags = new Map();
+  for (const [id, tag] of (await optionalRows('cmn/cmn_tags.tsv.bz2', 'tags')) ?? []) {
+    if (!tag) continue;
+    const n = Number(id);
+    let t = tags.get(n);
+    if (!t) tags.set(n, (t = new Set()));
+    t.add(tag);
+  }
+  const audio = new Set(((await optionalRows('cmn/cmn_sentences_with_audio.tsv.bz2', 'audio')) ?? []).map((r) => Number(r[0])));
+  const natives = nativeSpeakers((await optionalRows('cmn/cmn_user_languages.tsv.bz2', 'native speakers')) ?? []);
+  const doubtful = [...cmnRaw.keys()].filter((id) => isDoubtful(tags.get(id))).length;
+  const cmn = filterSentences(
+    [...cmnRaw.entries()].filter(([id]) => !isDoubtful(tags.get(id))),
+    { tradOnly },
+  );
   const cmnIds = new Set(cmn.map((s) => s[0]));
-  console.log(`Lexicon: ${cmn.length} Mandarin sentences kept`);
+  console.log(
+    `Lexicon: ${cmn.length} Mandarin sentences kept (${doubtful} with a doubtful tag dropped; ${owners.size} owners, ` +
+      `${natives.size} native speakers, ${tags.size} tagged, ${audio.size} with audio)`,
+  );
 
   // links: per-language pair files, else the global links file (D2)
   const links = new Map();
@@ -257,8 +326,35 @@ try {
   await readLinks(pairFiles.b, new Set(eng.keys()), links);
   for (const id of eng.keys()) for (const t of links.get(id) ?? []) if (!cmnIds.has(t)) wanted.add(t);
   const fra = await readSentences(await tatoeba('fra/fra_sentences.tsv.bz2'), (id) => wanted.has(id) && !eng.has(id));
-  const sentences = attachTranslations(cmn, { links, eng, fra });
-  console.log(`Lexicon: ${sentences.length} sentences with a translation (${eng.size} English, ${fra.size} French; links: ${linksSource})`);
+  const { kept: sentences } = markQuality(attachTranslations(cmn, { links, eng, fra }), { owners, natives, audio, tags });
+  const flag = (k) => sentences.filter((s) => s[k]).length;
+  console.log(
+    `Lexicon: ${sentences.length} sentences with a translation (${eng.size} English, ${fra.size} French; links: ${linksSource}); ` +
+      `native owner ${flag('native')}, audio ${flag('audio')}, OK tag ${flag('ok')}`,
+  );
+
+  // D7: readings of each sentence: reviewed Tatoeba transcriptions (username set), else pinyin-pro in context
+  const transcriptions = new Map();
+  const zhById = new Map(sentences.map((s) => [s.id, s.zh]));
+  let reviewed = 0;
+  let unparsed = 0;
+  for (const [id, lang, script, user, text] of (await optionalRows('cmn/cmn_transcriptions.tsv.bz2', 'transcriptions')) ?? []) {
+    const zh = zhById.get(Number(id));
+    if (!zh || lang !== 'cmn' || script !== 'Latn' || !user || user === '\\N') continue;
+    reviewed++;
+    const syl = parseTranscription(text ?? '', hanCount(zh));
+    if (syl) transcriptions.set(Number(id), syl);
+    else unparsed++;
+  }
+  console.log(`Lexicon: ${reviewed} reviewed pinyin transcriptions, ${transcriptions.size} used (${unparsed} not aligned)`);
+  let pinyin = null;
+  try {
+    ({ pinyin } = await import('pinyin-pro'));
+  } catch (e) {
+    console.warn(`Lexicon: pinyin-pro not installed (${e.message}); reading check from transcriptions only.`);
+  }
+  const reader = makeReader({ pinyin, transcriptions });
+  if (!reader) console.warn('Lexicon: no reader; built without reading lists (xr).');
 
   const sources = [
     {
@@ -275,7 +371,9 @@ try {
     cedict: cedict.entries,
     cfdict,
     sentences,
-    segmenter: new Intl.Segmenter('zh', { granularity: 'word' }),
+    // D6: Intl.Segmenter, with segments that are not CC-CEDICT words split into words (会说 → 会|说)
+    segmenter: dictSegmenter(new Intl.Segmenter('zh', { granularity: 'word' }), new Set(cedict.entries.map((e) => e.simp))),
+    reader,
     built: today,
     sample: SAMPLE,
     sources,
@@ -301,6 +399,22 @@ console.log(
   `Lexicon: ${stats.words} words (${stats.withExamples} with examples), ${stats.sentences} sentences, ` +
     `${mb(stats.bytes)} raw / ${mb(gz)} gzipped, biggest shard ${mb(stats.biggest)}`,
 );
+if (stats.xr) {
+  const x = stats.xr;
+  console.log(
+    `Lexicon: reading lists (xr): ${x.words} of ${x.polyphones} words with several readings, ${x.lists} lists; ` +
+      `${x.read} hits read, ${x.unsure} unsure`,
+  );
+}
+// sample entries, to check the strict match and the reading lists in the CI log
+for (const w of ['会', '学', '行', '了', '得', '还', '只', '长', '便', '觉']) {
+  const e = JSON.parse(files.get(`${shardName(shardOf(w))}.json`));
+  const entry = e.w[w];
+  if (!entry) continue;
+  const zh = (l) => (l ?? []).map((i) => e.s[i][1]).join(' ');
+  const xr = Object.entries(entry.xr ?? {}).map(([r, l]) => ` | ${r}: ${zh(l)}`).join('');
+  console.log(`Lexicon: ${w} x: ${zh(entry.x) || '(none)'}${xr}`);
+}
 let cgz = 0;
 for (const json of chars.files.values()) cgz += gzipSync(json).length;
 console.log(

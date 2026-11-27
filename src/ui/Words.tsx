@@ -57,7 +57,7 @@ export function Words({ id, kinds = ['vocab', 'measure', 'synonym'], title = 'Wo
 
   return (
     <div className="main wide">
-      <TopBar title={title} back="#/settings">
+      <TopBar title={title} back="#/settings/advanced">
         <LangSwitch />
       </TopBar>
       <div className="split wd">

@@ -35,7 +35,7 @@ export function Today() {
   const total = q.cards.length;
   return (
     <div className="main">
-      <TopBar title="Today" back="#/settings">
+      <TopBar title="Today" back="#/settings/advanced">
         <LangSwitch />
       </TopBar>
       <div className="stack-l td">
@@ -116,7 +116,7 @@ export function NoWords() {
   );
 }
 
-/** Notices for the home screens: reload, held import, sync error, folder access. Backup lives in Settings › Your data. */
+/** Notices for the home screens: reload, held import, sync error, folder access. Backup lives in Settings › Advanced › Your data. */
 export function HomeNotices() {
   const sync = useApp((s) => s.sync);
   const folder = useApp((s) => s.folder);
@@ -124,7 +124,7 @@ export function HomeNotices() {
     <>
       <AppNotices />
       {sync.state === 'error' && sync.message && (
-        <a className="notice bad" href="#/settings" style={{ textDecoration: 'none', display: 'block' }}>
+        <a className="notice bad" href="#/settings/advanced" style={{ textDecoration: 'none', display: 'block' }}>
           Sync: {sync.message}
         </a>
       )}

@@ -22,6 +22,9 @@ jobs:
       - uses: actions/setup-node@v5
         with:
           node-version: 24
+          cache: npm
+      # pinyin-pro reads the example sentences for the `xr` reading lists (plan 2026-11-27, D7)
+      - run: npm ci
       - name: Build the dictionaries
         run: |
           mkdir -p "$RUNNER_TEMP/out"

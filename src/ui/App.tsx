@@ -1,9 +1,11 @@
 import { Activity, addTransitionType, lazy, startTransition, Suspense, useEffect, useLayoutEffect, useRef, useState, ViewTransition, type ReactNode } from 'react';
 import { applyUpdate, onUpdateReady } from '../lib/pwa';
 import { useApp } from '../lib/store';
+import { pref, setPref } from '../lib/db';
+import { removeClaudeKey } from '../lib/explain';
 import { Icon, Toaster } from './common';
 import { useKeyboardInset } from './keyboard';
-import { motionOn, syncMotionClass } from './motion';
+import { motionOn, setMotion, syncMotionClass } from './motion';
 import { Sheets } from './Sheets';
 import './motion.css';
 import { Today } from './Today';
@@ -56,13 +58,14 @@ type Kept = (typeof KEPT)[number];
 const isKept = (p: string): p is Kept => (KEPT as readonly string[]).includes(p);
 const ROUTES = ['review', 'cards', 'today', 'words', 'grammar', 'stats', 'settings', 'report', 'link', 'quick', 'sheets'];
 
-// How deep a route is: tabs 0; a Grammar point, or a screen under Settings → More, 1; a Words entry 2. Full-screen
+// How deep a route is: tabs 0; a Grammar point, or Settings › Advanced, 1; a screen under Advanced, 2; a Words entry 3. Full-screen
 // Cards, Review and the link page are not part of the hierarchy (null: they fade).
 function depth(r: string[]): number | null {
   const [p, ...rest] = r;
   if (p === 'review' || p === 'cards' || p === 'link') return null;
-  if (p === 'words') return rest.length ? 2 : 1;
-  if (p === 'today' || p === 'stats' || p === 'report') return 1;
+  if (p === 'words') return rest.length ? 3 : 2;
+  if (p === 'today' || p === 'stats' || p === 'report') return 2;
+  if (p === 'settings') return rest.length ? 1 : 0;
   if (p === 'grammar') return rest.length ? 1 : 0;
   return 0;
 }
@@ -117,7 +120,7 @@ const TABS = [
   { id: 'settings', label: 'Settings', icon: 'settings' },
 ];
 const TITLES: Record<string, string> = { sheets: 'Sheets', settings: 'Settings', today: 'Today', words: 'Words', grammar: 'Grammar', stats: 'Stats', report: 'Import report', link: 'Link', review: 'Review', cards: 'Cards' };
-// Screens reached from Settings → More keep the Settings tab lit.
+// Screens reached from Settings › Advanced keep the Settings tab lit.
 const UNDER_SETTINGS = ['today', 'words', 'stats', 'report'];
 
 function UpdateBanner() {
@@ -153,6 +156,17 @@ export function App() {
   useEffect(() => {
     document.title = screen === 'sheets' ? 'Hugo 中文' : `${TITLES[screen] ?? 'Hugo 中文'} · Hugo 中文`;
   }, [screen]);
+  // One-time clean-up (plan 2026-11-27-word-panel-settings D10): the Claude key and the motion switch left Settings.
+  useEffect(() => {
+    if (!ready || pref('cleanup-2026-11', false)) return;
+    setPref('cleanup-2026-11', true);
+    try {
+      setMotion(false);
+    } catch {
+      /* best effort */
+    }
+    removeClaudeKey().catch(() => undefined);
+  }, [ready]);
   useEffect(() => {
     if (ready) preloadScreens();
   }, [ready]);
@@ -189,7 +203,7 @@ export function App() {
 
   const motion = motionOn();
   const keptView = (k: Kept, r: string[]): ReactNode =>
-    k === 'grammar' ? <GrammarPage id={r.join('/') || undefined} /> : k === 'settings' ? <Settings /> : <Sheets />;
+    k === 'grammar' ? <GrammarPage id={r.join('/') || undefined} /> : k === 'settings' ? <Settings sub={r[0]} /> : <Sheets />;
   // With motion on, a screen slides or fades in and out: when its Activity is shown or hidden, or a keyed screen mounts.
   const vt = (child: ReactNode, key?: string) =>
     motion ? (

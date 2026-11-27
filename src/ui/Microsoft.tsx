@@ -436,7 +436,7 @@ function MicrosoftNotConfigured() {
   return <p className="small muted">Microsoft sign-in is not configured yet.</p>;
 }
 
-/** Settings › More: runs the checks against the real account and shows a plain-text report. */
+/** Settings › Advanced: runs the checks against the real account and shows a plain-text report. */
 export function MicrosoftDiagnostics() {
   const [busy, setBusy] = useState(false);
   const [report, setReport] = useState('');
