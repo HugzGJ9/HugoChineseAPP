@@ -241,9 +241,10 @@ describe('device log', () => {
     const text = await log.diagnosticsText();
     expect(text).toMatch(/^Hugo 中文 diagnostics, \d{4}-\d\d-\d\d \d\d:\d\d \(UTC[+-]\d\d:\d\d\)/);
     expect(text).toMatch(new RegExp(`\\nApp \\w+ · ${store.getState().device} · browser tab · \\w+ · online\\n`));
-    expect(text).toContain('Data: 1 words, 0 reviews, 0 marks');
+    expect(text).toContain('Data: 1 word, 0 reviews, 0 marks');
     expect(text).toContain('Start: ready in ');
-    expect(text).toContain('cards n/a');
+    // The card memo (WP1) reports how the cards were derived at start.
+    expect(text).toMatch(/cards (n\/a|\d+ ms, (full replay of \d+|\d+ of \d+ from cache))/);
     expect(text).toContain('Sync: OneDrive, idle, last ');
     expect(text).toContain('(3 min ago)');
     expect(text).toContain('Microsoft: ok');

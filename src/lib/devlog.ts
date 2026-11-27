@@ -493,6 +493,8 @@ function problemLine(e: LogEntry, now: Date): string {
   return line;
 }
 
+const plural = (n: number, w: string): string => `${n} ${w}${n === 1 ? '' : 's'}`;
+
 /** Plain text for Hugo to paste into a chat: versions, counts, states and the last problems; no words, names or tokens. */
 export async function diagnosticsText(): Promise<string> {
   const now = new Date();
@@ -508,7 +510,7 @@ export async function diagnosticsText(): Promise<string> {
   }
   let sync = target === 'off' ? 'off' : `${target}, ${s.sync.state}`;
   if (target !== 'off' && s.sync.last) sync += `, last ${hhmm(new Date(s.sync.last))} (${ago(s.sync.last, now.getTime())})`;
-  if (s.sync.warnings?.length) sync += `, ${s.sync.warnings.length} warnings`;
+  if (s.sync.warnings?.length) sync += `, ${plural(s.sync.warnings.length, 'warning')}`;
   const excel = s.excel.state === 'off' ? 'off' : `${s.excel.state}, ${s.excel.pending ?? 0} waiting${s.excel.stuck ? `, ${s.excel.stuck} stuck` : ''}`;
   const errors = entries.filter(isError).slice(-20);
   const warnings = entries.filter((e) => !isError(e)).slice(-10);
@@ -517,7 +519,7 @@ export async function diagnosticsText(): Promise<string> {
   const lines = [
     `Hugo 中文 diagnostics, ${ymd(now)} ${hhmm(now)} (${utcOffset(now)})`,
     `App ${version} · ${s.device || 'no device id'} · ${displayMode()} · ${browser()} · ${online}`,
-    `Data: ${s.notes.length} words, ${s.events.length} reviews, ${s.marks.length} marks`,
+    `Data: ${plural(s.notes.length, 'word')}, ${plural(s.events.length, 'review')}, ${plural(s.marks.length, 'mark')}`,
     `Start: ${readyMs !== undefined ? `ready in ${readyMs} ms` : 'not ready'} · ${cardsLine()}`,
     `Sync: ${sync} · Excel: ${excel} · Folder: ${s.folder.state} · Microsoft: ${s.ms.state}`,
     `Storage: ${await storageLine()}`,
