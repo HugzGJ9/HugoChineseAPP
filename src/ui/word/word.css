@@ -154,7 +154,7 @@ button.wx-chip:active { background: var(--fill-3); }
 .wx-cw-gloss { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wx-actions { margin-top: 8px; }
 
-/* Don't confuse with / Similar meaning (Confuse.tsx, plan D10-D12): the word, when to use which, then the contrasting pair. */
+/* Similar words (Confuse.tsx, plan 2026-11-27 D3): the word, pinyin, crown if colloquial, then one or two lines. */
 .wx-cf-list { display: flex; flex-direction: column; }
 .wx-cf { display: flex; flex-direction: column; gap: 6px; padding-top: 14px; padding-bottom: 14px; }
 .wx-cf-head { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0 10px; }
@@ -165,3 +165,9 @@ button.wx-chip:active { background: var(--fill-3); }
 .wx-cf-word:active { color: var(--accent); }
 .wx-cf-py { font-size: var(--fs-subhead); color: var(--label-2); }
 .wx-cf-use { margin: -6px 0 0; font-size: var(--fs-body); line-height: 1.42; color: var(--label); overflow-wrap: anywhere; }
+
+/* Colloquial (口语) crown: ink, not red (UI-1). */
+.wx-crown, .wp-crown { display: inline-flex; align-items: center; color: var(--label); align-self: center; }
+.wx-crown .icon { width: 18px; height: 18px; }
+.wp-crown .icon { width: 16px; height: 16px; }
+.wx-reg { align-self: center; }

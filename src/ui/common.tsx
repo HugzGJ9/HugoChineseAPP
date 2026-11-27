@@ -49,6 +49,7 @@ const paths: Record<string, ReactNode> = {
   list: <><path d="M9 6.5h11M9 12h11M9 17.5h11" /><circle cx="4.75" cy="6.5" r="0.9" fill="currentColor" /><circle cx="4.75" cy="12" r="0.9" fill="currentColor" /><circle cx="4.75" cy="17.5" r="0.9" fill="currentColor" /></>,
   'check-circle': <><circle cx="12" cy="12" r="8.5" /><path d="M8 12.3l2.8 2.8L16.2 9.5" /></>,
   'x-circle': <><circle cx="12" cy="12" r="8.5" /><path d="M9 9l6 6M15 9l-6 6" /></>,
+  crown: <path d="M4.5 18.5h15M4 7.5l4.2 4.3L12 5.5l3.8 6.3L20 7.5l-1.5 11h-13z" />,
   bolt: <path d="M13 3L5.5 13.5H11L10 21l8-11h-5.5z" />,
   device: <><rect x="6.5" y="2.5" width="11" height="19" rx="2.5" /><path d="M10.5 18.5h3" /></>,
   wifi: <><path d="M3 9.5a13 13 0 0118 0M6 12.8a8.5 8.5 0 0112 0M9 16a4 4 0 016 0" /><circle cx="12" cy="19" r="0.8" fill="currentColor" /></>,

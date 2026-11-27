@@ -124,7 +124,7 @@ export function HomeNotices() {
     <>
       <AppNotices />
       {sync.state === 'error' && sync.message && (
-        <a className="notice bad" href="#/settings" style={{ textDecoration: 'none', display: 'block' }}>
+        <a className="notice bad" href="#/settings/advanced" style={{ textDecoration: 'none', display: 'block' }}>
           Sync: {sync.message}
         </a>
       )}

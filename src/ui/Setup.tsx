@@ -428,7 +428,7 @@ export function SyncSettings() {
             </button>
           </Cell>
         ) : (
-          <Row glyph="cloud" label="Sync through OneDrive" detail="Sign in with Microsoft above first." />
+          <Row glyph="cloud" label="Sync through OneDrive" detail="Sign in with Microsoft in Settings first." />
         ))}
       <Fold title={withMs ? 'Other ways (without Microsoft)' : 'Join with a sync key'} open={!withMs}>
         <p className="cell-detail">On a device that is already linked: Settings › Advanced › Sync › Add another device.</p>

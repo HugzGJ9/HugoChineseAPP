@@ -1,5 +1,5 @@
 """Run against the preview of a `LEXICON_SAMPLE=1 npm run build`. Plays the word panel: section order (Your list, Dictionary,
-Characters, Similar meaning, Examples), no Claude anywhere, nested levels, Characters cards. Fully offline: no API is called.
+Characters, Similar words, Examples), no Claude anywhere, nested levels, Characters cards. Fully offline: no API is called.
 Runs on desktop and with iPhone 13 emulation. Uses a synthetic workbook made by e2e/make_sample.py (no personal data)."""
 import asyncio, json, os, subprocess, sys
 from playwright.async_api import async_playwright
@@ -9,6 +9,23 @@ S = os.environ.get('E2E_OUT', 'e2e-out').rstrip('/') + '/'
 os.makedirs(S, exist_ok=True)
 XLSX = S + 'sample-explain.xlsx'
 subprocess.run([sys.executable, os.path.join(os.path.dirname(os.path.abspath(__file__)), 'make_sample.py'), XLSX], check=True)
+
+
+def extend_sample(path):
+    """Synthetic additions for Similar words: his group (16bis), a Don't confuse + Register column, a colloquial meaning."""
+    from openpyxl import load_workbook
+    wb = load_workbook(path)
+    ws = wb['HSK五级']
+    ws['E1'], ws['F1'] = "Don't confuse", 'Register'
+    for r in range(2, ws.max_row + 1):
+        if ws.cell(row=r, column=2).value == '朋友':
+            ws.cell(row=r, column=5).value = '伙伴 | 口语 | camarade | pal, mate\n同事 | | collègue de travail | co-worker'
+    ws.append(['16bis', '同伴', 'tóngbàn', 'companion, partner'])
+    ws.append([19, '聊天', 'liáotiān', 'to chat (colloquial)'])
+    wb.save(path)
+
+
+extend_sample(XLSX)
 fail = []
 
 
@@ -200,28 +217,48 @@ async def run(p, label, device):
     check(abs(box['y'] + box['height'] - vh) <= 1, f'panel bottom {box["y"] + box["height"]:.0f} equals viewport bottom {vh}')
     check(await pg.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'no horizontal scroll with the panel open')
 
-    # Section order and no Claude: Your list, Dictionary, Characters, Similar meaning, Examples.
-    sim = d.locator('section[aria-label="Similar meaning"]')
+    # Section order and no Claude: Your list, Dictionary, Characters, Similar words, Examples.
+    sim = d.locator('section[aria-label="Similar words"]')
     await sim.wait_for(timeout=10000)
-    check(await sim.locator('.wx-cf').count() >= 1, 'Similar meaning has at least 1 item')
-    check(await sim.locator('.wx-cf-word', has_text='友人').count() == 1, 'Similar meaning lists 友人')
-    check('Explain more' not in await sim.inner_text(), 'Similar meaning footer does not mention Explain more')
+    await sim.locator('.wx-cf-word', has_text='友人').wait_for(timeout=10000)
+    check(await sim.get_by_role('heading', name='Similar words').count() == 1, 'section is titled Similar words')
+    n_items = await sim.locator('.wx-cf').count()
+    check(1 <= n_items <= 6, f'Similar words has 1-6 items ({n_items})')
+    check(await sim.locator('.wx-cf-word', has_text='同伴').count() == 1, 'Similar words lists his group word 同伴 (16bis)')
+    check('companion' in await sim.locator('.wx-cf', has_text='同伴').inner_text(), 'his group word shows his meaning')
+    check(await sim.locator('.wx-cf-word', has_text='伙伴').count() == 1, "Similar words lists the Don't confuse word 伙伴")
+    check('pal, mate' in await sim.locator('.wx-cf', has_text='伙伴').inner_text(), "the Don't confuse text is shown")
+    check(await sim.locator('.wx-cf-word', has_text='友人').count() == 1, 'Similar words lists the dictionary word 友人')
+    check('From the dictionary.' in await sim.inner_text(), 'footer for the offline items')
+    check(await sim.locator('.zb, .zt, .zt-w, .wx-py').count() == 0, 'no sentence block in Similar words')
+    check(await sim.locator('.wx-cf', has_text='伙伴').get_by_role('img', name='Colloquial (口语)').count() == 1, '伙伴 (口语 in his column) has the crown')
+    check(await sim.locator('.wx-cf', has_text='同事').get_by_role('img', name='Colloquial (口语)').count() == 0, 'a neutral word has no crown')
+    check(await d.locator('.wp-crown').count() == 0, 'no crown in the title of 朋友')
+    check('Explain more' not in await sim.inner_text(), 'Similar words footer does not mention Explain more')
     await d.locator('section[aria-label="Characters"]').wait_for(timeout=10000)
     order = await d.evaluate("el => [...el.querySelectorAll('section.wx-sec')].map((s) => s.getAttribute('aria-label')).filter((n) => !n.startsWith('Words with'))")
-    want = ['Your list', 'Dictionary', 'Characters', 'Similar meaning', 'Examples']
+    want = ['Your list', 'Dictionary', 'Characters', 'Similar words', 'Examples']
     check(order == want, f'section order {order} == {want}')
     check(order.index('Dictionary') < order.index('Characters'), 'Dictionary comes before Characters')
     text = await d.inner_text()
     check('Claude' not in text, 'no "Claude" text in the panel')
     check(await d.get_by_role('button', name='Explain more').count() == 0, 'no Explain more button')
     check(await d.get_by_role('button', name='Ask again').count() == 0 and await d.locator('section[aria-label="Don\'t confuse with"]').count() == 0, 'no Ask again, no Don\'t confuse with')
-    check(await pg.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'no horizontal scroll with Similar meaning')
+    check(await pg.evaluate('document.documentElement.scrollWidth <= innerWidth'), 'no horizontal scroll with Similar words')
     await d.locator('.wx-cf-word', has_text='友人').click()
     d = pg.locator('.pp-panel')
     await d.locator('.pp-back').wait_for(timeout=5000)
     check(await d.locator('.wl').count() == 2, 'tapping a similar word opens a nested level')
     await d.locator('.pp-back').click()
     await pg.keyboard.press('Escape') if not device else await d.get_by_role('button', name='Close').click()
+    await pg.locator('.pp-panel').wait_for(state='detached')
+
+    # A word whose meaning says "colloquial": crown next to the pinyin in the title.
+    await pg.get_by_text('聊天', exact=True).first.click()
+    c = pg.get_by_role('dialog', name='聊天')
+    await c.wait_for(timeout=10000)
+    check(await c.locator('.wp-title').get_by_role('img', name='Colloquial (口语)').count() == 1, '聊天 (meaning says colloquial): crown in the title')
+    await pg.keyboard.press('Escape') if not device else await c.get_by_role('button', name='Close').click()
     await pg.locator('.pp-panel').wait_for(state='detached')
 
     await word_levels(pg, None, device)

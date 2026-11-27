@@ -28,7 +28,7 @@
 
 ## Test hooks (e2e depends on them, don't rename)
 `.sheets [role=tab]`, `button.status-chip`, `#sync` (keep `id="sync"` on the sync section, its texts and buttons),
-`section.panel`, and the xlsx file input. Sync, data, Study and About live on `#/settings/advanced` (e2e opens that route).
+and the xlsx file input. Sync, data, Study and About live on `#/settings/advanced` (e2e opens that route).
 
 ## Gotchas
 - iPhone Home Screen app has its own storage, separate from Safari: keys and sign-ins must be entered there.

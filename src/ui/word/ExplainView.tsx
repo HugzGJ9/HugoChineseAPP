@@ -8,7 +8,7 @@ import { Icon, Meaning, Pinyin } from '../common';
 import { WordNavHost, useWordNav } from './nav';
 import { PinyinChip, ZhBlock } from './ZhLine';
 import { CharactersSection } from './Characters';
-import { SimilarSection } from './Confuse';
+import { SimilarWords } from './Confuse';
 import './word.css';
 
 const FIRST = 6;
@@ -71,7 +71,7 @@ function ExplainBody({ note, inline, mine, reading }: { note: Note; inline: bool
       {!grammar && lookup && (
         <CharactersSection word={note.hanzi} reading={reading || note.pinyinNum || (lookup.ok ? lookup.info.en[0]?.pinyinNum : undefined)} excludeId={mine ? note.id : undefined} />
       )}
-      {!grammar && lookup && <SimilarSection word={note.hanzi} />}
+      {!grammar && lookup && <SimilarWords note={note} />}
       <ExamplesSection lookup={lookup} lang={lang} head={head} pattern={pattern} />
     </div>
   );
