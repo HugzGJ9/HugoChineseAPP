@@ -27,6 +27,10 @@ os.makedirs(OUT, exist_ok=True)
 
 # Budgets (ms unless noted); soft unless PERF_STRICT=1.
 B_TAB, B_BACK, B_PEEK, B_STATUS, B_BOOT, B_BOOT_P4, B_TASK_P4 = 150, 50, 50, 150, 1200, 800, 200
+# With "Try new animations" on, a screen change is a View Transition: the browser captures the old page before the new
+# one is drawn, ≈ 110 ms more at 4× on a long Sheets list (measured 136–281 ms, median 164). Not a regression; the
+# animation's own cost. Motion off keeps 50 ms.
+B_BACK_MOTION = 200
 
 INIT = r"""
 window.__lt = []; window.__first = {};
@@ -288,7 +292,8 @@ async def measure_mode(pg, cdp, motion, first_words):
                 after = await pg.evaluate('scrollY')
                 r['kept'] = abs(after - before) <= 2 and before > 100
                 backs.append(r)
-        rows.append(judge(summarise('back to a tab (Sheets)', backs, B_BACK), limit_ms=B_BACK, empty0=True, kept=True))
+        b_back = B_BACK_MOTION if motion else B_BACK
+        rows.append(judge(summarise('back to a tab (Sheets)', backs, b_back), limit_ms=b_back, empty0=True, kept=True))
         print('  backs', [(t['ms'], t['kept']) for t in backs], flush=True)
 
         for i in range(RUNS):
