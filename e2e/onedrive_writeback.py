@@ -116,8 +116,8 @@ async def main():
         await poll_for_change(pp)
         check("B: Excel's edit shows as a notice", await has(pp, SEL['changed'], 20000))
         await pp.screenshot(path=S + 'odwrite-phone-excel-edit.png')
-        if await pp.locator('button:has-text("OK")').count():
-            await pp.click('button:has-text("OK")')
+        if await pp.locator('button:text-is("OK"):visible').count():
+            await pp.click('button:text-is("OK"):visible')
 
         # C. Locked (423): the waiting text; unlocked, the row is written.
         ms.lock(item)
