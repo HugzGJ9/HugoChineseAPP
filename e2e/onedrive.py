@@ -24,7 +24,7 @@ NAME = 'Hugo_chinese_vocab.xlsx'
 SHEET = 'HSK五级'
 SEL = dict(
     signin='button:has-text("Sign in with Microsoft")', read_now='button:has-text("Read now")', sign_out='text=Sign out', reconnect='text=Reconnect',
-    banner='text=Microsoft sign-in expired', restore='button:has-text("Restore"):visible', ok='button:has-text("OK")',
+    banner='text=Microsoft sign-in expired', restore='button:has-text("Restore"):visible', ok='button:text-is("OK"):visible',
     changed='text=/Excel changed \\d+ status/',
 )
 
