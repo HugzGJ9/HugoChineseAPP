@@ -13,7 +13,7 @@ folder (default) or a private GitHub repo (legacy).
 2. `.claude/plans/INDEX.md` — what's shipped, what's in progress, which plan section to open. Never read a whole plan
    unless you are its architect; builders read only their work package.
 3. `docs/decisions.md` — durable decisions (data formats, sync, compatibility). Check before "fixing" something odd.
-4. The folder note for the area you touch: `src/lib/CLAUDE.md` or `src/ui/CLAUDE.md`.
+4. `docs/screen-map.md` — files, tests and e2e per screen. Then the folder note: `src/lib/CLAUDE.md` or `src/ui/CLAUDE.md`.
 5. File headers: most `src/lib` files open with a comment block explaining the design. Read it before the body.
 
 ## Hard rules
@@ -83,7 +83,7 @@ Without a clear repro (screen, steps, device, Copy diagnostics), ask Hugo for on
 | Independent check of any other batch | qa | sonnet; skipped for UI-only batches |
 
 Cost rules:
-0. Run only the unit tests and e2e scripts for what changed; the full e2e set once per batch, before the push.
+0. Run only the unit tests and e2e scripts for what changed (`docs/screen-map.md`); the full e2e set once per batch, before the push.
 1. Plans: one page max, no full code interfaces unless a stored shape changes. Give Hugo the decisions to make in one list.
 2. Merge a PR before starting a stacked batch. Aim for one deploy a day.
 3. Give agents file paths, the plan file and the work-package heading, never pasted code.
@@ -97,6 +97,8 @@ Cost rules:
 9. qa FAIL: the lead sends each problem to the builder that owns the file, then reruns qa on those problems only.
 
 ## End of session (lead)
-- Update `.claude/plans/INDEX.md` (status, what's left).
+- Update `.claude/plans/INDEX.md` (status, what's left). Rewrite its "Now / next" as ≤ 5 lines: what shipped, what is
+  open, what Hugo must check. A new chat starts from those lines, not from the plans.
+- Release: merged PRs go out in one deploy a day; give Hugo one iPhone checklist (rows of `docs/screen-map.md`).
 - New durable decision → one entry in `docs/decisions.md`. New gotcha or moved file → the right CLAUDE.md, in one line.
 - If this file grew past ~70 lines, move detail down into a folder note.
