@@ -1,6 +1,6 @@
 # Word panel v3 + simple Settings — roadmap (2026-11-27)
 
-Status: built on `word-panel-v3`, waiting for Hugo's merge · Architect: lead · Hugo reviews before each deploy.
+Status: shipped 2026-11-28 (PR #20–#23) · Architect: lead · Hugo reviews before each deploy.
 
 Hugo's asks (2026-11-27):
 1. Word panel ("summary/explanations"): 1.1 remove Claude's explanation; 1.2 similar words show *how and when each is
