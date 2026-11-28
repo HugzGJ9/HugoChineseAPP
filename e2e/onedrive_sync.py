@@ -91,7 +91,7 @@ async def main():
         check('app folder listings were paged (@odata.nextLink followed)', any('page@2' in l for l in ms.log))
 
         # 4. A language change on the computer reaches the phone.
-        grp = lambda page: page.get_by_role('group', name=SEL['lang_group']).first
+        grp = lambda page: page.locator(f'[role=group][aria-label="{SEL["lang_group"]}"]:visible').first
         await pg.goto(U + '#/today')
         await grp(pg).get_by_role('button', name='FR').click()
         await pg.wait_for_timeout(2500)  # shared preferences are saved 1.5 s after the change
