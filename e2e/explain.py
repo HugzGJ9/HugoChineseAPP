@@ -68,9 +68,11 @@ async def word_levels(pg, _unused, device):
     await top.locator('.wx-py').first.wait_for(timeout=5000)
     check(True, 'chip back on: pinyin lines are back')
     # Tappable lines: the word is bold, his words are underlined.
-    line = top.locator('.zb', has_text='我有一个中国朋友。').first
-    check(await line.locator('.zt-w.head', has_text='朋友').count() == 1, 'the panel word is bold (.head) in a Tatoeba example')
-    check(await line.locator('.zt-w.mine').count() >= 1, 'his words in a line are marked (.mine)')
+    # Any example works (CI runs on the real dictionary, whose ranking changes): the first one holding the panel word.
+    ex = top.locator('.wx-ex .zb')
+    line = ex.filter(has=pg.locator('.zt-w.head')).first
+    check(await line.locator('.zt-w.head', has_text='朋友').count() >= 1, 'the panel word is bold (.head) in a Tatoeba example')
+    check(await top.locator('.wx-ex .zt-w.mine').count() >= 1, 'his words in a line are marked (.mine)')
     await line.locator('.zt-w:not(.head)').first.click()
     top = d.locator('.wl.top')
     await top.locator('.sw-strip').wait_for(timeout=5000)
@@ -98,14 +100,14 @@ async def word_levels(pg, _unused, device):
     # Three levels: Esc goes up one level (desktop), then the close button closes everything.
     await d.locator('.wl.top .zt-w', has_text='朋友').first.click()
     await d.locator('.wl.top .sw-strip').wait_for(timeout=5000)
-    await d.locator('.wl.top .zb', has_text='好朋友').first.locator('.zt-w').first.click()
+    await d.locator('.wl.top .wx-ex .zt-w:not(.head)').first.click()
     await pg.wait_for_function("() => document.querySelectorAll('.wl').length === 3")
     check(await d.locator('.wl').count() == 3, 'three levels deep')
     if not device:
         await pg.keyboard.press('Escape')
         await pg.wait_for_function("() => document.querySelectorAll('.wl').length === 2")
         check(await d.count() == 1, 'Esc returns to level 2')
-        await d.locator('.wl.top .zb', has_text='好朋友').first.locator('.zt-w').first.click()
+        await d.locator('.wl.top .wx-ex .zt-w:not(.head)').first.click()
         await pg.wait_for_function("() => document.querySelectorAll('.wl').length === 3")
     await d.get_by_role('button', name='Close').click()
     await pg.locator('.pp-panel').wait_for(state='detached')
@@ -220,7 +222,8 @@ async def run(p, label, device):
     # Section order and no Claude: Your list, Dictionary, Characters, Similar words, Examples.
     sim = d.locator('section[aria-label="Similar words"]')
     await sim.wait_for(timeout=10000)
-    await sim.locator('.wx-cf-word', has_text='友人').wait_for(timeout=10000)
+    # Dictionary items load last; which ones depends on the dictionary (sample here, the real one in CI).
+    await sim.get_by_text('From the dictionary.').wait_for(timeout=10000)
     check(await sim.get_by_role('heading', name='Similar words').count() == 1, 'section is titled Similar words')
     n_items = await sim.locator('.wx-cf').count()
     check(1 <= n_items <= 6, f'Similar words has 1-6 items ({n_items})')
@@ -228,7 +231,7 @@ async def run(p, label, device):
     check('companion' in await sim.locator('.wx-cf', has_text='同伴').inner_text(), 'his group word shows his meaning')
     check(await sim.locator('.wx-cf-word', has_text='伙伴').count() == 1, "Similar words lists the Don't confuse word 伙伴")
     check('pal, mate' in await sim.locator('.wx-cf', has_text='伙伴').inner_text(), "the Don't confuse text is shown")
-    check(await sim.locator('.wx-cf-word', has_text='友人').count() == 1, 'Similar words lists the dictionary word 友人')
+    check(n_items >= 4, 'Similar words lists dictionary words after his own (3)')
     check('From the dictionary.' in await sim.inner_text(), 'footer for the offline items')
     check(await sim.locator('.zb, .zt, .zt-w, .wx-py').count() == 0, 'no sentence block in Similar words')
     check(await sim.locator('.wx-cf', has_text='伙伴').get_by_role('img', name='Colloquial (口语)').count() == 1, '伙伴 (口语 in his column) has the crown')
