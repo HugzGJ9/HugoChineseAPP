@@ -3,7 +3,7 @@ name: engineer
 description: Implements complex logic in src/lib — sync, scheduling engine, store and IndexedDB, Excel import/export, folder access — the data builds in scripts/ (strokes, CFDICT, lexicon), and cross-module refactors, usually one work package of an architect plan. Use for any change where a bug could lose or corrupt Hugo's data.
 tools: Read, Edit, Write, Bash, Grep, Glob
 disallowedTools: Agent
-model: opus
+model: sonnet
 effort: high
 maxTurns: 80
 color: blue

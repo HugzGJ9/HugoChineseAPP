@@ -63,29 +63,38 @@ points (filters, EN|FR, tap any word in examples). Sheets is the one list (All t
 ## How work is run
 The main session is the lead: it talks to Hugo, routes work, integrates, commits and pushes. Agents: `.claude/agents/`.
 
+**Solo first.** The lead does the work itself unless a team trigger applies (the `team-or-solo` routing skill
+decides). Team triggers: a stored shape, sync file or event/mark logic changes · ≥ 3 modules or > ~300 lines ·
+an unclear design Hugo has not settled · a data build in `scripts/` · ≥ 3 independent packages worth running in parallel.
+Without a clear repro (screen, steps, device, Copy diagnostics), ask Hugo for one before running any measurement campaign.
+
 | Work | Who | Model |
 |---|---|---|
-| Tiny, obvious change (≤ ~30 lines, 1–2 files) | lead, no agent | — |
+| UI tweak, copy, style, one-screen feature or fix, Excel content (no team trigger) | lead, no agent | — |
 | Find code, trace calls, summarise a failed CI log | scout | haiku |
 | Review libraries, repos, browser support or licences on the web | researcher | sonnet |
-| Feature across modules, unclear design | architect → plan + INDEX.md row | opus, high effort |
-| Data, sync or stored-format change | architect → plan + INDEX.md row | opus, max effort |
-| Logic in `src/lib`, data builds in `scripts/`, refactors | engineer | opus |
+| Feature across modules, unclear design | architect → plan (≤ 1 page) + INDEX.md row | opus, medium effort |
+| Data, sync or stored-format change | architect → plan + INDEX.md row | opus, high effort |
+| Data, sync, stored-format or engine logic | engineer | opus (set with `model`) |
+| Other logic in `src/lib`, scripts, refactors | engineer | sonnet |
 | Screens, styles, copy, simple features, single-module fixes | ui-dev | sonnet |
 | CI and workflows (deploy.yml, data.yml), Pages, PWA/service worker, build config, deps | release | sonnet |
-| Independent check of a batch that touches `src/lib`, sync files or stored shapes | qa | opus |
-| Independent check of any other batch | qa | sonnet |
+| Independent check of a batch that touches sync files or stored shapes | qa | opus |
+| Independent check of any other batch | qa | sonnet; skipped for UI-only batches |
 
 Cost rules:
-1. Give agents file paths, the plan file and the work-package heading, never pasted code.
-2. One architect plan per request, split into work packages with disjoint files; builders run in parallel, in the background.
-3. qa once per batch, not per package. Copy/style-only batches skip qa: the lead runs `npm test` and the build.
-4. Set a row's model or effort with the Agent tool's `model` / `effort` parameters when it differs from the agent file.
+0. Run only the unit tests and e2e scripts for what changed; the full e2e set once per batch, before the push.
+1. Plans: one page max, no full code interfaces unless a stored shape changes. Give Hugo the decisions to make in one list.
+2. Merge a PR before starting a stacked batch. Aim for one deploy a day.
+3. Give agents file paths, the plan file and the work-package heading, never pasted code.
+4. One architect plan per request, split into work packages with disjoint files; builders run in parallel, in the background.
+5. qa once per batch, not per package. Copy/style-only batches skip qa: the lead runs `npm test` and the build.
+6. Set a row's model or effort with the Agent tool's `model` / `effort` parameters when it differs from the agent file.
    Escalate one tier (haiku → sonnet → opus) only after an agent fails twice. Fable is the last step, only for
    architect or engineer on data/sync/format work after opus fails twice; never a default.
-5. Agents end with a short report (files changed, checks and results, open questions), never code dumps.
-6. Agents don't spawn agents, commit or push unless the lead's prompt says so. After a push the lead watches the run.
-7. qa FAIL: the lead sends each problem to the builder that owns the file, then reruns qa on those problems only.
+7. Agents end with a short report (files changed, checks and results, open questions), never code dumps.
+8. Agents don't spawn agents, commit or push unless the lead's prompt says so. After a push the lead watches the run.
+9. qa FAIL: the lead sends each problem to the builder that owns the file, then reruns qa on those problems only.
 
 ## End of session (lead)
 - Update `.claude/plans/INDEX.md` (status, what's left).
